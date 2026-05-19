@@ -409,15 +409,38 @@ function Turnos({ data, db, saldoPaciente }) {
         </div>
       </div>
 
-      {vista === "dia" && (turnosFiltrados.length === 0
-        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} saldoPaciente={saldoPaciente} />)}</div>
+      {vista === "dia" && (
+        <div>
+          {/* Recordatorios del día */}
+          {data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#D97706", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🔔 Recordatorios del día</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado).sort((a,b) => a.hora.localeCompare(b.hora)).map(r => (
+                  <div key={r.id} style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 9, padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "#92400E" }}>{r.hora} · {r.titulo}</div>
+                      {r.descripcion && <div style={{ fontSize: 12, color: "#B45309", marginTop: 2 }}>{r.descripcion}</div>}
+                    </div>
+                    <button onClick={() => db.actualizarRecordatorio({ ...r, completado: true })} style={{ background: "#FDE68A", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#92400E", cursor: "pointer" }}>✓ Listo</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Turnos del día */}
+          {turnosFiltrados.length === 0
+            ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} saldoPaciente={saldoPaciente} />)}</div>
+          }
+        </div>
       )}
 
       {vista === "semana" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
           {diasSemana.map(fecha => {
             const ts = turnosDia(fecha);
+            const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
             const hoy = fecha === today();
             return (
               <div key={fecha}>
@@ -426,6 +449,7 @@ function Turnos({ data, db, saldoPaciente }) {
                   <div style={{ fontSize: 11, fontWeight: 700, color: hoy ? "rgba(255,255,255,0.6)" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
                   {ts.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#6366F1" }}>{ts.length} turno{ts.length !== 1 ? "s" : ""}</div>}
+                  {recs.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#D97706" }}>🔔 {recs.length}</div>}
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {ts.map(t => {
@@ -447,6 +471,12 @@ function Turnos({ data, db, saldoPaciente }) {
                     );
                   })}
                   <button onClick={() => nuevo(fecha)} style={{ background: "transparent", border: "1.5px dashed #D1D5DB", borderRadius: 7, padding: 5, fontSize: 11, color: "#9CA3AF", cursor: "pointer" }}>+ turno</button>
+                  {recs.map(r => (
+                    <div key={r.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 7px", cursor: "default" }} title={`${r.hora} · ${r.titulo}`}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#D97706" }}>🔔 {r.hora}</div>
+                      <div style={{ fontSize: 10, color: "#92400E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.titulo}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             );
