@@ -985,7 +985,7 @@ function Recordatorios({ data, db }) {
 }
 
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Otro"];
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Otro"];
 
 function Compras({ data, db }) {
   const [modal, setModal] = useState(null);
