@@ -86,22 +86,21 @@ function Field({ label, children }) {
 
 // ─── HOOK SUPABASE ────────────────────────────────────────────────────────────
 function useSupabase() {
-  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [] });
+  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    cargarTodo();
-  }, []);
+  useEffect(() => { cargarTodo(); }, []);
 
   async function cargarTodo() {
     try {
       setLoading(true);
-      const [p, t, v, r] = await Promise.all([
+      const [p, t, v, r, c] = await Promise.all([
         supabase.from("pacientes").select("*").order("apellido"),
         supabase.from("turnos").select("*").order("fecha").order("hora"),
         supabase.from("ventas").select("*").order("fecha", { ascending: false }),
         supabase.from("recordatorios").select("*").order("fecha"),
+        supabase.from("compras").select("*").order("fecha", { ascending: false }),
       ]);
       if (p.error || t.error || v.error || r.error) throw new Error("Error al cargar datos");
       setData({
@@ -109,6 +108,7 @@ function useSupabase() {
         turnos: t.data || [],
         ventas: v.data || [],
         recordatorios: r.data || [],
+        compras: c.data || [],
       });
     } catch (e) {
       setError(e.message);
@@ -183,7 +183,24 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
   }, []);
 
-  // HC: guardar entrada en historia de paciente
+  // COMPRAS
+  const agregarCompra = useCallback(async (compra) => {
+    const { data: row, error } = await supabase.from("compras").insert(compra).select().single();
+    if (!error) setData(d => ({ ...d, compras: [row, ...d.compras] }));
+    return row;
+  }, []);
+
+  const actualizarCompra = useCallback(async (compra) => {
+    const { error } = await supabase.from("compras").update(compra).eq("id", compra.id);
+    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? compra : c) }));
+  }, []);
+
+  const eliminarCompra = useCallback(async (id) => {
+    const { error } = await supabase.from("compras").delete().eq("id", id);
+    if (!error) setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
+  }, []);
+
+  // HC
   const agregarEntradaHC = useCallback(async (pacienteId, entrada) => {
     const pac = data.pacientes.find(p => p.id === pacienteId);
     if (!pac) return;
@@ -197,6 +214,7 @@ function useSupabase() {
     agregarTurno, actualizarTurno, eliminarTurno,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
+    agregarCompra, actualizarCompra, eliminarCompra,
     agregarEntradaHC,
   };
 }
@@ -265,9 +283,10 @@ function calcularHoraFin(horaInicio, motivo) {
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha }) {
+function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoPaciente }) {
+  const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
   return (
-    <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 10, padding: "11px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+    <div style={{ background: "#fff", border: `1.5px solid ${saldo > 0 ? "#FDE68A" : "#F0F0F0"}`, borderRadius: 10, padding: "11px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
         <div style={{ background: "#EEF2FF", borderRadius: 7, padding: "6px 10px", textAlign: "center", minWidth: 80, flexShrink: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: "#4338CA" }}>{t.hora}{t.hora_fin ? `–${t.hora_fin}` : ""}</div>
@@ -276,6 +295,11 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha }) {
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: "#1a1a2e" }}>{pacNombre(t.paciente_id)}</div>
           <div style={{ fontSize: 12, color: "#888" }}>{t.motivo || "Sin motivo"}{t.profesional ? ` · ${t.profesional}` : ""}</div>
+          {saldo > 0 && (
+            <div style={{ fontSize: 11, background: "#FEF3C7", color: "#92400E", borderRadius: 6, padding: "2px 8px", display: "inline-block", marginTop: 3, fontWeight: 700 }}>
+              💰 Debe insumos: ${saldo.toLocaleString("es-AR")}
+            </div>
+          )}
         </div>
         <Badge estado={t.estado} />
       </div>
@@ -287,7 +311,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha }) {
   );
 }
 
-function Turnos({ data, db }) {
+function Turnos({ data, db, saldoPaciente }) {
   const [vista, setVista] = useState("dia");
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
@@ -387,7 +411,7 @@ function Turnos({ data, db }) {
 
       {vista === "dia" && (turnosFiltrados.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} />)}</div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} saldoPaciente={saldoPaciente} />)}</div>
       )}
 
       {vista === "semana" && (
@@ -425,7 +449,7 @@ function Turnos({ data, db }) {
 
       {vista === "todos" && (turnosFiltrados.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={true} />)}</div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={true} saldoPaciente={saldoPaciente} />)}</div>
       )}
 
       {modal && (
@@ -969,11 +993,201 @@ export default function App() {
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
 
+// ─── COMPRAS ──────────────────────────────────────────────────────────────────
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Otro"];
+
+function Compras({ data, db }) {
+  const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [filtroPac, setFiltroPac] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [form, setForm] = useState({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+
+  const compras = data.compras
+    .filter(c => !filtroEstado || c.estado === filtroEstado)
+    .filter(c => !filtroPac || c.paciente_id === filtroPac);
+
+  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
+
+  const saldoPendiente = (pacId) => data.compras
+    .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
+    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
+
+  function agregarInsumo() {
+    if (!insumoActual.nombre) return;
+    setForm(f => ({ ...f, insumos: [...f.insumos, { ...insumoActual, id: uid() }] }));
+    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+  }
+
+  function quitarInsumo(id) {
+    setForm(f => ({ ...f, insumos: f.insumos.filter(i => i.id !== id) }));
+  }
+
+  async function guardar() {
+    if (!form.paciente_id) return alert("Seleccioná un paciente.");
+    if (form.insumos.length === 0) return alert("Agregá al menos un insumo.");
+    setSaving(true);
+    try {
+      const compra = { ...form, total: parseFloat(form.total) || 0, seña: parseFloat(form.seña) || 0 };
+      if (modal === "nuevo") await db.agregarCompra(compra);
+      else await db.actualizarCompra({ ...compra, id: modal });
+      setModal(null);
+    } finally { setSaving(false); }
+  }
+
+  function editar(c) {
+    setForm({ paciente_id: c.paciente_id || "", fecha: c.fecha, insumos: c.insumos || [], total: c.total || "", seña: c.seña || "", estado: c.estado, notas: c.notas || "" });
+    setModal(c.id);
+  }
+
+  const totalPendiente = data.compras.filter(c => c.estado === "pendiente").reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
+
+  return (
+    <div>
+      {/* Resumen */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
+        <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "12px 16px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#92400E" }}>{data.compras.filter(c => c.estado === "pendiente").length}</div>
+          <div style={{ fontSize: 12, color: "#92400E" }}>Con saldo pendiente</div>
+        </div>
+        <div style={{ background: "#FEE2E2", border: "1.5px solid #FECACA", borderRadius: 10, padding: "12px 16px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#991B1B" }}>${totalPendiente.toLocaleString("es-AR")}</div>
+          <div style={{ fontSize: 12, color: "#991B1B" }}>Total adeudado</div>
+        </div>
+        <div style={{ background: "#D1FAE5", border: "1.5px solid #A7F3D0", borderRadius: 10, padding: "12px 16px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#065F46" }}>{data.compras.filter(c => c.estado === "pagado").length}</div>
+          <div style={{ fontSize: 12, color: "#065F46" }}>Pagadas</div>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <select style={{ ...inputStyle, width: "auto", fontSize: 13 }} value={filtroPac} onChange={e => setFiltroPac(e.target.value)}>
+            <option value="">Todos los pacientes</option>
+            {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+          </select>
+          <button onClick={() => setFiltroEstado("")} style={{ ...btnSecondary, background: filtroEstado === "" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Todos</button>
+          <button onClick={() => setFiltroEstado("pendiente")} style={{ ...btnSecondary, background: filtroEstado === "pendiente" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "pendiente" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Pendientes</button>
+          <button onClick={() => setFiltroEstado("pagado")} style={{ ...btnSecondary, background: filtroEstado === "pagado" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "pagado" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Pagados</button>
+        </div>
+        <button onClick={() => { setForm({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" }); setModal("nuevo"); }} style={btnPrimary}>+ Nueva compra</button>
+      </div>
+
+      {/* Lista */}
+      {compras.length === 0
+        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🛍️</div><div>No hay compras registradas</div></div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {compras.map(c => {
+            const saldo = (parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0);
+            return (
+              <div key={c.id} style={{ background: "#fff", border: `1.5px solid ${saldo > 0 ? "#FDE68A" : "#D1FAE5"}`, borderRadius: 12, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{pacNombre(c.paciente_id)}</div>
+                  <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>
+                    {(c.insumos || []).map(i => `${i.nombre}${i.cantidad > 1 ? ` x${i.cantidad}` : ""}`).join(" · ")}
+                  </div>
+                  <div style={{ fontSize: 13, marginTop: 4, display: "flex", gap: 12 }}>
+                    <span style={{ color: "#374151" }}>Total: <b>${(parseFloat(c.total) || 0).toLocaleString("es-AR")}</b></span>
+                    {parseFloat(c.seña) > 0 && <span style={{ color: "#059669" }}>Seña: <b>${(parseFloat(c.seña) || 0).toLocaleString("es-AR")}</b></span>}
+                    {saldo > 0 && <span style={{ color: "#DC2626", fontWeight: 700 }}>Debe: ${saldo.toLocaleString("es-AR")}</span>}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{formatFecha(c.fecha)}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <span style={{ background: saldo > 0 ? "#FEF3C7" : "#D1FAE5", color: saldo > 0 ? "#92400E" : "#065F46", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                    {saldo > 0 ? "Pendiente" : "Pagado"}
+                  </span>
+                  <button onClick={() => editar(c)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 13 }}>Editar</button>
+                  <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarCompra(c.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>}
+
+      {/* Modal */}
+      {modal && (
+        <Modal title={modal === "nuevo" ? "Nueva compra de insumos" : "Editar compra"} onClose={() => setModal(null)}>
+          <Field label="Paciente *">
+            <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
+              <option value="">Seleccionar...</option>
+              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+            </select>
+          </Field>
+          <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+
+          {/* Agregar insumos */}
+          <div style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>🛍️ Insumos</div>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
+              <Field label="Insumo">
+                <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                  {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
+                </select>
+              </Field>
+              <Field label="Cantidad"><input type="number" min="1" style={inputStyle} value={insumoActual.cantidad} onChange={e => setInsumoActual(i => ({ ...i, cantidad: parseInt(e.target.value) || 1 }))} /></Field>
+              <Field label="Precio unit."><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} placeholder="$" /></Field>
+              <button onClick={agregarInsumo} style={{ ...btnPrimary, padding: "8px 14px", marginBottom: 14 }}>+</button>
+            </div>
+            {form.insumos.length === 0
+              ? <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "8px 0" }}>Agregá insumos con el botón "+"</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {form.insumos.map(i => (
+                  <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 8, padding: "6px 10px", border: "1px solid #E5E7EB" }}>
+                    <span style={{ fontSize: 14 }}>{i.nombre} x{i.cantidad} {i.precio ? `— $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
+                    <button onClick={() => quitarInsumo(i.id)} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
+                  </div>
+                ))}
+              </div>}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Total ($)"><input type="number" style={inputStyle} value={form.total} onChange={e => setForm(f => ({ ...f, total: e.target.value }))} /></Field>
+            <Field label="Seña / pagado ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+          </div>
+
+          {/* Saldo calculado */}
+          {(parseFloat(form.total) > 0) && (
+            <div style={{ background: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#92400E" : "#065F46" }}>
+              Saldo a cobrar: ${((parseFloat(form.total) || 0) - (parseFloat(form.seña) || 0)).toLocaleString("es-AR")}
+            </div>
+          )}
+
+          <Field label="Estado">
+            <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
+              <option value="pendiente">Pendiente de pago</option>
+              <option value="pagado">Pagado</option>
+            </select>
+          </Field>
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+            <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+export default function App() {
+  const [tab, setTab] = useState("dashboard");
+  const db = useSupabase();
+  const { data, loading, error } = db;
+
+  const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
+  const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
+  const deudaPendiente = data.compras.filter(c => c.estado === "pendiente").length;
+
   const TABS = [
     { id: "dashboard", label: "Inicio", icon: "🏠" },
     { id: "turnos", label: "Turnos", icon: "📅", badge: turnosHoy > 0 ? turnosHoy : null },
     { id: "pacientes", label: "Pacientes", icon: "👤" },
     { id: "ventas", label: "Ventas", icon: "🛒" },
+    { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
     { id: "recordatorios", label: "Recordatorios", icon: "🔔", badge: recVencidos > 0 ? recVencidos : null, badgeColor: "#DC2626" },
   ];
 
@@ -992,11 +1206,16 @@ export default function App() {
       <div style={{ textAlign: "center", maxWidth: 400, padding: 32 }}>
         <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#DC2626" }}>Error de conexión</div>
-        <div style={{ fontSize: 14, color: "#666", marginTop: 8 }}>No se pudo conectar con la base de datos. Verificá que las variables de entorno de Supabase estén configuradas correctamente.</div>
+        <div style={{ fontSize: 14, color: "#666", marginTop: 8 }}>No se pudo conectar con la base de datos.</div>
         <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 14px", marginTop: 16, fontSize: 12, color: "#555", textAlign: "left" }}>{error}</div>
       </div>
     </div>
   );
+
+  // Función para saber si un paciente tiene saldo pendiente en insumos
+  const saldoPaciente = (pacId) => data.compras
+    .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
+    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
@@ -1021,9 +1240,10 @@ export default function App() {
 
       <div style={{ padding: "20px 16px" }}>
         {tab === "dashboard"     && <Dashboard data={data} />}
-        {tab === "turnos"        && <Turnos data={data} db={db} />}
+        {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} />}
         {tab === "ventas"        && <Ventas data={data} db={db} />}
+        {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
       </div>
     </div>
