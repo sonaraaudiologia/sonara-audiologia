@@ -462,12 +462,23 @@ function Turnos({ data, db, saldoPaciente }) {
             </div>
             {!mostrarNuevoPac ? (
               pacSeleccionado ? (
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#EEF2FF", borderRadius: 8, padding: "10px 14px" }}>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>{pacSeleccionado.apellido}, {pacSeleccionado.nombre}</div>
-                    <div style={{ fontSize: 12, color: "#6366F1" }}>DNI: {pacSeleccionado.dni || "—"} · {pacSeleccionado.telefono || "Sin teléfono"}</div>
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#EEF2FF", borderRadius: 8, padding: "10px 14px" }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>{pacSeleccionado.apellido}, {pacSeleccionado.nombre}</div>
+                      <div style={{ fontSize: 12, color: "#6366F1" }}>DNI: {pacSeleccionado.dni || "—"} · {pacSeleccionado.telefono || "Sin teléfono"}</div>
+                    </div>
+                    <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
                   </div>
-                  <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
+                  {saldoPaciente && saldoPaciente(pacSeleccionado.id) > 0 && (
+                    <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "8px 14px", marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>💰</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>Tiene saldo pendiente de insumos</div>
+                        <div style={{ fontSize: 12, color: "#92400E" }}>Debe: ${saldoPaciente(pacSeleccionado.id).toLocaleString("es-AR")}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -476,15 +487,23 @@ function Turnos({ data, db, saldoPaciente }) {
                     <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
                       {pacientesFiltrados.length === 0
                         ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado. <button onClick={() => setMostrarNuevoPac(true)} style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button></div>
-                        : pacientesFiltrados.map(p => (
-                          <div key={p.id} onClick={() => { setForm(f => ({ ...f, paciente_id: p.id })); setBusquedaPac(""); }}
-                            style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
-                            onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
-                            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            <span style={{ fontWeight: 600 }}>{p.apellido}, {p.nombre}</span>
-                            <span style={{ color: "#888", fontSize: 12, marginLeft: 8 }}>DNI: {p.dni || "—"}</span>
-                          </div>
-                        ))}
+                        : pacientesFiltrados.map(p => {
+                            const deuda = saldoPaciente ? saldoPaciente(p.id) : 0;
+                            return (
+                              <div key={p.id} onClick={() => { setForm(f => ({ ...f, paciente_id: p.id })); setBusquedaPac(""); }}
+                                style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14, background: deuda > 0 ? "#FFFBEB" : "transparent" }}
+                                onMouseEnter={e => e.currentTarget.style.background = deuda > 0 ? "#FEF3C7" : "#F0F4FF"}
+                                onMouseLeave={e => e.currentTarget.style.background = deuda > 0 ? "#FFFBEB" : "transparent"}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                  <div>
+                                    <span style={{ fontWeight: 600 }}>{p.apellido}, {p.nombre}</span>
+                                    <span style={{ color: "#888", fontSize: 12, marginLeft: 8 }}>DNI: {p.dni || "—"}</span>
+                                  </div>
+                                  {deuda > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#92400E", background: "#FEF3C7", borderRadius: 6, padding: "2px 8px" }}>💰 Debe ${deuda.toLocaleString("es-AR")}</span>}
+                                </div>
+                              </div>
+                            );
+                          })}
                     </div>
                   )}
                   {busquedaPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Escribí para buscar entre {pacientes.length} paciente{pacientes.length !== 1 ? "s" : ""}.</div>}
