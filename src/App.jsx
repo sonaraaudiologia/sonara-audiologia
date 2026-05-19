@@ -432,10 +432,17 @@ function Turnos({ data, db, saldoPaciente }) {
                     const pac = pacientes.find(p => p.id === t.paciente_id);
                     const ce = COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
                     return (
-                      <div key={t.id} onClick={() => editar(t)} style={{ background: ce.bg, borderRadius: 7, padding: "6px 8px", cursor: "pointer" }} title={`${t.hora} · ${pacNombre(t.paciente_id)}`}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: ce.color }}>{t.hora}</div>
-                        <div style={{ fontSize: 11, color: ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pac?.apellido || "—"}</div>
-                        {t.motivo && <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.motivo}</div>}
+                      <div key={t.id} style={{ background: ce.bg, borderRadius: 7, padding: "6px 8px", position: "relative" }} title={`${t.hora} · ${pacNombre(t.paciente_id)}`}>
+                        <div onClick={() => editar(t)} style={{ cursor: "pointer" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: ce.color }}>{t.hora}</div>
+                          <div style={{ fontSize: 11, color: ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 16 }}>{pac?.apellido || "—"}</div>
+                          {t.motivo && <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.motivo}</div>}
+                        </div>
+                        <button
+                          onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar turno de ${pacNombre(t.paciente_id)}?`)) db.eliminarTurno(t.id); }}
+                          style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,0.15)", border: "none", borderRadius: 4, width: 16, height: 16, fontSize: 10, cursor: "pointer", color: ce.color, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
+                          title="Eliminar turno"
+                        >×</button>
                       </div>
                     );
                   })}
