@@ -984,15 +984,6 @@ function Recordatorios({ data, db }) {
   );
 }
 
-// ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
-export default function App() {
-  const [tab, setTab] = useState("dashboard");
-  const db = useSupabase();
-  const { data, loading, error } = db;
-
-  const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
-  const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
-
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
 const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Otro"];
 
