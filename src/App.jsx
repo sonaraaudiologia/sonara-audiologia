@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabase";
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -781,6 +781,7 @@ function Pacientes({ data, db }) {
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     etiquetas: []
   });
+  const etiquetasRef = useRef([]);
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
 
@@ -799,20 +800,26 @@ function Pacientes({ data, db }) {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
     setSaving(true);
     try {
-      const payload = { ...form, etiquetas: Array.isArray(form.etiquetas) ? form.etiquetas : [], email: form.email || "" };
+      const etiquetasFinales = etiquetasRef.current;
+      const payload = { ...form, etiquetas: etiquetasFinales, email: form.email || "" };
       if (modal === "nuevo") await db.agregarPaciente({ ...payload, historia: [] });
-      else await db.actualizarPaciente({ ...data.pacientes.find(p => p.id === modal), ...payload });
+      else {
+        const pacExistente = data.pacientes.find(p => p.id === modal) || {};
+        await db.actualizarPaciente({ ...pacExistente, ...payload, etiquetas: etiquetasFinales });
+      }
       setModal(null);
     } finally { setSaving(false); }
   }
 
   function editar(p) {
+    const ets = Array.isArray(p.etiquetas) ? p.etiquetas : [];
+    etiquetasRef.current = ets;
     setForm({
       nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || "",
       telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || "",
       nroAfiliado: p.nroAfiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
-      etiquetas: p.etiquetas || []
+      etiquetas: ets
     });
     setModal(p.id);
   }
@@ -854,6 +861,7 @@ function Pacientes({ data, db }) {
           </div>
         </div>
         <button onClick={() => {
+          etiquetasRef.current = [];
           setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
@@ -928,7 +936,10 @@ function Pacientes({ data, db }) {
           <Field label="Etiquetas">
             <SelectorEtiquetas
               seleccionadas={form.etiquetas || []}
-              onChange={etiquetas => setForm(f => ({ ...f, etiquetas }))}
+              onChange={etiquetas => {
+                etiquetasRef.current = etiquetas;
+                setForm(f => ({ ...f, etiquetas }));
+              }}
             />
           </Field>
 
