@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -128,6 +128,72 @@ function getEtiquetaInfo(id) {
     const custom = JSON.parse(localStorage.getItem("etiquetas_custom") || "[]");
     return [...ETIQUETAS_DEFAULT, ...custom].find(e => e.id === id);
   } catch { return null; }
+}
+
+// ─── ETIQUETAS INLINE (sin componente externo, sin closures) ─────────────────
+function EtiquetasInline({ seleccionadas, onChange }) {
+  const [custom, setCustom] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("etiquetas_custom") || "[]"); } catch { return []; }
+  });
+  const [nueva, setNueva] = useState("");
+  const [mostrar, setMostrar] = useState(false);
+  const todas = [...ETIQUETAS_DEFAULT, ...custom];
+
+  function toggle(id) {
+    const ya = seleccionadas.includes(id);
+    const resultado = ya ? seleccionadas.filter(e => e !== id) : [...seleccionadas, id];
+    onChange(resultado);
+  }
+
+  function agregarCustom() {
+    const label = nueva.trim();
+    if (!label) return;
+    const id = "custom_" + Date.now();
+    const cols = [
+      { color: "#991B1B", bg: "#FEE2E2" }, { color: "#1E40AF", bg: "#DBEAFE" },
+      { color: "#065F46", bg: "#D1FAE5" }, { color: "#4C1D95", bg: "#EDE9FE" },
+      { color: "#92400E", bg: "#FEF3C7" }, { color: "#0369A1", bg: "#E0F2FE" },
+    ];
+    const c = cols[custom.length % cols.length];
+    const nuevaEt = { id, label, ...c };
+    const actualizadas = [...custom, nuevaEt];
+    setCustom(actualizadas);
+    localStorage.setItem("etiquetas_custom", JSON.stringify(actualizadas));
+    onChange([...seleccionadas, id]);
+    setNueva("");
+    setMostrar(false);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {todas.map(e => {
+          const activa = seleccionadas.includes(e.id);
+          return (
+            <button type="button" key={e.id} onClick={() => toggle(e.id)} style={{
+              background: activa ? e.bg : "#F3F4F6", color: activa ? e.color : "#6B7280",
+              border: activa ? `1.5px solid ${e.color}44` : "1.5px solid #E5E7EB",
+              borderRadius: 20, padding: "4px 12px", fontSize: 12,
+              fontWeight: activa ? 700 : 500, cursor: "pointer"
+            }}>{activa ? "✓ " : ""}{e.label}</button>
+          );
+        })}
+        <button type="button" onClick={() => setMostrar(!mostrar)} style={{
+          background: "transparent", color: "#6366F1", border: "1.5px dashed #6366F1",
+          borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+        }}>+ Nueva</button>
+      </div>
+      {mostrar && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="Nombre de la etiqueta..."
+            value={nueva} onChange={e => setNueva(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && agregarCustom()} />
+          <button type="button" onClick={agregarCustom} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>Agregar</button>
+          <button type="button" onClick={() => setMostrar(false)} style={{ ...btnSecondary, padding: "8px 10px", fontSize: 13 }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
@@ -781,7 +847,6 @@ function Pacientes({ data, db }) {
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     etiquetas: []
   });
-  const etiquetasRef = useRef([]);
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
 
@@ -800,26 +865,25 @@ function Pacientes({ data, db }) {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
     setSaving(true);
     try {
-      const etiquetasFinales = etiquetasRef.current;
-      const payload = { ...form, etiquetas: etiquetasFinales, email: form.email || "" };
-      if (modal === "nuevo") await db.agregarPaciente({ ...payload, historia: [] });
-      else {
+      const etiquetas = Array.isArray(form.etiquetas) ? [...form.etiquetas] : [];
+      const payload = { ...form, etiquetas, email: form.email || "" };
+      if (modal === "nuevo") {
+        await db.agregarPaciente({ ...payload, historia: [] });
+      } else {
         const pacExistente = data.pacientes.find(p => p.id === modal) || {};
-        await db.actualizarPaciente({ ...pacExistente, ...payload, etiquetas: etiquetasFinales });
+        await db.actualizarPaciente({ ...pacExistente, ...payload, etiquetas });
       }
       setModal(null);
     } finally { setSaving(false); }
   }
 
   function editar(p) {
-    const ets = Array.isArray(p.etiquetas) ? p.etiquetas : [];
-    etiquetasRef.current = ets;
     setForm({
       nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || "",
       telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || "",
       nroAfiliado: p.nroAfiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
-      etiquetas: ets
+      etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : []
     });
     setModal(p.id);
   }
@@ -861,7 +925,6 @@ function Pacientes({ data, db }) {
           </div>
         </div>
         <button onClick={() => {
-          etiquetasRef.current = [];
           setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
@@ -934,12 +997,9 @@ function Pacientes({ data, db }) {
 
           {/* ETIQUETAS */}
           <Field label="Etiquetas">
-            <SelectorEtiquetas
+            <EtiquetasInline
               seleccionadas={form.etiquetas || []}
-              onChange={etiquetas => {
-                etiquetasRef.current = etiquetas;
-                setForm(f => ({ ...f, etiquetas }));
-              }}
+              onChange={nuevas => setForm(f => ({ ...f, etiquetas: [...nuevas] }))}
             />
           </Field>
 
