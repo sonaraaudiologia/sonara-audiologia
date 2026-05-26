@@ -296,26 +296,44 @@ function useSupabase() {
     }
   }
 
-  const agregarPaciente = useCallback(async (pac) => {
-    const payload = {
-      ...pac,
-      historia: pac.historia || [],
+  function toDB(pac) {
+    return {
+      nombre: pac.nombre || "",
+      apellido: pac.apellido || "",
+      dni: pac.dni || "",
+      fecha_nac: pac.fechaNac || pac.fecha_nac || null,
+      telefono: pac.telefono || "",
+      email: pac.email || "",
+      obra_social: pac.obraSocial || pac.obra_social || "",
+      nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
+      diagnostico: pac.diagnostico || "",
+      antecedentes: pac.antecedentes || "",
+      notas: pac.notas || "",
+      historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
     };
-    const { data: row, error } = await supabase.from("pacientes").insert(payload).select().single();
-    if (!error) setData(d => ({ ...d, pacientes: [...d.pacientes, row] }));
-    return row;
+  }
+
+  function fromDB(row) {
+    return {
+      ...row,
+      fechaNac: row.fecha_nac || "",
+      obraSocial: row.obra_social || "",
+      nroAfiliado: row.nro_afiliado || "",
+      etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
+    };
+  }
+
+  const agregarPaciente = useCallback(async (pac) => {
+    const { data: row, error } = await supabase.from("pacientes").insert(toDB(pac)).select().single();
+    if (!error) setData(d => ({ ...d, pacientes: [...d.pacientes, fromDB(row)] }));
+    return row ? fromDB(row) : null;
   }, []);
 
   const actualizarPaciente = useCallback(async (pac) => {
-    const payload = {
-      ...pac,
-      historia: Array.isArray(pac.historia) ? pac.historia : [],
-      etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
-      email: pac.email || "",
-    };
+    const payload = toDB(pac);
     const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
-    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...payload } : p) }));
+    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...pac, ...fromDB({...payload, id: pac.id}) } : p) }));
   }, []);
 
   const eliminarPaciente = useCallback(async (id) => {
