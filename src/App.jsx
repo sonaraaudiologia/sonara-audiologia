@@ -236,10 +236,12 @@ function useSupabase() {
     return row;
   }, []);
 
-  const actualizarPaciente = useCallback(async (pac) => {
-    const { error } = await supabase.from("pacientes").update(pac).eq("id", pac.id);
-    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? pac : p) }));
-  }, []);
+ const actualizarPaciente = useCallback(async (pac) => {
+  console.log("Guardando paciente:", pac);
+  const { data: updated, error } = await supabase.from("pacientes").update(pac).eq("id", pac.id).select();
+  console.log("Resultado:", updated, error);
+  if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? pac : p) }));
+}, []);
 
   const eliminarPaciente = useCallback(async (id) => {
     const { error } = await supabase.from("pacientes").delete().eq("id", id);
