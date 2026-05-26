@@ -35,6 +35,101 @@ function mesCorto(dateStr) {
   return ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"][m];
 }
 
+// ─── ETIQUETAS ────────────────────────────────────────────────────────────────
+const ETIQUETAS_DEFAULT = [
+  { id: "ministerio",    label: "Ministerio",       color: "#1D4ED8", bg: "#DBEAFE" },
+  { id: "oticon",        label: "Usuario Oticon",   color: "#065F46", bg: "#D1FAE5" },
+  { id: "particular",   label: "Particular",        color: "#6B21A8", bg: "#F3E8FF" },
+  { id: "derivacion",   label: "Con derivación",    color: "#92400E", bg: "#FEF3C7" },
+];
+
+function EtiquetaBadge({ etiqueta }) {
+  return (
+    <span style={{
+      background: etiqueta.bg, color: etiqueta.color,
+      borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700,
+      border: `1px solid ${etiqueta.color}22`, display: "inline-block"
+    }}>{etiqueta.label}</span>
+  );
+}
+
+function SelectorEtiquetas({ seleccionadas = [], onChange }) {
+  const [etiquetasCustom, setEtiquetasCustom] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("etiquetas_custom") || "[]"); } catch { return []; }
+  });
+  const [nuevaEtiqueta, setNuevaEtiqueta] = useState("");
+  const [mostrarAgregar, setMostrarAgregar] = useState(false);
+
+  const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
+
+  function toggleEtiqueta(id) {
+    const ya = seleccionadas.includes(id);
+    onChange(ya ? seleccionadas.filter(e => e !== id) : [...seleccionadas, id]);
+  }
+
+  function agregarCustom() {
+    const label = nuevaEtiqueta.trim();
+    if (!label) return;
+    const id = "custom_" + uid();
+    const colores = [
+      { color: "#991B1B", bg: "#FEE2E2" }, { color: "#1E40AF", bg: "#DBEAFE" },
+      { color: "#065F46", bg: "#D1FAE5" }, { color: "#4C1D95", bg: "#EDE9FE" },
+      { color: "#92400E", bg: "#FEF3C7" }, { color: "#0369A1", bg: "#E0F2FE" },
+    ];
+    const c = colores[etiquetasCustom.length % colores.length];
+    const nueva = { id, label, ...c };
+    const actualizadas = [...etiquetasCustom, nueva];
+    setEtiquetasCustom(actualizadas);
+    localStorage.setItem("etiquetas_custom", JSON.stringify(actualizadas));
+    onChange([...seleccionadas, id]);
+    setNuevaEtiqueta("");
+    setMostrarAgregar(false);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+        {todasEtiquetas.map(e => {
+          const activa = seleccionadas.includes(e.id);
+          return (
+            <button key={e.id} onClick={() => toggleEtiqueta(e.id)} style={{
+              background: activa ? e.bg : "#F3F4F6",
+              color: activa ? e.color : "#6B7280",
+              border: activa ? `1.5px solid ${e.color}44` : "1.5px solid #E5E7EB",
+              borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: activa ? 700 : 500,
+              cursor: "pointer", transition: "all 0.15s"
+            }}>{activa ? "✓ " : ""}{e.label}</button>
+          );
+        })}
+        <button onClick={() => setMostrarAgregar(!mostrarAgregar)} style={{
+          background: "transparent", color: "#6366F1", border: "1.5px dashed #6366F1",
+          borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+        }}>+ Nueva etiqueta</button>
+      </div>
+      {mostrarAgregar && (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+          <input
+            style={{ ...inputStyle, flex: 1 }}
+            placeholder="Nombre de la etiqueta..."
+            value={nuevaEtiqueta}
+            onChange={e => setNuevaEtiqueta(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && agregarCustom()}
+          />
+          <button onClick={agregarCustom} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>Agregar</button>
+          <button onClick={() => setMostrarAgregar(false)} style={{ ...btnSecondary, padding: "8px 10px", fontSize: 13 }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getEtiquetaInfo(id) {
+  try {
+    const custom = JSON.parse(localStorage.getItem("etiquetas_custom") || "[]");
+    return [...ETIQUETAS_DEFAULT, ...custom].find(e => e.id === id);
+  } catch { return null; }
+}
+
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const inputStyle = { width: "100%", padding: "8px 12px", borderRadius: 8, border: "1.5px solid #E5E7EB", fontSize: 14, outline: "none", boxSizing: "border-box", background: "#FAFAFA" };
 const selectStyle = { ...inputStyle };
@@ -84,6 +179,24 @@ function Field({ label, children }) {
   );
 }
 
+function CopyButton({ text, label }) {
+  const [copied, setCopied] = useState(false);
+  function handleCopy() {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+  return (
+    <button onClick={handleCopy} title={`Copiar ${label}`} style={{
+      background: copied ? "#D1FAE5" : "#F3F4F6", color: copied ? "#065F46" : "#6B7280",
+      border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11,
+      fontWeight: 600, cursor: "pointer", marginLeft: 6, transition: "all 0.2s"
+    }}>{copied ? "✓ Copiado" : "Copiar"}</button>
+  );
+}
+
 // ─── HOOK SUPABASE ────────────────────────────────────────────────────────────
 function useSupabase() {
   const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
@@ -117,7 +230,6 @@ function useSupabase() {
     }
   }
 
-  // PACIENTES
   const agregarPaciente = useCallback(async (pac) => {
     const { data: row, error } = await supabase.from("pacientes").insert({ ...pac, historia: pac.historia || [] }).select().single();
     if (!error) setData(d => ({ ...d, pacientes: [...d.pacientes, row] }));
@@ -134,7 +246,6 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
   }, []);
 
-  // TURNOS
   const agregarTurno = useCallback(async (turno) => {
     const { data: row, error } = await supabase.from("turnos").insert(turno).select().single();
     if (!error) setData(d => ({ ...d, turnos: [...d.turnos, row] }));
@@ -150,7 +261,6 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
   }, []);
 
-  // VENTAS
   const agregarVenta = useCallback(async (venta) => {
     const { data: row, error } = await supabase.from("ventas").insert(venta).select().single();
     if (!error) setData(d => ({ ...d, ventas: [...d.ventas, row] }));
@@ -167,7 +277,6 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
   }, []);
 
-  // RECORDATORIOS
   const agregarRecordatorio = useCallback(async (rec) => {
     const { data: row, error } = await supabase.from("recordatorios").insert(rec).select().single();
     if (!error) setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
@@ -183,7 +292,6 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
   }, []);
 
-  // COMPRAS
   const agregarCompra = useCallback(async (compra) => {
     const { data: row, error } = await supabase.from("compras").insert(compra).select().single();
     if (!error) setData(d => ({ ...d, compras: [row, ...d.compras] }));
@@ -200,7 +308,6 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
   }, []);
 
-  // HC
   const agregarEntradaHC = useCallback(async (pacienteId, entrada) => {
     const pac = data.pacientes.find(p => p.id === pacienteId);
     if (!pac) return;
@@ -271,7 +378,7 @@ function Dashboard({ data }) {
 }
 
 // ─── TURNOS ───────────────────────────────────────────────────────────────────
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", historia: [] };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", historia: [], etiquetas: [] };
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", profesional: "", estado: "pendiente", notas: "" };
 
 const DURACION_MOTIVO = { "Selección de audífonos": 60, "Asesoramiento comercial": 60 };
@@ -343,7 +450,10 @@ function Turnos({ data, db, saldoPaciente }) {
   const pacSeleccionado = pacientes.find(p => p.id === form.paciente_id);
 
   async function guardar() {
-    if (!form.paciente_id || !form.fecha || !form.hora) return alert("Completá paciente, fecha y hora.");
+    // FIX: validación más clara
+    if (!form.paciente_id) return alert("Seleccioná un paciente.");
+    if (!form.fecha) return alert("Completá la fecha.");
+    if (!form.hora) return alert("Completá la hora.");
     setSaving(true);
     try {
       if (modal === "nuevo") {
@@ -363,8 +473,12 @@ function Turnos({ data, db, saldoPaciente }) {
     setSaving(true);
     try {
       const np = await db.agregarPaciente(formPac);
-      if (np) { setForm(f => ({ ...f, paciente_id: np.id })); setBusquedaPac(`${np.apellido} ${np.nombre}`); }
-      setMostrarNuevoPac(false); setFormPac(FORM_PAC_VACIO);
+      if (np) {
+        setForm(f => ({ ...f, paciente_id: np.id }));
+        setBusquedaPac(`${np.apellido} ${np.nombre}`);
+      }
+      setMostrarNuevoPac(false);
+      setFormPac(FORM_PAC_VACIO);
     } finally { setSaving(false); }
   }
 
@@ -411,7 +525,6 @@ function Turnos({ data, db, saldoPaciente }) {
 
       {vista === "dia" && (
         <div>
-          {/* Recordatorios del día */}
           {data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado).length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#D97706", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🔔 Recordatorios del día</div>
@@ -428,7 +541,6 @@ function Turnos({ data, db, saldoPaciente }) {
               </div>
             </div>
           )}
-          {/* Turnos del día */}
           {turnosFiltrados.length === 0
             ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
             : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} saldoPaciente={saldoPaciente} />)}</div>
@@ -465,14 +577,13 @@ function Turnos({ data, db, saldoPaciente }) {
                         <button
                           onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar turno de ${pacNombre(t.paciente_id)}?`)) db.eliminarTurno(t.id); }}
                           style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,0.15)", border: "none", borderRadius: 4, width: 16, height: 16, fontSize: 10, cursor: "pointer", color: ce.color, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
-                          title="Eliminar turno"
                         >×</button>
                       </div>
                     );
                   })}
                   <button onClick={() => nuevo(fecha)} style={{ background: "transparent", border: "1.5px dashed #D1D5DB", borderRadius: 7, padding: 5, fontSize: 11, color: "#9CA3AF", cursor: "pointer" }}>+ turno</button>
                   {recs.map(r => (
-                    <div key={r.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 7px", cursor: "default" }} title={`${r.hora} · ${r.titulo}`}>
+                    <div key={r.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 7px" }} title={`${r.hora} · ${r.titulo}`}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: "#D97706" }}>🔔 {r.hora}</div>
                       <div style={{ fontSize: 10, color: "#92400E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.titulo}</div>
                     </div>
@@ -492,7 +603,7 @@ function Turnos({ data, db, saldoPaciente }) {
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo turno" : "Editar turno"} onClose={cerrarModal}>
           {/* Paciente */}
-          <div style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+          <div style={{ background: "#F8FAFC", border: `1.5px solid ${!form.paciente_id && "nuevo" === modal ? "#FCA5A5" : "#E5E7EB"}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>👤 Paciente *</span>
               {!mostrarNuevoPac && <button onClick={() => { setMostrarNuevoPac(true); setForm(f => ({ ...f, paciente_id: "" })); }} style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Crear nuevo</button>}
@@ -652,14 +763,26 @@ function Pacientes({ data, db }) {
   const [modal, setModal] = useState(null);
   const [verHC, setVerHC] = useState(null);
   const [busqueda, setBusqueda] = useState("");
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "" });
+  const [form, setForm] = useState({
+    nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
+    obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
+    etiquetas: []
+  });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
 
-  const pacientes = data.pacientes.filter(p =>
-    busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase())
-  );
+  const [etiquetasCustom] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("etiquetas_custom") || "[]"); } catch { return []; }
+  });
+  const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
+
+  const pacientes = data.pacientes.filter(p => {
+    const matchBusqueda = busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
+    return matchBusqueda && matchEtiqueta;
+  });
 
   async function guardar() {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
@@ -672,15 +795,24 @@ function Pacientes({ data, db }) {
   }
 
   function editar(p) {
-    setForm({ nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || "", telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || "", nroAfiliado: p.nroAfiliado || "", diagnostico: p.diagnostico || "", antecedentes: p.antecedentes || "", notas: p.notas || "" });
+    setForm({
+      nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || "",
+      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || "",
+      nroAfiliado: p.nroAfiliado || "", diagnostico: p.diagnostico || "",
+      antecedentes: p.antecedentes || "", notas: p.notas || "",
+      etiquetas: p.etiquetas || []
+    });
     setModal(p.id);
   }
 
   async function agregarEvento() {
     if (!evForm.descripcion) return alert("Escribí una descripción.");
     setSaving(true);
-    try { await db.agregarEntradaHC(verHC, evForm); setEvModal(false); setEvForm({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" }); }
-    finally { setSaving(false); }
+    try {
+      await db.agregarEntradaHC(verHC, evForm);
+      setEvModal(false);
+      setEvForm({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+    } finally { setSaving(false); }
   }
 
   const pacienteHC = data.pacientes.find(p => p.id === verHC);
@@ -688,26 +820,72 @@ function Pacientes({ data, db }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
-        <input style={{ ...inputStyle, maxWidth: 300 }} placeholder="Buscar por nombre o DNI..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
-        <button onClick={() => { setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "" }); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo paciente</button>
+      {/* Barra de búsqueda y filtros */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <input style={{ ...inputStyle, maxWidth: 300 }} placeholder="Buscar por nombre o DNI..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          {/* Filtro por etiqueta */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            <button onClick={() => setFiltroEtiqueta("")} style={{
+              background: filtroEtiqueta === "" ? "#1a1a2e" : "#F3F4F6",
+              color: filtroEtiqueta === "" ? "#fff" : "#6B7280",
+              border: "none", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+            }}>Todos</button>
+            {todasEtiquetas.map(e => (
+              <button key={e.id} onClick={() => setFiltroEtiqueta(filtroEtiqueta === e.id ? "" : e.id)} style={{
+                background: filtroEtiqueta === e.id ? e.bg : "#F3F4F6",
+                color: filtroEtiqueta === e.id ? e.color : "#6B7280",
+                border: filtroEtiqueta === e.id ? `1.5px solid ${e.color}44` : "1.5px solid #E5E7EB",
+                borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+              }}>{e.label}</button>
+            ))}
+          </div>
+        </div>
+        <button onClick={() => {
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", etiquetas: [] });
+          setModal("nuevo");
+        }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
+
       {pacientes.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>👤</div><div>No hay pacientes</div></div>
-        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
           {pacientes.map(p => (
             <div key={p.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
                 <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#4338CA", flexShrink: 0 }}>
                   {(p.nombre?.[0] || "?")}{(p.apellido?.[0] || "?")}
                 </div>
-                <div>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 15 }}>{p.apellido}, {p.nombre}</div>
                   <div style={{ fontSize: 13, color: "#888" }}>DNI: {p.dni || "—"}</div>
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: "#666", marginBottom: 4 }}>📞 {p.telefono || "—"}</div>
+
+              {/* Etiquetas */}
+              {(p.etiquetas || []).length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                  {(p.etiquetas || []).map(eid => {
+                    const et = getEtiquetaInfo(eid);
+                    return et ? <EtiquetaBadge key={eid} etiqueta={et} /> : null;
+                  })}
+                </div>
+              )}
+
+              {/* Teléfono con botón copiar */}
+              <div style={{ fontSize: 13, color: "#666", marginBottom: 4, display: "flex", alignItems: "center" }}>
+                📞 {p.telefono || "—"}
+                {p.telefono && <CopyButton text={p.telefono} label="teléfono" />}
+              </div>
+
+              {/* Email con botón copiar */}
+              <div style={{ fontSize: 13, color: "#666", marginBottom: 4, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
+                ✉️ <span style={{ marginLeft: 2 }}>{p.email || "—"}</span>
+                {p.email && <CopyButton text={p.email} label="email" />}
+              </div>
+
               <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>🏥 {p.obraSocial || "Particular"}</div>
+
               <div style={{ display: "flex", gap: 6 }}>
                 <button onClick={() => setVerHC(p.id)} style={{ ...btnPrimary, padding: "6px 12px", fontSize: 12, flex: 1 }}>Historia clínica</button>
                 <button onClick={() => editar(p)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
@@ -717,6 +895,7 @@ function Pacientes({ data, db }) {
           ))}
         </div>}
 
+      {/* Modal nuevo/editar paciente */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo paciente" : "Editar paciente"} onClose={() => setModal(null)}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -725,13 +904,22 @@ function Pacientes({ data, db }) {
             <Field label="DNI"><input style={inputStyle} value={form.dni} onChange={e => setForm(f => ({ ...f, dni: e.target.value }))} /></Field>
             <Field label="Fecha de nacimiento"><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
-            <Field label="Email"><input style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
+            <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ejemplo@mail.com" /></Field>
             <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
             <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
           </div>
           <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
+
+          {/* ETIQUETAS */}
+          <Field label="Etiquetas">
+            <SelectorEtiquetas
+              seleccionadas={form.etiquetas || []}
+              onChange={etiquetas => setForm(f => ({ ...f, etiquetas }))}
+            />
+          </Field>
+
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -739,14 +927,32 @@ function Pacientes({ data, db }) {
         </Modal>
       )}
 
+      {/* Historia clínica */}
       {verHC && pacienteHC && (
         <Modal title={`Historia clínica · ${pacienteHC.apellido}, ${pacienteHC.nombre}`} onClose={() => setVerHC(null)}>
-          <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            <div><b>DNI:</b> {pacienteHC.dni || "—"}</div>
-            <div><b>Nacimiento:</b> {formatFecha(pacienteHC.fechaNac)}</div>
-            <div><b>Teléfono:</b> {pacienteHC.telefono || "—"}</div>
-            <div><b>Obra social:</b> {pacienteHC.obraSocial || "Particular"}</div>
-            {pacienteHC.diagnostico && <div style={{ gridColumn: "span 2" }}><b>Diagnóstico:</b> {pacienteHC.diagnostico}</div>}
+          <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
+              <div><b>DNI:</b> {pacienteHC.dni || "—"}</div>
+              <div><b>Nacimiento:</b> {formatFecha(pacienteHC.fechaNac)}</div>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <b>Teléfono:</b>&nbsp;{pacienteHC.telefono || "—"}
+                {pacienteHC.telefono && <CopyButton text={pacienteHC.telefono} label="teléfono" />}
+              </div>
+              <div style={{ display: "flex", alignItems: "center" }}>
+                <b>Email:</b>&nbsp;{pacienteHC.email || "—"}
+                {pacienteHC.email && <CopyButton text={pacienteHC.email} label="email" />}
+              </div>
+              <div><b>Obra social:</b> {pacienteHC.obraSocial || "Particular"}</div>
+              {pacienteHC.diagnostico && <div style={{ gridColumn: "span 2" }}><b>Diagnóstico:</b> {pacienteHC.diagnostico}</div>}
+            </div>
+            {(pacienteHC.etiquetas || []).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                {(pacienteHC.etiquetas || []).map(eid => {
+                  const et = getEtiquetaInfo(eid);
+                  return et ? <EtiquetaBadge key={eid} etiqueta={et} /> : null;
+                })}
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>Evolución clínica</span>
@@ -824,10 +1030,8 @@ function Ventas({ data, db }) {
       const esNueva = modal === "nuevo";
       const ventaAnterior = !esNueva && data.ventas.find(v => v.id === modal);
       const generarRec = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
-
       if (esNueva) await db.agregarVenta(form);
       else await db.actualizarVenta({ ...form, id: modal });
-
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
@@ -1057,10 +1261,6 @@ function Compras({ data, db }) {
 
   const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
 
-  const saldoPendiente = (pacId) => data.compras
-    .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
-    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
-
   function agregarInsumo() {
     if (!insumoActual.nombre) return;
     setForm(f => ({ ...f, insumos: [...f.insumos, { ...insumoActual, id: uid() }] }));
@@ -1092,7 +1292,6 @@ function Compras({ data, db }) {
 
   return (
     <div>
-      {/* Resumen */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
         <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "12px 16px" }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: "#92400E" }}>{data.compras.filter(c => c.estado === "pendiente").length}</div>
@@ -1107,8 +1306,6 @@ function Compras({ data, db }) {
           <div style={{ fontSize: 12, color: "#065F46" }}>Pagadas</div>
         </div>
       </div>
-
-      {/* Filtros */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select style={{ ...inputStyle, width: "auto", fontSize: 13 }} value={filtroPac} onChange={e => setFiltroPac(e.target.value)}>
@@ -1121,8 +1318,6 @@ function Compras({ data, db }) {
         </div>
         <button onClick={() => { setForm({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" }); setModal("nuevo"); }} style={btnPrimary}>+ Nueva compra</button>
       </div>
-
-      {/* Lista */}
       {compras.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🛍️</div><div>No hay compras registradas</div></div>
         : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1154,7 +1349,6 @@ function Compras({ data, db }) {
           })}
         </div>}
 
-      {/* Modal */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva compra de insumos" : "Editar compra"} onClose={() => setModal(null)}>
           <Field label="Paciente *">
@@ -1164,8 +1358,6 @@ function Compras({ data, db }) {
             </select>
           </Field>
           <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-
-          {/* Agregar insumos */}
           <div style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>🛍️ Insumos</div>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
@@ -1189,19 +1381,15 @@ function Compras({ data, db }) {
                 ))}
               </div>}
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Total ($)"><input type="number" style={inputStyle} value={form.total} onChange={e => setForm(f => ({ ...f, total: e.target.value }))} /></Field>
             <Field label="Seña / pagado ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
           </div>
-
-          {/* Saldo calculado */}
           {(parseFloat(form.total) > 0) && (
             <div style={{ background: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#92400E" : "#065F46" }}>
               Saldo a cobrar: ${((parseFloat(form.total) || 0) - (parseFloat(form.seña) || 0)).toLocaleString("es-AR")}
             </div>
           )}
-
           <Field label="Estado">
             <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
               <option value="pendiente">Pendiente de pago</option>
@@ -1259,7 +1447,6 @@ export default function App() {
     </div>
   );
 
-  // Función para saber si un paciente tiene saldo pendiente en insumos
   const saldoPaciente = (pacId) => data.compras
     .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
     .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
@@ -1275,7 +1462,6 @@ export default function App() {
           </div>
         </div>
       </div>
-
       <div style={{ display: "flex", gap: 4, padding: "12px 16px", background: "#F8FAFC", borderBottom: "1px solid #E5E7EB", overflowX: "auto" }}>
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{ position: "relative", background: tab === t.id ? "#1a1a2e" : "transparent", color: tab === t.id ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 14, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -1284,7 +1470,6 @@ export default function App() {
           </button>
         ))}
       </div>
-
       <div style={{ padding: "20px 16px" }}>
         {tab === "dashboard"     && <Dashboard data={data} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} />}
