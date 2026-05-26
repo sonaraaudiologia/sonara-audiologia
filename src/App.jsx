@@ -1509,6 +1509,277 @@ function Compras({ data, db }) {
 }
 
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
+
+// ─── ESTADÍSTICAS ─────────────────────────────────────────────────────────────
+function Estadisticas({ data }) {
+  const [periodo, setPeriodo] = useState(6); // meses a mostrar
+
+  function getMesLabel(dateStr) {
+    if (!dateStr) return "";
+    const [y, m] = dateStr.split("-");
+    const meses = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+    return `${meses[parseInt(m)-1]} ${y}`;
+  }
+
+  function getMesKey(dateStr) {
+    if (!dateStr) return "";
+    return dateStr.slice(0, 7);
+  }
+
+  // Generar últimos N meses
+  function ultimosMeses(n) {
+    const meses = [];
+    const hoy = new Date();
+    for (let i = n - 1; i >= 0; i--) {
+      const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      const label = getMesLabel(key + "-01");
+      meses.push({ key, label });
+    }
+    return meses;
+  }
+
+  const meses = ultimosMeses(periodo);
+
+  // ── Turnos por mes ──
+  const turnosPorMes = meses.map(m => ({
+    ...m,
+    total: data.turnos.filter(t => getMesKey(t.fecha) === m.key).length,
+    realizados: data.turnos.filter(t => getMesKey(t.fecha) === m.key && t.estado === "realizado").length,
+    cancelados: data.turnos.filter(t => getMesKey(t.fecha) === m.key && t.estado === "cancelado").length,
+    ausentes: data.turnos.filter(t => getMesKey(t.fecha) === m.key && t.estado === "ausente").length,
+  }));
+
+  // ── Turnos por profesional ──
+  const profesionales = [...new Set(data.turnos.map(t => t.profesional).filter(Boolean))];
+  const turnosPorProf = profesionales.map(p => ({
+    nombre: p,
+    total: data.turnos.filter(t => t.profesional === p).length,
+    realizados: data.turnos.filter(t => t.profesional === p && t.estado === "realizado").length,
+  }));
+
+  // ── Turnos por motivo ──
+  const motivosMap = {};
+  data.turnos.forEach(t => {
+    const m = t.motivo || "Sin especificar";
+    motivosMap[m] = (motivosMap[m] || 0) + 1;
+  });
+  const turnosPorMotivo = Object.entries(motivosMap).sort((a,b) => b[1]-a[1]).slice(0,8);
+
+  // ── Tasa de ausentismo ──
+  const totalRealizadosYAusentes = data.turnos.filter(t => ["realizado","ausente","cancelado"].includes(t.estado)).length;
+  const totalAusentes = data.turnos.filter(t => t.estado === "ausente").length;
+  const totalCancelados = data.turnos.filter(t => t.estado === "cancelado").length;
+  const tasaAusentismo = totalRealizadosYAusentes > 0 ? Math.round((totalAusentes / totalRealizadosYAusentes) * 100) : 0;
+  const tasaCancelacion = totalRealizadosYAusentes > 0 ? Math.round((totalCancelados / totalRealizadosYAusentes) * 100) : 0;
+
+  // ── Pacientes nuevos por mes ──
+  const pacientesPorMes = meses.map(m => ({
+    ...m,
+    total: data.pacientes.filter(p => p.created_at && getMesKey(p.created_at) === m.key).length,
+  }));
+
+  // ── Ventas por mes ──
+  const ventasPorMes = meses.map(m => ({
+    ...m,
+    total: data.ventas.filter(v => getMesKey(v.fecha) === m.key && v.estado === "vendido").length,
+    monto: data.ventas.filter(v => getMesKey(v.fecha) === m.key && v.estado === "vendido").reduce((s,v) => s + (parseFloat(v.precio)||0), 0),
+  }));
+
+  const totalVendidoGeneral = data.ventas.filter(v => v.estado === "vendido").reduce((s,v) => s + (parseFloat(v.precio)||0), 0);
+  const maxTurnos = Math.max(...turnosPorMes.map(m => m.total), 1);
+  const maxVentas = Math.max(...ventasPorMes.map(m => m.monto), 1);
+
+  const cardStyle = { background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "18px 20px", marginBottom: 16 };
+  const sectionTitle = { fontWeight: 700, fontSize: 15, color: "#1a1a2e", marginBottom: 14 };
+
+  function BarChart({ datos, campo, color, formatVal }) {
+    const max = Math.max(...datos.map(d => d[campo]), 1);
+    return (
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
+        {datos.map(d => (
+          <div key={d.key} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+            <div style={{ fontSize: 9, color: "#888", fontWeight: 600 }}>
+              {formatVal ? formatVal(d[campo]) : d[campo]}
+            </div>
+            <div style={{
+              width: "100%", background: color || "#4338CA", borderRadius: "4px 4px 0 0",
+              height: `${Math.max((d[campo] / max) * 56, d[campo] > 0 ? 4 : 0)}px`,
+              transition: "height 0.3s"
+            }} />
+            <div style={{ fontSize: 9, color: "#888", textAlign: "center", lineHeight: 1.2 }}>{d.label}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Selector período */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📊 Estadísticas e informes</div>
+        <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
+          {[[3,"3M"],[6,"6M"],[12,"1A"]].map(([v,l]) => (
+            <button key={v} onClick={() => setPeriodo(v)} style={{
+              background: periodo === v ? "#1a1a2e" : "transparent", color: periodo === v ? "#fff" : "#555",
+              border: "none", borderRadius: 7, padding: "5px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer"
+            }}>{l}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPIs principales */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {[
+          { label: "Total pacientes", value: data.pacientes.length, color: "#4338CA", bg: "#EEF2FF", icon: "👤" },
+          { label: "Total turnos", value: data.turnos.length, color: "#0891B2", bg: "#E0F2FE", icon: "📅" },
+          { label: "Tasa ausentismo", value: `${tasaAusentismo}%`, color: "#DC2626", bg: "#FEE2E2", icon: "❌" },
+          { label: "Tasa cancelación", value: `${tasaCancelacion}%`, color: "#D97706", bg: "#FEF3C7", icon: "🚫" },
+          { label: "Total vendido", value: `$${totalVendidoGeneral.toLocaleString("es-AR")}`, color: "#166534", bg: "#F0FDF4", icon: "💰" },
+        ].map(c => (
+          <div key={c.label} style={{ background: c.bg, borderRadius: 10, padding: "12px 14px" }}>
+            <div style={{ fontSize: 20, marginBottom: 4 }}>{c.icon}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: c.color }}>{c.value}</div>
+            <div style={{ fontSize: 11, color: c.color, opacity: 0.8 }}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Turnos por mes */}
+      <div style={cardStyle}>
+        <div style={sectionTitle}>📅 Turnos por mes</div>
+        <BarChart datos={turnosPorMes} campo="total" color="#4338CA" />
+        <div style={{ display: "flex", gap: 16, marginTop: 12, flexWrap: "wrap" }}>
+          {turnosPorMes.map(m => (
+            <div key={m.key} style={{ fontSize: 12, color: "#555" }}>
+              <span style={{ fontWeight: 700 }}>{m.label}:</span> {m.total} turnos
+              {m.ausentes > 0 && <span style={{ color: "#DC2626" }}> · {m.ausentes} ausentes</span>}
+              {m.cancelados > 0 && <span style={{ color: "#D97706" }}> · {m.cancelados} cancelados</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Ventas por mes */}
+        <div style={cardStyle}>
+          <div style={sectionTitle}>💰 Ventas por mes</div>
+          <BarChart datos={ventasPorMes} campo="monto" color="#166534"
+            formatVal={v => v > 0 ? `$${(v/1000).toFixed(0)}k` : "0"} />
+          <div style={{ marginTop: 12 }}>
+            {ventasPorMes.filter(m => m.total > 0).map(m => (
+              <div key={m.key} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
+                <span style={{ fontWeight: 700 }}>{m.label}:</span> {m.total} ventas · <span style={{ color: "#166534", fontWeight: 600 }}>${m.monto.toLocaleString("es-AR")}</span>
+              </div>
+            ))}
+            {ventasPorMes.every(m => m.total === 0) && <div style={{ color: "#aaa", fontSize: 13 }}>Sin ventas en el período</div>}
+          </div>
+        </div>
+
+        {/* Pacientes nuevos */}
+        <div style={cardStyle}>
+          <div style={sectionTitle}>👤 Pacientes nuevos por mes</div>
+          <BarChart datos={pacientesPorMes} campo="total" color="#0891B2" />
+          <div style={{ marginTop: 12 }}>
+            {pacientesPorMes.filter(m => m.total > 0).map(m => (
+              <div key={m.key} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
+                <span style={{ fontWeight: 700 }}>{m.label}:</span> {m.total} pacientes nuevos
+              </div>
+            ))}
+            {pacientesPorMes.every(m => m.total === 0) && <div style={{ color: "#aaa", fontSize: 13 }}>Sin datos de fecha de creación</div>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Por profesional */}
+        <div style={cardStyle}>
+          <div style={sectionTitle}>👩‍⚕️ Turnos por profesional</div>
+          {turnosPorProf.length === 0
+            ? <div style={{ color: "#aaa", fontSize: 13 }}>Sin datos</div>
+            : turnosPorProf.map(p => (
+              <div key={p.nombre} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{p.nombre}</span>
+                  <span style={{ fontSize: 13, color: "#555" }}>{p.total} turnos</span>
+                </div>
+                <div style={{ background: "#F3F4F6", borderRadius: 6, height: 8, overflow: "hidden" }}>
+                  <div style={{ background: "#4338CA", height: "100%", width: `${(p.total / data.turnos.length) * 100}%`, borderRadius: 6 }} />
+                </div>
+                <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{p.realizados} realizados</div>
+              </div>
+            ))
+          }
+        </div>
+
+        {/* Por motivo */}
+        <div style={cardStyle}>
+          <div style={sectionTitle}>🎯 Turnos por motivo</div>
+          {turnosPorMotivo.length === 0
+            ? <div style={{ color: "#aaa", fontSize: 13 }}>Sin datos</div>
+            : turnosPorMotivo.map(([motivo, cant]) => (
+              <div key={motivo} style={{ marginBottom: 8 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "#374151" }}>{motivo}</span>
+                  <span style={{ fontSize: 12, color: "#555", fontWeight: 700 }}>{cant}</span>
+                </div>
+                <div style={{ background: "#F3F4F6", borderRadius: 6, height: 6, overflow: "hidden" }}>
+                  <div style={{ background: "#0891B2", height: "100%", width: `${(cant / data.turnos.length) * 100}%`, borderRadius: 6 }} />
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+
+      {/* Estados de turnos */}
+      <div style={cardStyle}>
+        <div style={sectionTitle}>📋 Resumen de estados</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 }}>
+          {Object.entries(COLORES_ESTADO).map(([estado, c]) => {
+            const cant = data.turnos.filter(t => t.estado === estado).length;
+            const pct = data.turnos.length > 0 ? Math.round((cant / data.turnos.length) * 100) : 0;
+            return (
+              <div key={estado} style={{ background: c.bg, borderRadius: 10, padding: "10px 12px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: c.color }}>{cant}</div>
+                <div style={{ fontSize: 11, color: c.color, fontWeight: 600 }}>{c.label}</div>
+                <div style={{ fontSize: 10, color: c.color, opacity: 0.7 }}>{pct}%</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Etiquetas de pacientes */}
+      {(() => {
+        try {
+          const custom = JSON.parse(localStorage.getItem("etiquetas_custom") || "[]");
+          const todas = [...ETIQUETAS_DEFAULT, ...custom];
+          const conEtiquetas = todas.map(e => ({
+            ...e,
+            total: data.pacientes.filter(p => (p.etiquetas||[]).includes(e.id)).length
+          })).filter(e => e.total > 0);
+          if (conEtiquetas.length === 0) return null;
+          return (
+            <div style={cardStyle}>
+              <div style={sectionTitle}>🏷️ Pacientes por etiqueta</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {conEtiquetas.map(e => (
+                  <div key={e.id} style={{ background: e.bg, border: `1.5px solid ${e.color}33`, borderRadius: 10, padding: "10px 16px", textAlign: "center" }}>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: e.color }}>{e.total}</div>
+                    <div style={{ fontSize: 12, color: e.color, fontWeight: 600 }}>{e.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        } catch { return null; }
+      })()}
+    </div>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const db = useSupabase();
@@ -1525,6 +1796,7 @@ export default function App() {
     { id: "ventas", label: "Ventas", icon: "🛒" },
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
     { id: "recordatorios", label: "Recordatorios", icon: "🔔", badge: recVencidos > 0 ? recVencidos : null, badgeColor: "#DC2626" },
+    { id: "estadisticas", label: "Estadísticas", icon: "📊" },
   ];
 
   if (loading) return (
@@ -1578,6 +1850,7 @@ export default function App() {
         {tab === "ventas"        && <Ventas data={data} db={db} />}
         {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
+        {tab === "estadisticas"  && <Estadisticas data={data} />}
       </div>
     </div>
   );
