@@ -92,7 +92,7 @@ function SelectorEtiquetas({ seleccionadas = [], onChange }) {
         {todasEtiquetas.map(e => {
           const activa = seleccionadas.includes(e.id);
           return (
-            <button key={e.id} onClick={() => toggleEtiqueta(e.id)} style={{
+            <button type="button" key={e.id} onClick={() => toggleEtiqueta(e.id)} style={{
               background: activa ? e.bg : "#F3F4F6",
               color: activa ? e.color : "#6B7280",
               border: activa ? `1.5px solid ${e.color}44` : "1.5px solid #E5E7EB",
@@ -101,7 +101,7 @@ function SelectorEtiquetas({ seleccionadas = [], onChange }) {
             }}>{activa ? "✓ " : ""}{e.label}</button>
           );
         })}
-        <button onClick={() => setMostrarAgregar(!mostrarAgregar)} style={{
+        <button type="button" onClick={() => setMostrarAgregar(!mostrarAgregar)} style={{
           background: "transparent", color: "#6366F1", border: "1.5px dashed #6366F1",
           borderRadius: 20, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
         }}>+ Nueva etiqueta</button>
@@ -115,8 +115,8 @@ function SelectorEtiquetas({ seleccionadas = [], onChange }) {
             onChange={e => setNuevaEtiqueta(e.target.value)}
             onKeyDown={e => e.key === "Enter" && agregarCustom()}
           />
-          <button onClick={agregarCustom} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>Agregar</button>
-          <button onClick={() => setMostrarAgregar(false)} style={{ ...btnSecondary, padding: "8px 10px", fontSize: 13 }}>✕</button>
+          <button type="button" onClick={agregarCustom} style={{ ...btnPrimary, padding: "8px 14px", fontSize: 13 }}>Agregar</button>
+          <button type="button" onClick={() => setMostrarAgregar(false)} style={{ ...btnSecondary, padding: "8px 10px", fontSize: 13 }}>✕</button>
         </div>
       )}
     </div>
