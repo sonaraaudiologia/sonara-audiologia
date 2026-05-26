@@ -231,17 +231,26 @@ function useSupabase() {
   }
 
   const agregarPaciente = useCallback(async (pac) => {
-    const { data: row, error } = await supabase.from("pacientes").insert({ ...pac, historia: pac.historia || [] }).select().single();
+    const payload = {
+      ...pac,
+      historia: pac.historia || [],
+      etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
+    };
+    const { data: row, error } = await supabase.from("pacientes").insert(payload).select().single();
     if (!error) setData(d => ({ ...d, pacientes: [...d.pacientes, row] }));
     return row;
   }, []);
 
- const actualizarPaciente = useCallback(async (pac) => {
-  console.log("Guardando paciente:", pac);
-  const { data: updated, error } = await supabase.from("pacientes").update(pac).eq("id", pac.id).select();
-  console.log("Resultado:", updated, error);
-  if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? pac : p) }));
-}, []);
+  const actualizarPaciente = useCallback(async (pac) => {
+    const payload = {
+      ...pac,
+      historia: Array.isArray(pac.historia) ? pac.historia : [],
+      etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
+      email: pac.email || "",
+    };
+    const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
+    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...payload } : p) }));
+  }, []);
 
   const eliminarPaciente = useCallback(async (id) => {
     const { error } = await supabase.from("pacientes").delete().eq("id", id);
@@ -790,8 +799,9 @@ function Pacientes({ data, db }) {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
     setSaving(true);
     try {
-      if (modal === "nuevo") await db.agregarPaciente({ ...form, historia: [] });
-      else await db.actualizarPaciente({ ...data.pacientes.find(p => p.id === modal), ...form });
+      const payload = { ...form, etiquetas: Array.isArray(form.etiquetas) ? form.etiquetas : [], email: form.email || "" };
+      if (modal === "nuevo") await db.agregarPaciente({ ...payload, historia: [] });
+      else await db.actualizarPaciente({ ...data.pacientes.find(p => p.id === modal), ...payload });
       setModal(null);
     } finally { setSaving(false); }
   }
