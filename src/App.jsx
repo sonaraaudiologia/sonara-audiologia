@@ -1926,61 +1926,229 @@ function Estadisticas({ data }) {
 
 
 // ─── PROFESIONALES ────────────────────────────────────────────────────────────
-const PROFESIONALES_LIST = [
-  { id: "miatello", nombre: "Lic. Cecilia Miatello", especialidad: "Audióloga", color: "#4338CA", bg: "#EEF2FF" },
-  { id: "valles",   nombre: "Lic. Graciela Valles",  especialidad: "Audióloga", color: "#065F46", bg: "#D1FAE5" },
-];
+// ─── PROFESIONALES EXTERNOS ───────────────────────────────────────────────────
+const PROF_STORAGE_KEY = "sonara_profesionales_externos";
+
+function useProfesionalesExternos() {
+  const [profesionales, setProfesionales] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(PROF_STORAGE_KEY) || "[]"); } catch { return []; }
+  });
+  function guardar(lista) {
+    setProfesionales(lista);
+    localStorage.setItem(PROF_STORAGE_KEY, JSON.stringify(lista));
+  }
+  function agregar(prof) { guardar([...profesionales, { ...prof, id: uid(), seguimiento: [] }]); }
+  function actualizar(prof) { guardar(profesionales.map(p => p.id === prof.id ? prof : p)); }
+  function eliminar(id) { guardar(profesionales.filter(p => p.id !== id)); }
+  function agregarSeguimiento(profId, entrada) {
+    const prof = profesionales.find(p => p.id === profId);
+    if (!prof) return;
+    actualizar({ ...prof, seguimiento: [...(prof.seguimiento || []), { ...entrada, id: uid() }] });
+  }
+  return { profesionales, agregar, actualizar, eliminar, agregarSeguimiento };
+}
+
+const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", notas: "" };
+const TIPOS_SEGUIMIENTO_PROF = ["Visita", "Llamada", "Email", "Derivación recibida", "Derivación enviada", "Reunión", "Otro"];
+const ESPECIALIDADES = ["Médico clínico", "Fonoaudiólogo/a", "Otorrinolaringólogo/a", "Neurólogo/a", "Pediatra", "Geriatra", "Psicólogo/a", "Kinesiólogo/a", "Otro"];
 
 function Profesionales({ data }) {
-  const hoy = today();
+  const { profesionales, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
+  const [modal, setModal] = useState(null); // null | "nuevo" | id
+  const [verSeg, setVerSeg] = useState(null); // id del prof
+  const [busqueda, setBusqueda] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(FORM_PROF_VACIO);
+  const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Visita", descripcion: "", proxContacto: "" });
+  const [segModal, setSegModal] = useState(false);
+
+  const lista = profesionales.filter(p =>
+    busqueda === "" || `${p.nombre} ${p.especialidad} ${p.institucion || ""}`.toLowerCase().includes(busqueda.toLowerCase())
+  );
+
+  function abrirNuevo() {
+    setForm(FORM_PROF_VACIO);
+    setModal("nuevo");
+  }
+
+  function abrirEditar(p) {
+    setForm({ nombre: p.nombre, especialidad: p.especialidad || "", institucion: p.institucion || "", telefono: p.telefono || "", email: p.email || "", localidad: p.localidad || "", notas: p.notas || "" });
+    setModal(p.id);
+  }
+
+  async function guardar() {
+    if (!form.nombre) return alert("El nombre es obligatorio.");
+    setSaving(true);
+    try {
+      if (modal === "nuevo") agregar(form);
+      else actualizar({ ...profesionales.find(p => p.id === modal), ...form });
+      setModal(null);
+    } finally { setSaving(false); }
+  }
+
+  function guardarSeguimiento() {
+    if (!segForm.descripcion) return alert("Escribí una descripción.");
+    agregarSeguimiento(verSeg, segForm);
+    setSegModal(false);
+    setSegForm({ fecha: today(), tipo: "Visita", descripcion: "", proxContacto: "" });
+  }
+
+  const profActual = profesionales.find(p => p.id === verSeg);
+  // Count derivaciones from pacientes
+  const derivacionesPorProf = (profNombre) =>
+    data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").toLowerCase().includes(profNombre.toLowerCase())).length;
+
+  const TIPO_COLOR_SEG = {
+    "Visita": { bg: "#EEF2FF", c: "#4338CA" },
+    "Llamada": { bg: "#DBEAFE", c: "#1E40AF" },
+    "Email": { bg: "#E0F2FE", c: "#075985" },
+    "Derivación recibida": { bg: "#D1FAE5", c: "#065F46" },
+    "Derivación enviada": { bg: "#FEF3C7", c: "#92400E" },
+    "Reunión": { bg: "#EDE9FE", c: "#5B21B6" },
+    "Otro": { bg: "#F3F4F6", c: "#374151" },
+  };
+
   return (
     <div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20 }}>👩‍⚕️ Profesionales</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
-        {PROFESIONALES_LIST.map(prof => {
-          const turnosTotal = data.turnos.filter(t => t.profesional === prof.nombre).length;
-          const turnosHoy = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha === hoy).length;
-          const turnosMes = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha?.slice(0,7) === hoy.slice(0,7)).length;
-          const realizados = data.turnos.filter(t => t.profesional === prof.nombre && t.estado === "realizado").length;
-          const proximos = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha >= hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0,3);
-          return (
-            <div key={prof.id} style={{ background: "#fff", border: `1.5px solid ${prof.bg}`, borderRadius: 14, padding: "20px" }}>
-              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 16 }}>
-                <div style={{ width: 52, height: 52, borderRadius: "50%", background: prof.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: prof.color }}>
-                  {prof.nombre.split(" ").filter(w => w.length > 2).map(w => w[0]).slice(0,2).join("")}
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{prof.nombre}</div>
-                  <div style={{ fontSize: 13, color: "#888" }}>{prof.especialidad}</div>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
-                {[
-                  { label: "Hoy", value: turnosHoy, color: prof.color, bg: prof.bg },
-                  { label: "Este mes", value: turnosMes, color: prof.color, bg: prof.bg },
-                  { label: "Realizados", value: realizados, color: prof.color, bg: prof.bg },
-                ].map(s => (
-                  <div key={s.label} style={{ background: s.bg, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
-                    <div style={{ fontSize: 10, color: s.color, opacity: 0.8 }}>{s.label}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Próximos turnos</div>
-              {proximos.length === 0
-                ? <div style={{ fontSize: 13, color: "#aaa" }}>Sin turnos próximos</div>
-                : proximos.map(t => (
-                  <div key={t.id} style={{ background: "#F8FAFC", borderRadius: 8, padding: "7px 10px", marginBottom: 6, fontSize: 13 }}>
-                    <span style={{ fontWeight: 600, color: prof.color }}>{t.hora}</span>
-                    <span style={{ color: "#555", marginLeft: 8 }}>{formatFecha(t.fecha)}</span>
-                    <span style={{ color: "#888", marginLeft: 8 }}>{t.motivo || "Sin motivo"}</span>
-                  </div>
-                ))
-              }
-            </div>
-          );
-        })}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>🏥 Profesionales externos</div>
+        <button onClick={abrirNuevo} style={btnPrimary}>+ Nuevo profesional</button>
       </div>
+
+      <input style={{ ...inputStyle, maxWidth: 320, marginBottom: 16 }} placeholder="Buscar por nombre, especialidad..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+
+      {lista.length === 0
+        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🏥</div><div>No hay profesionales cargados</div></div>
+        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 12 }}>
+          {lista.map(p => {
+            const derivaciones = derivacionesPorProf(p.nombre);
+            const ultSeg = (p.seguimiento || []).slice(-1)[0];
+            return (
+              <div key={p.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#4338CA", flexShrink: 0 }}>
+                    {p.nombre.split(" ").filter(w => w.length > 1).map(w => w[0]).slice(0, 2).join("").toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>{p.nombre}</div>
+                    <div style={{ fontSize: 13, color: "#888" }}>{p.especialidad || "—"}</div>
+                    {p.institucion && <div style={{ fontSize: 12, color: "#aaa" }}>{p.institucion}</div>}
+                  </div>
+                </div>
+
+                {derivaciones > 0 && (
+                  <div style={{ background: "#D1FAE5", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 8, display: "inline-block" }}>
+                    👥 {derivaciones} paciente{derivaciones !== 1 ? "s" : ""} derivado{derivaciones !== 1 ? "s" : ""}
+                  </div>
+                )}
+
+                {p.telefono && (
+                  <div style={{ fontSize: 13, color: "#666", marginBottom: 3, display: "flex", alignItems: "center" }}>
+                    📞 {p.telefono} <CopyButton text={p.telefono} label="teléfono" />
+                  </div>
+                )}
+                {p.email && (
+                  <div style={{ fontSize: 13, color: "#666", marginBottom: 3, display: "flex", alignItems: "center" }}>
+                    ✉️ {p.email} <CopyButton text={p.email} label="email" />
+                  </div>
+                )}
+                {p.localidad && <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>📍 {p.localidad}</div>}
+
+                {ultSeg && (
+                  <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#555", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600 }}>Último contacto:</span> {formatFecha(ultSeg.fecha)} · {ultSeg.tipo}
+                  </div>
+                )}
+
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <button onClick={() => setVerSeg(p.id)} style={{ ...btnPrimary, padding: "6px 12px", fontSize: 12, flex: 1 }}>Seguimiento ({(p.seguimiento||[]).length})</button>
+                  <button onClick={() => abrirEditar(p)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
+                  <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(p.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>}
+
+      {/* Modal nuevo/editar */}
+      {modal && (
+        <Modal title={modal === "nuevo" ? "Nuevo profesional externo" : "Editar profesional"} onClose={() => setModal(null)}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Nombre completo *" ><input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Dr. Juan Pérez" /></Field>
+            <Field label="Especialidad">
+              <select style={selectStyle} value={form.especialidad} onChange={e => setForm(f => ({ ...f, especialidad: e.target.value }))}>
+                <option value="">— Seleccionar —</option>
+                {ESPECIALIDADES.map(e => <option key={e}>{e}</option>)}
+              </select>
+            </Field>
+            <Field label="Institución / Hospital"><input style={inputStyle} value={form.institucion} onChange={e => setForm(f => ({ ...f, institucion: e.target.value }))} placeholder="Hospital, clínica, consultorio..." /></Field>
+            <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e => setForm(f => ({ ...f, localidad: e.target.value }))} /></Field>
+            <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
+            <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
+          </div>
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} placeholder="Observaciones, vínculo, frecuencia de contacto..." /></Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+            <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal seguimiento */}
+      {verSeg && profActual && (
+        <Modal title={`Seguimiento · ${profActual.nombre}`} onClose={() => setVerSeg(null)}>
+          <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{profActual.nombre}</div>
+            <div style={{ color: "#888" }}>{profActual.especialidad}{profActual.institucion ? ` · ${profActual.institucion}` : ""}</div>
+            {profActual.telefono && <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>📞 {profActual.telefono} <CopyButton text={profActual.telefono} label="teléfono" /></div>}
+            {profActual.email && <div style={{ display: "flex", alignItems: "center", marginTop: 2 }}>✉️ {profActual.email} <CopyButton text={profActual.email} label="email" /></div>}
+            {(() => { const d = derivacionesPorProf(profActual.nombre); return d > 0 ? <div style={{ marginTop: 6, background: "#D1FAE5", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", display: "inline-block" }}>👥 {d} paciente{d !== 1 ? "s" : ""} derivado{d !== 1 ? "s" : ""}</div> : null; })()}
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Historial de contactos</span>
+            <button onClick={() => setSegModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar</button>
+          </div>
+
+          {(profActual.seguimiento || []).length === 0
+            ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin contactos registrados</div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[...(profActual.seguimiento || [])].reverse().map(s => {
+                const tc = TIPO_COLOR_SEG[s.tipo] || TIPO_COLOR_SEG["Otro"];
+                return (
+                  <div key={s.id} style={{ background: tc.bg, border: `1px solid ${tc.c}22`, borderRadius: 10, padding: "10px 14px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: tc.c }}>{s.tipo}</span>
+                      <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(s.fecha)}</span>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 14 }}>{s.descripcion}</p>
+                    {s.proxContacto && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>📅 Próximo contacto: {formatFecha(s.proxContacto)}</div>}
+                  </div>
+                );
+              })}
+            </div>}
+
+          {segModal && (
+            <div style={{ marginTop: 16, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
+              <h4 style={{ margin: "0 0 12px", fontSize: 14 }}>Nuevo contacto</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e => setSegForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                <Field label="Tipo">
+                  <select style={selectStyle} value={segForm.tipo} onChange={e => setSegForm(f => ({ ...f, tipo: e.target.value }))}>
+                    {TIPOS_SEGUIMIENTO_PROF.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Descripción *"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Detalles del contacto, acuerdos, observaciones..." /></Field>
+              <Field label="Próximo contacto (opcional)"><input type="date" style={inputStyle} value={segForm.proxContacto} onChange={e => setSegForm(f => ({ ...f, proxContacto: e.target.value }))} /></Field>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setSegModal(false)} style={btnSecondary}>Cancelar</button>
+                <button onClick={guardarSeguimiento} style={btnPrimary}>Guardar</button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
     </div>
   );
 }
