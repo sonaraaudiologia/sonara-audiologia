@@ -1324,6 +1324,7 @@ function Turnos({ data, db, saldoPaciente }) {
 function Pacientes({ data, db }) {
   const [modal, setModal] = useState(null);
   const [verHC, setVerHC] = useState(null);
+  const [verRapido, setVerRapido] = useState(null);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1449,49 +1450,107 @@ function Pacientes({ data, db }) {
       {pacientes.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>👤</div><div>No hay pacientes</div></div>
         : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-          {pacientes.map(p => (
-            <div key={p.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
-              <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-                <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#4338CA", flexShrink: 0 }}>
+          {pacientes.map(p => {
+            const abierto = verRapido === p.id;
+            const turnosPac = data.turnos.filter(t => t.paciente_id === p.id).sort((a,b) => (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
+            const proximoTurno = data.turnos.filter(t => t.paciente_id === p.id && t.fecha >= today()).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
+            const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0)), 0);
+            return (
+            <div key={p.id} style={{ background: "#fff", border: `1.5px solid ${abierto ? "#6366F1" : "#F0F0F0"}`, borderRadius: 12, overflow: "hidden", transition: "border-color 0.15s" }}>
+              {/* Header siempre visible — click para expandir */}
+              <div onClick={() => setVerRapido(abierto ? null : p.id)} style={{ padding: "14px 16px", cursor: "pointer", display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ width: 42, height: 42, borderRadius: "50%", background: abierto ? "#EEF2FF" : "#F8FAFC", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 15, color: "#4338CA", flexShrink: 0, border: abierto ? "2px solid #6366F1" : "2px solid #E5E7EB" }}>
                   {(p.nombre?.[0] || "?")}{(p.apellido?.[0] || "?")}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{p.apellido}, {p.nombre}</div>
-                  <div style={{ fontSize: 13, color: "#888" }}>DNI: {p.dni || "—"}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{p.apellido}, {p.nombre}</div>
+                  <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {p.dni && <span>DNI: {p.dni}</span>}
+                    {(p.obraSocial || p.obra_social) && <span>🏥 {p.obraSocial || p.obra_social}</span>}
+                    {proximoTurno && <span style={{ color: "#4338CA" }}>📅 {formatFecha(proximoTurno.fecha)} {proximoTurno.hora?.slice(0,5)}</span>}
+                    {saldo > 0 && <span style={{ color: "#D97706", fontWeight: 600 }}>💰 Debe ${saldo.toLocaleString("es-AR")}</span>}
+                  </div>
                 </div>
-              </div>
-
-              {/* Etiquetas */}
-              {(p.etiquetas || []).length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                  {(p.etiquetas || []).map(eid => {
+                {/* Etiquetas */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 3, maxWidth: 120 }}>
+                  {(p.etiquetas || []).slice(0,2).map(eid => {
                     const et = getEtiquetaInfo(eid);
                     return et ? <EtiquetaBadge key={eid} etiqueta={et} /> : null;
                   })}
                 </div>
+                <span style={{ fontSize: 16, color: "#aaa", flexShrink: 0 }}>{abierto ? "▲" : "▼"}</span>
+              </div>
+
+              {/* Panel expandido con todos los datos */}
+              {abierto && (
+                <div style={{ borderTop: "1px solid #F0F0F0", padding: "14px 16px", background: "#FAFBFF" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                    {/* Contacto */}
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Contacto</div>
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
+                        📞 {p.telefono || "—"} {p.telefono && <CopyButton text={p.telefono} label="tel" />}
+                      </div>
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4 }}>
+                        ✉️ {p.email || "—"} {p.email && <CopyButton text={p.email} label="email" />}
+                      </div>
+                    </div>
+                    {/* Cobertura */}
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Cobertura</div>
+                      <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
+                      {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
+                      {p.fechaNac || p.fecha_nac ? <div style={{ fontSize: 12, color: "#888" }}>Nac: {formatFecha(p.fechaNac || p.fecha_nac)}</div> : null}
+                    </div>
+                    {/* Clínico */}
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Clínico</div>
+                      {p.diagnostico && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🩺 {p.diagnostico}</div>}
+                      {p.audifono && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>👂 {p.audifono}</div>}
+                      {(p.derivadoPor || p.derivado_por) && <div style={{ fontSize: 12, color: "#888" }}>Derivado: {p.derivadoPor || p.derivado_por}</div>}
+                      {!p.diagnostico && !p.audifono && <div style={{ fontSize: 12, color: "#aaa" }}>Sin datos clínicos</div>}
+                    </div>
+                    {/* Turnos */}
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Turnos ({turnosPac.length})</div>
+                      {turnosPac.slice(0,3).map(t => (
+                        <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
+                          <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
+                        </div>
+                      ))}
+                      {turnosPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin turnos</div>}
+                    </div>
+                  </div>
+
+                  {/* Antecedentes y notas si existen */}
+                  {(p.antecedentes || p.notas) && (
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", marginBottom: 12 }}>
+                      {p.antecedentes && <div style={{ fontSize: 13, color: "#555", marginBottom: 4 }}><span style={{ fontWeight: 600 }}>Antecedentes:</span> {p.antecedentes}</div>}
+                      {p.notas && <div style={{ fontSize: 13, color: "#555" }}><span style={{ fontWeight: 600 }}>Notas:</span> {p.notas}</div>}
+                    </div>
+                  )}
+
+                  {/* Etiquetas completas */}
+                  {(p.etiquetas || []).length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                      {(p.etiquetas || []).map(eid => {
+                        const et = getEtiquetaInfo(eid);
+                        return et ? <EtiquetaBadge key={eid} etiqueta={et} /> : null;
+                      })}
+                    </div>
+                  )}
+
+                  {/* Botones */}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setVerHC(p.id)} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12, flex: 1 }}>📋 Historia clínica</button>
+                    <button onClick={() => editar(p)} style={{ ...btnSecondary, padding: "7px 12px", fontSize: 12 }}>✏️ Editar</button>
+                    <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarPaciente(p.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "7px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
               )}
-
-              {/* Teléfono con botón copiar */}
-              <div style={{ fontSize: 13, color: "#666", marginBottom: 4, display: "flex", alignItems: "center" }}>
-                📞 {p.telefono || "—"}
-                {p.telefono && <CopyButton text={p.telefono} label="teléfono" />}
-              </div>
-
-              {/* Email con botón copiar */}
-              <div style={{ fontSize: 13, color: "#666", marginBottom: 4, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
-                ✉️ <span style={{ marginLeft: 2 }}>{p.email || "—"}</span>
-                {p.email && <CopyButton text={p.email} label="email" />}
-              </div>
-
-              <div style={{ fontSize: 13, color: "#666", marginBottom: 12 }}>🏥 {p.obraSocial || "Particular"}</div>
-
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => setVerHC(p.id)} style={{ ...btnPrimary, padding: "6px 12px", fontSize: 12, flex: 1 }}>Historia clínica</button>
-                <button onClick={() => editar(p)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
-                <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarPaciente(p.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
-              </div>
             </div>
-          ))}
+            );
+          })}
         </div>}
 
       {/* Modal nuevo/editar paciente */}
