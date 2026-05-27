@@ -309,6 +309,7 @@ function useSupabase() {
       diagnostico: pac.diagnostico || "",
       antecedentes: pac.antecedentes || "",
       notas: pac.notas || "",
+      derivado_por: pac.derivadoPor || pac.derivado_por || "",
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
     };
@@ -320,6 +321,7 @@ function useSupabase() {
       fechaNac: row.fecha_nac || "",
       obraSocial: row.obra_social || "",
       nroAfiliado: row.nro_afiliado || "",
+      derivadoPor: row.derivado_por || "",
       etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
     };
   }
@@ -372,14 +374,29 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
   }, []);
 
+  function toDBRec(rec) {
+    return {
+      titulo: rec.titulo || "",
+      fecha: rec.fecha || today(),
+      hora: rec.hora || "09:00",
+      tipo: rec.tipo || "seguimiento",
+      paciente_id: rec.paciente_id || null,
+      descripcion: rec.descripcion || "",
+      completado: rec.completado || false,
+    };
+  }
+
   const agregarRecordatorio = useCallback(async (rec) => {
-    const { data: row, error } = await supabase.from("recordatorios").insert(rec).select().single();
+    const payload = toDBRec(rec);
+    const { data: row, error } = await supabase.from("recordatorios").insert(payload).select().single();
+    if (error) { console.error("Error recordatorio:", error); return; }
     if (!error) setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
   }, []);
 
   const actualizarRecordatorio = useCallback(async (rec) => {
-    const { error } = await supabase.from("recordatorios").update(rec).eq("id", rec.id);
-    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? rec : r) }));
+    const payload = { ...toDBRec(rec), id: rec.id };
+    const { error } = await supabase.from("recordatorios").update(payload).eq("id", rec.id);
+    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? { ...r, ...payload } : r) }));
   }, []);
 
   const eliminarRecordatorio = useCallback(async (id) => {
@@ -422,8 +439,9 @@ function useSupabase() {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({ data }) {
+function Dashboard({ data, onNavigate }) {
   const hoy = today();
+  const [busqueda, setBusqueda] = useState("");
   const turnosHoy = data.turnos.filter(t => t.fecha === hoy).length;
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < hoy).length;
   const ventasActivas = data.ventas.filter(v => v.estado === "en_proceso").length;
@@ -432,8 +450,50 @@ function Dashboard({ data }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha >= hoy).sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`)).slice(0, 5);
   const proximosRec = data.recordatorios.filter(r => !r.completado && r.fecha >= hoy).sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`)).slice(0, 5);
 
+  const pacNombreD = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
+
+  const resultados = busqueda.trim().length > 1 ? [
+    ...data.turnos.filter(t => {
+      const pac = data.pacientes.find(p => p.id === t.paciente_id);
+      const nombre = pac ? `${pac.nombre} ${pac.apellido}` : "";
+      return nombre.toLowerCase().includes(busqueda.toLowerCase()) || (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase());
+    }).slice(0,5).map(t => ({ tipo: "turno", label: pacNombreD(t.paciente_id), sub: `${formatFecha(t.fecha)} · ${t.hora} · ${t.motivo||""}`, id: t.id })),
+    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,5).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: `DNI: ${p.dni||"—"} · ${p.obra_social||"Particular"}`, id: p.id })),
+    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
+  ] : [];
+
   return (
     <div>
+      {/* Buscador */}
+      <div style={{ position: "relative", marginBottom: 20 }}>
+        <input
+          style={{ ...inputStyle, paddingLeft: 36, fontSize: 15, borderRadius: 12, border: "1.5px solid #E5E7EB" }}
+          placeholder="🔍 Buscar turnos, pacientes, recordatorios..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+        />
+        {resultados.length > 0 && (
+          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 50, maxHeight: 300, overflowY: "auto", marginTop: 4 }}>
+            {resultados.map((r, i) => {
+              const iconos = { turno: "📅", paciente: "👤", recordatorio: "🔔" };
+              const colores = { turno: "#4338CA", paciente: "#0891B2", recordatorio: "#D97706" };
+              return (
+                <div key={r.tipo+r.id} onClick={() => { setBusqueda(""); if (onNavigate) onNavigate(r.tipo); }}
+                  style={{ padding: "10px 14px", borderBottom: i < resultados.length-1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", display: "flex", gap: 10, alignItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <span style={{ fontSize: 18 }}>{iconos[r.tipo]}</span>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: colores[r.tipo] }}>{r.label}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{r.sub}</div>
+                  </div>
+                  <span style={{ marginLeft: "auto", fontSize: 11, color: "#aaa", background: "#F3F4F6", borderRadius: 6, padding: "2px 8px" }}>{r.tipo}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
         {[
           { label: "Turnos hoy", value: turnosHoy, color: "#4338CA", bg: "#EEF2FF" },
@@ -518,6 +578,7 @@ function Turnos({ data, db, saldoPaciente }) {
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [modal, setModal] = useState(null);
+  const [modalBloqueo, setModalBloqueo] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_TURNO_VACIO);
   const [mostrarNuevoPac, setMostrarNuevoPac] = useState(false);
@@ -614,6 +675,7 @@ function Turnos({ data, db, saldoPaciente }) {
               <button onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Hoy</button>
             </div>
           )}
+          <button onClick={() => setModalBloqueo(true)} style={{ ...btnSecondary, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>🔒 Bloquear agenda</button>
           <button onClick={() => nuevo()} style={btnPrimary}>+ Nuevo turno</button>
         </div>
       </div>
@@ -694,6 +756,8 @@ function Turnos({ data, db, saldoPaciente }) {
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
         : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={true} saldoPaciente={saldoPaciente} />)}</div>
       )}
+
+      {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
 
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo turno" : "Editar turno"} onClose={cerrarModal}>
@@ -863,7 +927,7 @@ function Pacientes({ data, db }) {
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
-    etiquetas: []
+    derivadoPor: "", etiquetas: []
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
@@ -897,10 +961,11 @@ function Pacientes({ data, db }) {
 
   function editar(p) {
     setForm({
-      nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || "",
-      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || "",
-      nroAfiliado: p.nroAfiliado || "", diagnostico: p.diagnostico || "",
+      nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || p.fecha_nac || "",
+      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || p.obra_social || "",
+      nroAfiliado: p.nroAfiliado || p.nro_afiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
+      derivadoPor: p.derivadoPor || p.derivado_por || "",
       etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : []
     });
     setModal(p.id);
@@ -943,7 +1008,7 @@ function Pacientes({ data, db }) {
           </div>
         </div>
         <button onClick={() => {
-          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", etiquetas: [] });
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
@@ -1009,6 +1074,7 @@ function Pacientes({ data, db }) {
             <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
             <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
           </div>
+          <Field label="Derivado por"><input style={inputStyle} value={form.derivadoPor || ""} onChange={e => setForm(f => ({ ...f, derivadoPor: e.target.value }))} placeholder="Nombre del profesional derivante" /></Field>
           <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
@@ -1059,20 +1125,47 @@ function Pacientes({ data, db }) {
             <span style={{ fontWeight: 700, fontSize: 15 }}>Evolución clínica</span>
             <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar entrada</button>
           </div>
-          {(pacienteHC.historia || []).length === 0
-            ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin entradas aún</div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[...(pacienteHC.historia || [])].reverse().map(ev => (
-                <div key={ev.id} style={{ background: "#fff", border: "1px solid #E5E7EB", borderRadius: 10, padding: "10px 14px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600 }}>{TIPO_HC[ev.tipo] || "📌"} {ev.tipo}</span>
-                    <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: 14 }}>{ev.descripcion}</p>
-                  {ev.profesional && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{ev.profesional}</div>}
-                </div>
-              ))}
-            </div>}
+          {(() => {
+            // Unify all activity for this patient
+            const entradas = (pacienteHC.historia || []).map(e => ({ ...e, _tipo: "hc" }));
+            const comprasPac = data.compras.filter(c => c.paciente_id === pacienteHC.id).map(c => ({
+              id: c.id, fecha: c.fecha, _tipo: "compra",
+              descripcion: `Insumos: ${(c.insumos||[]).map(i => i.nombre).join(", ")} · Total: $${(parseFloat(c.total)||0).toLocaleString("es-AR")}`,
+              tipo: c.estado === "pagado" ? "✅ Insumo pagado" : "🛍️ Insumo pendiente"
+            }));
+            const recsPac = data.recordatorios.filter(r => r.paciente_id === pacienteHC.id).map(r => ({
+              id: r.id, fecha: r.fecha, _tipo: "rec",
+              descripcion: r.descripcion || r.titulo,
+              tipo: `🔔 ${r.titulo}`
+            }));
+            const ventasPac = data.ventas.filter(v => v.paciente_id === pacienteHC.id).map(v => ({
+              id: v.id, fecha: v.fecha, _tipo: "venta",
+              descripcion: `${v.dispositivo || ""} ${v.marca || ""} ${v.modelo || ""} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
+              tipo: `🛒 Venta: ${v.estado}`
+            }));
+            const todo = [...entradas, ...comprasPac, ...recsPac, ...ventasPac]
+              .filter(e => e.fecha)
+              .sort((a, b) => b.fecha.localeCompare(a.fecha));
+            if (todo.length === 0) return <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin entradas aún</div>;
+            const colores = { hc: { bg: "#F0FDF4", border: "#BBF7D0", icon: "🩺" }, compra: { bg: "#FEF3C7", border: "#FDE68A", icon: "🛍️" }, rec: { bg: "#EDE9FE", border: "#C4B5FD", icon: "🔔" }, venta: { bg: "#E0F2FE", border: "#BAE6FD", icon: "🛒" } };
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {todo.map(ev => {
+                  const c = colores[ev._tipo] || colores.hc;
+                  return (
+                    <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}</span>
+                        <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 14 }}>{ev.descripcion}</p>
+                      {ev.profesional && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{ev.profesional}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
           {evModal && (
             <div style={{ marginTop: 20, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
               <h4 style={{ margin: "0 0 12px" }}>Nueva entrada</h4>
@@ -1780,6 +1873,150 @@ function Estadisticas({ data }) {
   );
 }
 
+
+// ─── PROFESIONALES ────────────────────────────────────────────────────────────
+const PROFESIONALES_LIST = [
+  { id: "miatello", nombre: "Lic. Cecilia Miatello", especialidad: "Audióloga", color: "#4338CA", bg: "#EEF2FF" },
+  { id: "valles",   nombre: "Lic. Graciela Valles",  especialidad: "Audióloga", color: "#065F46", bg: "#D1FAE5" },
+];
+
+function Profesionales({ data }) {
+  const hoy = today();
+  return (
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20 }}>👩‍⚕️ Profesionales</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        {PROFESIONALES_LIST.map(prof => {
+          const turnosTotal = data.turnos.filter(t => t.profesional === prof.nombre).length;
+          const turnosHoy = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha === hoy).length;
+          const turnosMes = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha?.slice(0,7) === hoy.slice(0,7)).length;
+          const realizados = data.turnos.filter(t => t.profesional === prof.nombre && t.estado === "realizado").length;
+          const proximos = data.turnos.filter(t => t.profesional === prof.nombre && t.fecha >= hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0,3);
+          return (
+            <div key={prof.id} style={{ background: "#fff", border: `1.5px solid ${prof.bg}`, borderRadius: 14, padding: "20px" }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "center", marginBottom: 16 }}>
+                <div style={{ width: 52, height: 52, borderRadius: "50%", background: prof.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: prof.color }}>
+                  {prof.nombre.split(" ").filter(w => w.length > 2).map(w => w[0]).slice(0,2).join("")}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 16 }}>{prof.nombre}</div>
+                  <div style={{ fontSize: 13, color: "#888" }}>{prof.especialidad}</div>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 16 }}>
+                {[
+                  { label: "Hoy", value: turnosHoy, color: prof.color, bg: prof.bg },
+                  { label: "Este mes", value: turnosMes, color: prof.color, bg: prof.bg },
+                  { label: "Realizados", value: realizados, color: prof.color, bg: prof.bg },
+                ].map(s => (
+                  <div key={s.label} style={{ background: s.bg, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: s.color }}>{s.value}</div>
+                    <div style={{ fontSize: 10, color: s.color, opacity: 0.8 }}>{s.label}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 8 }}>Próximos turnos</div>
+              {proximos.length === 0
+                ? <div style={{ fontSize: 13, color: "#aaa" }}>Sin turnos próximos</div>
+                : proximos.map(t => (
+                  <div key={t.id} style={{ background: "#F8FAFC", borderRadius: 8, padding: "7px 10px", marginBottom: 6, fontSize: 13 }}>
+                    <span style={{ fontWeight: 600, color: prof.color }}>{t.hora}</span>
+                    <span style={{ color: "#555", marginLeft: 8 }}>{formatFecha(t.fecha)}</span>
+                    <span style={{ color: "#888", marginLeft: 8 }}>{t.motivo || "Sin motivo"}</span>
+                  </div>
+                ))
+              }
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+// ─── BLOQUEO DE AGENDA ────────────────────────────────────────────────────────
+function ModalBloqueo({ onClose, db, fechaInicial }) {
+  const [form, setForm] = useState({
+    profesional: "ambas",
+    fechaDesde: fechaInicial || today(),
+    fechaHasta: fechaInicial || today(),
+    horaDesde: "08:00",
+    horaHasta: "18:00",
+    motivo: "Licencia",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function guardar() {
+    if (!form.fechaDesde || !form.fechaHasta) return alert("Completá las fechas.");
+    setSaving(true);
+    try {
+      const profs = form.profesional === "ambas"
+        ? ["Lic. Cecilia Miatello", "Lic. Graciela Valles"]
+        : form.profesional === "miatello"
+        ? ["Lic. Cecilia Miatello"]
+        : ["Lic. Graciela Valles"];
+
+      // Generate one blocked turn per day per professional
+      let fecha = form.fechaDesde;
+      const promises = [];
+      while (fecha <= form.fechaHasta) {
+        for (const prof of profs) {
+          promises.push(db.agregarTurno({
+            fecha,
+            hora: form.horaDesde,
+            hora_fin: form.horaHasta,
+            motivo: `🔒 BLOQUEADO: ${form.motivo}`,
+            profesional: prof,
+            estado: "cancelado",
+            notas: "Bloqueo de agenda",
+          }));
+        }
+        // next day
+        const d = new Date(fecha + "T12:00:00");
+        d.setDate(d.getDate() + 1);
+        fecha = d.toISOString().split("T")[0];
+      }
+      await Promise.all(promises);
+      onClose();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="🔒 Bloquear agenda" onClose={onClose}>
+      <Field label="Profesional">
+        <select style={selectStyle} value={form.profesional} onChange={e => setForm(f => ({ ...f, profesional: e.target.value }))}>
+          <option value="miatello">Lic. Cecilia Miatello</option>
+          <option value="valles">Lic. Graciela Valles</option>
+          <option value="ambas">Ambas profesionales</option>
+        </select>
+      </Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Desde (fecha)"><input type="date" style={inputStyle} value={form.fechaDesde} onChange={e => setForm(f => ({ ...f, fechaDesde: e.target.value }))} /></Field>
+        <Field label="Hasta (fecha)"><input type="date" style={inputStyle} value={form.fechaHasta} onChange={e => setForm(f => ({ ...f, fechaHasta: e.target.value }))} /></Field>
+        <Field label="Hora inicio"><input type="time" style={inputStyle} value={form.horaDesde} onChange={e => setForm(f => ({ ...f, horaDesde: e.target.value }))} /></Field>
+        <Field label="Hora fin"><input type="time" style={inputStyle} value={form.horaHasta} onChange={e => setForm(f => ({ ...f, horaHasta: e.target.value }))} /></Field>
+      </div>
+      <Field label="Motivo">
+        <select style={selectStyle} value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))}>
+          <option>Licencia</option>
+          <option>Feriado</option>
+          <option>Capacitación</option>
+          <option>Congreso</option>
+          <option>Otro</option>
+        </select>
+      </Field>
+      <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#92400E", marginBottom: 8 }}>
+        ⚠️ Se bloqueará la agenda para cada día del rango seleccionado.
+      </div>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+        <button onClick={onClose} style={btnSecondary}>Cancelar</button>
+        <button onClick={guardar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#991B1B,#DC2626)" }}>{saving ? "Bloqueando..." : "🔒 Bloquear"}</button>
+      </div>
+    </Modal>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState("dashboard");
   const db = useSupabase();
@@ -1797,6 +2034,7 @@ export default function App() {
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
     { id: "recordatorios", label: "Recordatorios", icon: "🔔", badge: recVencidos > 0 ? recVencidos : null, badgeColor: "#DC2626" },
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
+    { id: "profesionales", label: "Profesionales", icon: "👩‍⚕️" },
   ];
 
   if (loading) return (
@@ -1844,13 +2082,14 @@ export default function App() {
         ))}
       </div>
       <div style={{ padding: "20px 16px" }}>
-        {tab === "dashboard"     && <Dashboard data={data} />}
+        {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "recordatorios")} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} />}
         {tab === "ventas"        && <Ventas data={data} db={db} />}
         {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
         {tab === "estadisticas"  && <Estadisticas data={data} />}
+        {tab === "profesionales" && <Profesionales data={data} />}
       </div>
     </div>
   );
