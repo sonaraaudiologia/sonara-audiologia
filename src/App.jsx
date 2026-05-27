@@ -724,6 +724,9 @@ function Turnos({ data, db, saldoPaciente }) {
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_TURNO_VACIO);
+  const [mostrarInsumos, setMostrarInsumos] = useState(false);
+  const [insumoFormT, setInsumoFormT] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  const [insumoActualT, setInsumoActualT] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
   const [mostrarNuevoPac, setMostrarNuevoPac] = useState(false);
   const [formPac, setFormPac] = useState(FORM_PAC_VACIO);
   const [busquedaPac, setBusquedaPac] = useState("");
@@ -789,6 +792,8 @@ function Turnos({ data, db, saldoPaciente }) {
   function cerrarModal() {
     setModal(null); setMostrarNuevoPac(false); setBusquedaPac("");
     setHcForm({ tipo: "consulta", descripcion: "", profesional: "" });
+    setMostrarInsumos(false);
+    setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   }
 
   function editar(t) { 
@@ -1220,17 +1225,66 @@ function Turnos({ data, db, saldoPaciente }) {
               <Field label="Descripción / evolución">
                 <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.descripcion} onChange={e => setHcForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describí la evolución, indicaciones, observaciones..." />
               </Field>
-              {/* Link rápido a insumos */}
+              {/* Insumos inline */}
               {form.paciente_id && (
-                <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 12, color: "#92400E" }}>¿Entregaste insumos en esta consulta?</span>
-                  <button type="button" onClick={async () => {
-                    // Save turno first then open HC with insumo modal
-                    if (!form.fecha || !form.hora) return alert("Guardá el turno primero.");
-                    await guardar();
-                  }} style={{ background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                    🛍️ Ir a cargar insumo
-                  </button>
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 12, color: "#92400E" }}>¿Entregaste insumos en esta consulta?</span>
+                    <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)} style={{ background: mostrarInsumos ? "#FDE68A" : "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      {mostrarInsumos ? "▲ Cerrar" : "🛍️ Cargar insumo"}
+                    </button>
+                  </div>
+                  {mostrarInsumos && (
+                    <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "12px", marginTop: 6 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+                        <Field label="Insumo">
+                          <select style={selectStyle} value={insumoActualT.nombre} onChange={e => setInsumoActualT(i => ({ ...i, nombre: e.target.value }))}>
+                            {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
+                          </select>
+                        </Field>
+                        <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActualT.cantidad} onChange={e => setInsumoActualT(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
+                        <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActualT.precio} onChange={e => setInsumoActualT(i => ({ ...i, precio: e.target.value }))} /></Field>
+                        <button type="button" onClick={() => {
+                          setInsumoFormT(f => ({ ...f, insumos: [...f.insumos, { ...insumoActualT, id: uid() }] }));
+                          setInsumoActualT({ nombre: "Pilas", cantidad: 1, precio: "" });
+                        }} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
+                      </div>
+                      {insumoFormT.insumos.length > 0 && (
+                        <div style={{ marginBottom: 8 }}>
+                          {insumoFormT.insumos.map(i => (
+                            <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 13 }}>
+                              <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
+                              <button type="button" onClick={() => setInsumoFormT(f => ({ ...f, insumos: f.insumos.filter(x => x.id !== i.id) }))} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoFormT.total} onChange={e => setInsumoFormT(f => ({ ...f, total: e.target.value }))} /></Field>
+                        <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoFormT.seña} onChange={e => setInsumoFormT(f => ({ ...f, seña: e.target.value }))} /></Field>
+                        <Field label="Estado">
+                          <select style={selectStyle} value={insumoFormT.estado} onChange={e => setInsumoFormT(f => ({ ...f, estado: e.target.value }))}>
+                            <option value="pendiente">Pendiente</option>
+                            <option value="pagado">Pagado</option>
+                          </select>
+                        </Field>
+                      </div>
+                      {parseFloat(insumoFormT.total) > 0 && (
+                        <div style={{ background: (parseFloat(insumoFormT.total) - parseFloat(insumoFormT.seña||0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, color: (parseFloat(insumoFormT.total) - parseFloat(insumoFormT.seña||0)) > 0 ? "#92400E" : "#065F46", marginBottom: 8 }}>
+                          Saldo: ${((parseFloat(insumoFormT.total)||0) - (parseFloat(insumoFormT.seña)||0)).toLocaleString("es-AR")}
+                        </div>
+                      )}
+                      <button type="button" onClick={async () => {
+                        if (insumoFormT.insumos.length === 0) return alert("Agregá al menos un insumo.");
+                        await db.agregarCompra({ ...insumoFormT, paciente_id: form.paciente_id, total: parseFloat(insumoFormT.total)||0, seña: parseFloat(insumoFormT.seña)||0, fecha: insumoFormT.fecha || form.fecha });
+                        setMostrarInsumos(false);
+                        setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+                        alert("✅ Insumo guardado correctamente.");
+                      }} style={{ ...btnPrimary, background: "linear-gradient(135deg,#92400E,#D97706)", width: "100%", padding: "9px" }}>
+                        🛍️ Guardar insumo
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1885,7 +1939,7 @@ function Recordatorios({ data, db }) {
 }
 
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Otro"];
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
 function Compras({ data, db }) {
   const [modal, setModal] = useState(null);
