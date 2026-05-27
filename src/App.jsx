@@ -373,6 +373,7 @@ function useSupabase() {
       antecedentes: pac.antecedentes || "",
       notas: pac.notas || "",
       derivado_por: pac.derivadoPor || pac.derivado_por || "",
+      audifono: pac.audifono || "",
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
     };
@@ -385,6 +386,7 @@ function useSupabase() {
       obraSocial: row.obra_social || "",
       nroAfiliado: row.nro_afiliado || "",
       derivadoPor: row.derivado_por || "",
+      audifono: row.audifono || "",
       etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
     };
   }
@@ -719,6 +721,7 @@ function Turnos({ data, db, saldoPaciente }) {
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [modal, setModal] = useState(null);
   const [modalBloqueo, setModalBloqueo] = useState(false);
+  const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_TURNO_VACIO);
   const [mostrarNuevoPac, setMostrarNuevoPac] = useState(false);
@@ -736,18 +739,23 @@ function Turnos({ data, db, saldoPaciente }) {
     return data.turnos.filter(t => t.fecha === fecha).sort((a, b) => a.hora.localeCompare(b.hora));
   }
 
-  const turnosFiltrados = vista === "dia"
-    ? data.turnos.filter(t => t.fecha === filtroFecha).sort((a, b) => a.hora.localeCompare(b.hora))
-    : vista === "todos"
-    ? [...data.turnos].sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`))
-    : [];
+  const filtrarPorProf = (lista) => {
+    if (filtroProfesional === "todas") return lista;
+    return lista.filter(t => (t.profesional || "") === filtroProfesional);
+  };
+
+  const turnosFiltrados = filtrarPorProf(
+    vista === "dia"
+      ? data.turnos.filter(t => t.fecha === filtroFecha).sort((a, b) => a.hora.localeCompare(b.hora))
+      : vista === "todos"
+      ? [...data.turnos].sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`))
+      : []
+  );
 
   const pacNombre = (id) => { const p = pacientes.find(p => p.id === id); return p ? `${p.nombre} ${p.apellido}` : "—"; };
   const pacSeleccionado = pacientes.find(p => p.id === form.paciente_id);
 
   async function guardar() {
-    // FIX: validación más clara
-    if (!form.paciente_id) return alert("Seleccioná un paciente.");
     if (!form.fecha) return alert("Completá la fecha.");
     if (!form.hora) return alert("Completá la hora.");
     setSaving(true);
@@ -823,7 +831,16 @@ function Turnos({ data, db, saldoPaciente }) {
               <button onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Hoy</button>
             </div>
           )}
-          <button onClick={() => setModalBloqueo(true)} style={{ ...btnSecondary, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>🔒 Bloquear agenda</button>
+          <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
+            {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
+              <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
+                background: filtroProfesional === v ? "#1a1a2e" : "transparent",
+                color: filtroProfesional === v ? "#fff" : "#555",
+                border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+              }}>{l}</button>
+            ))}
+          </div>
+          <button onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>🔒 Bloquear</button>
           <button onClick={() => nuevo()} style={btnPrimary}>+ Nuevo turno</button>
         </div>
       </div>
@@ -1053,7 +1070,7 @@ function Turnos({ data, db, saldoPaciente }) {
           {/* Paciente */}
           <div style={{ background: "#F8FAFC", border: `1.5px solid ${!form.paciente_id && "nuevo" === modal ? "#FCA5A5" : "#E5E7EB"}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>👤 Paciente *</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>👤 Paciente <span style={{ fontSize: 11, color: "#888", fontWeight: 400 }}>(opcional para visitas/reuniones)</span></span>
               {!mostrarNuevoPac && <button onClick={() => { setMostrarNuevoPac(true); setForm(f => ({ ...f, paciente_id: "" })); }} style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Crear nuevo</button>}
             </div>
             {!mostrarNuevoPac ? (
@@ -1066,8 +1083,17 @@ function Turnos({ data, db, saldoPaciente }) {
                     </div>
                     <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
                   </div>
-                  {/* Etiquetas del paciente con opción de editar */}
-                  <div style={{ marginTop: 8, background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
+                  {/* Derivado por + Etiquetas editables desde turno */}
+                  <div style={{ marginTop: 8, background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Derivado por</div>
+                    <DerivadoPorSelector
+                      value={pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por || ""}
+                      onChange={async (v) => {
+                        await db.actualizarPaciente({ ...pacSeleccionado, derivadoPor: v });
+                      }}
+                    />
+                  </div>
+                  <div style={{ marginTop: 6, background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Etiquetas del paciente</div>
                     <EtiquetasInline
                       seleccionadas={pacSeleccionado.etiquetas || []}
@@ -1189,8 +1215,27 @@ function Turnos({ data, db, saldoPaciente }) {
           )}
 
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6, flexWrap: "wrap" }}>
             <button onClick={cerrarModal} style={btnSecondary}>Cancelar</button>
+            {modal !== "nuevo" && form.paciente_id && (
+              <button onClick={async () => {
+                const pac = pacientes.find(p => p.id === form.paciente_id);
+                const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
+                await db.agregarRecordatorio({
+                  titulo: `Turno: ${Array.isArray(form.practicas) && form.practicas.length ? form.practicas[0] : (form.motivo || "Consulta")} · ${nombre}`,
+                  fecha: form.fecha,
+                  hora: form.hora || "09:00",
+                  tipo: "control",
+                  paciente_id: form.paciente_id,
+                  descripcion: `Turno pasado a recordatorio. ${Array.isArray(form.practicas) ? form.practicas.join(", ") : ""}`,
+                  completado: false,
+                });
+                cerrarModal();
+                alert("✅ Turno pasado a recordatorio correctamente.");
+              }} style={{ ...btnSecondary, background: "#EDE9FE", color: "#5B21B6", border: "1.5px solid #C4B5FD" }}>
+                🔔 Pasar a recordatorio
+              </button>
+            )}
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
           </div>
         </Modal>
@@ -1209,7 +1254,7 @@ function Pacientes({ data, db }) {
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
-    derivadoPor: "", etiquetas: []
+    derivadoPor: "", audifono: "", etiquetas: []
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
@@ -1248,6 +1293,7 @@ function Pacientes({ data, db }) {
       nroAfiliado: p.nroAfiliado || p.nro_afiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
       derivadoPor: p.derivadoPor || p.derivado_por || "",
+      audifono: p.audifono || "",
       etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : []
     });
     setModal(p.id);
@@ -1290,7 +1336,7 @@ function Pacientes({ data, db }) {
           </div>
         </div>
         <button onClick={() => {
-          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", etiquetas: [] });
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
@@ -1379,7 +1425,10 @@ function Pacientes({ data, db }) {
           {/* ── Clínico ── */}
           <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Datos clínicos</div>
-          <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
+            <Field label="Audífono actual (marca/modelo)"><input style={inputStyle} value={form.audifono || ""} onChange={e => setForm(f => ({ ...f, audifono: e.target.value }))} placeholder="Ej: Oticon More 1" /></Field>
+          </div>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
 
