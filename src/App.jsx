@@ -132,9 +132,14 @@ function getEtiquetaInfo(id) {
 
 // ─── SELECTOR DERIVADO POR ────────────────────────────────────────────────────
 function DerivadoPorSelector({ value, onChange }) {
-  const [profesionales, setProfesionales] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]"); } catch { return []; }
-  });
+  const [profesionales, setProfesionales] = useState([]);
+
+  useEffect(() => {
+    try {
+      const data = JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]");
+      setProfesionales(data);
+    } catch { setProfesionales([]); }
+  }, []);
   const [mostrarNuevo, setMostrarNuevo] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevaEsp, setNuevaEsp] = useState("");
@@ -948,6 +953,16 @@ function Turnos({ data, db, saldoPaciente }) {
                     </div>
                     <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
                   </div>
+                  {/* Etiquetas del paciente con opción de editar */}
+                  <div style={{ marginTop: 8, background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Etiquetas del paciente</div>
+                    <EtiquetasInline
+                      seleccionadas={pacSeleccionado.etiquetas || []}
+                      onChange={async (nuevasEtiquetas) => {
+                        await db.actualizarPaciente({ ...pacSeleccionado, etiquetas: nuevasEtiquetas });
+                      }}
+                    />
+                  </div>
                   {saldoPaciente && saldoPaciente(pacSeleccionado.id) > 0 && (
                     <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "8px 14px", marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 18 }}>💰</span>
@@ -1218,37 +1233,54 @@ function Pacientes({ data, db }) {
       {/* Modal nuevo/editar paciente */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo paciente" : "Editar paciente"} onClose={() => setModal(null)}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+          {/* ── Datos personales ── */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Datos personales</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <Field label="Nombre *"><input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></Field>
             <Field label="Apellido *"><input style={inputStyle} value={form.apellido} onChange={e => setForm(f => ({ ...f, apellido: e.target.value }))} /></Field>
             <Field label="DNI"><input style={inputStyle} value={form.dni} onChange={e => setForm(f => ({ ...f, dni: e.target.value }))} /></Field>
             <Field label="Fecha de nacimiento"><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
             <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ejemplo@mail.com" /></Field>
+          </div>
+
+          {/* ── Cobertura ── */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Cobertura</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
             <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
           </div>
+
+          {/* ── Derivación ── */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Derivación</div>
           <Field label="Derivado por">
             <DerivadoPorSelector
               value={form.derivadoPor || ""}
               onChange={v => setForm(f => ({ ...f, derivadoPor: v }))}
             />
           </Field>
+
+          {/* ── Clínico ── */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Datos clínicos</div>
           <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
 
-          {/* ETIQUETAS */}
-          <Field label="Etiquetas">
-            <EtiquetasInline
-              seleccionadas={form.etiquetas || []}
-              onChange={nuevas => setForm(f => ({ ...f, etiquetas: [...nuevas] }))}
-            />
-          </Field>
+          {/* ── Etiquetas ── */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Etiquetas</div>
+          <EtiquetasInline
+            seleccionadas={form.etiquetas || []}
+            onChange={nuevas => setForm(f => ({ ...f, etiquetas: [...nuevas] }))}
+          />
 
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
-            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar paciente"}</button>
           </div>
         </Modal>
       )}
