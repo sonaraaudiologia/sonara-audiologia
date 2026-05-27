@@ -791,9 +791,10 @@ function Turnos({ data, db, saldoPaciente }) {
     cerrarModal(); 
     setModal(t.id); 
   }
-  function nuevo(fechaPreset) {
+  function nuevo(fechaPreset, horaPreset) {
     const f = fechaPreset || (vista === "dia" ? filtroFecha : today());
-    setForm({ ...FORM_TURNO_VACIO, fecha: f, hora_fin: calcularHoraFin("09:00", ""), practicas: [] });
+    const h = horaPreset || "09:00";
+    setForm({ ...FORM_TURNO_VACIO, fecha: f, hora: h, hora_fin: calcularHoraFin(h, ""), practicas: [] });
     cerrarModal(); setModal("nuevo");
   }
 
@@ -829,6 +830,7 @@ function Turnos({ data, db, saldoPaciente }) {
 
       {vista === "dia" && (
         <div>
+          {/* Recordatorios del día */}
           {data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado).length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#D97706", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🔔 Recordatorios del día</div>
@@ -845,10 +847,121 @@ function Turnos({ data, db, saldoPaciente }) {
               </div>
             </div>
           )}
-          {turnosFiltrados.length === 0
-            ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={false} saldoPaciente={saldoPaciente} />)}</div>
-          }
+
+          {/* Grilla horaria */}
+          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {Array.from({ length: 25 }, (_, i) => {
+              const hora = `${String(Math.floor(i / 2) + 8).padStart(2, "0")}:${i % 2 === 0 ? "00" : "30"}`;
+              const horaNum = (Math.floor(i / 2) + 8) + (i % 2 === 0 ? 0 : 0.5);
+              if (horaNum > 20) return null;
+
+              // Find turnos that start at or overlap this slot
+              const turnosEnSlot = turnosFiltrados.filter(t => {
+                const tHora = (t.hora || "00:00").slice(0, 5);
+                return tHora === hora;
+              });
+
+              const esMediaHora = i % 2 !== 0;
+              const esVacio = turnosEnSlot.length === 0;
+
+              return (
+                <div key={hora} style={{
+                  display: "flex",
+                  borderBottom: `1px solid ${esMediaHora ? "#F3F4F6" : "#E5E7EB"}`,
+                  minHeight: esVacio ? 40 : "auto",
+                  background: esVacio ? (esMediaHora ? "#FAFAFA" : "#fff") : "#fff",
+                }}>
+                  {/* Columna hora */}
+                  <div style={{
+                    width: 52, flexShrink: 0, padding: "8px 8px 8px 12px",
+                    fontSize: 11, fontWeight: esMediaHora ? 400 : 700,
+                    color: esMediaHora ? "#bbb" : "#888",
+                    borderRight: "1.5px solid #E5E7EB",
+                    display: "flex", alignItems: "flex-start", paddingTop: 10,
+                    background: esMediaHora ? "#FAFAFA" : "#F8FAFC",
+                  }}>
+                    {!esMediaHora ? hora : "· · ·"}
+                  </div>
+
+                  {/* Columna contenido */}
+                  <div style={{ flex: 1, padding: esVacio ? "0" : "6px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
+                    {esVacio ? (
+                      <div
+                        onClick={() => nuevo(filtroFecha, hora)}
+                        style={{
+                          width: "100%", height: "100%", minHeight: 40,
+                          cursor: "pointer", display: "flex", alignItems: "center",
+                          paddingLeft: 10, fontSize: 12, color: "#ddd",
+                          transition: "all 0.15s"
+                        }}
+                        onMouseEnter={e => {
+                          e.currentTarget.style.background = "#EEF2FF";
+                          e.currentTarget.style.color = "#6366F1";
+                          e.currentTarget.textContent = "+ Nuevo turno a las " + hora;
+                        }}
+                        onMouseLeave={e => {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.color = "#ddd";
+                          e.currentTarget.textContent = "";
+                        }}
+                      />
+                    ) : (
+                      turnosEnSlot.map(t => {
+                        const esBloqueado = (t.motivo || "").includes("BLOQUEADO");
+                        if (esBloqueado) {
+                          return (
+                            <div key={t.id} style={{
+                              background: "repeating-linear-gradient(45deg,#1a1a2e,#1a1a2e 4px,#374151 4px,#374151 8px)",
+                              border: "1.5px solid #DC2626", borderRadius: 8, padding: "8px 12px",
+                              display: "flex", justifyContent: "space-between", alignItems: "center"
+                            }}>
+                              <div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: "#FCA5A5" }}>🔒 BLOQUEADO · {t.hora_fin ? `hasta ${t.hora_fin.slice(0,5)}` : ""}</div>
+                                <div style={{ fontSize: 11, color: "#FDA4AF" }}>{t.profesional || "Ambas"} · {(t.motivo||"").replace("🔒 BLOQUEADO: ","")}</div>
+                              </div>
+                              <button onClick={() => db.eliminarTurno(t.id)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
+                            </div>
+                          );
+                        }
+                        const ce = COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
+                        const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0
+                          ? t.practicas.join(" · ")
+                          : (t.motivo || "Sin práctica");
+                        const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
+                        return (
+                          <div key={t.id} style={{
+                            background: ce.bg, border: `1.5px solid ${saldo > 0 ? "#FDE68A" : ce.color + "44"}`,
+                            borderRadius: 8, padding: "8px 12px",
+                            display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8
+                          }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                                <span style={{ fontSize: 12, fontWeight: 800, color: ce.color }}>
+                                  {t.hora.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
+                                </span>
+                                <span style={{ background: ce.color, color: "#fff", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{ce.label}</span>
+                                {saldo > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>💰 Debe</span>}
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: 14, color: "#1a1a2e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {pacNombre(t.paciente_id)}
+                              </div>
+                              <div style={{ fontSize: 12, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {practicasTexto}{t.profesional ? ` · ${t.profesional}` : ""}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                              <button onClick={() => editar(t)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 11 }}>Editar</button>
+                              <button onClick={() => db.eliminarTurno(t.id)} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
