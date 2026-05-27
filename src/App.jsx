@@ -664,8 +664,8 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
   if (esBloqueado) {
     return (
       <div style={{
-        background: "repeating-linear-gradient(45deg, #1a1a2e, #1a1a2e 5px, #374151 5px, #374151 10px)",
-        border: "1.5px solid #DC2626", borderRadius: 10, padding: "11px 14px",
+        background: "repeating-linear-gradient(45deg, #FEE2E2, #FEE2E2 5px, #fff 5px, #fff 10px)",
+        border: "1.5px solid #FECACA", borderRadius: 10, padding: "11px 14px",
         display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6
       }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
@@ -675,9 +675,9 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
             {mostrarFecha && <div style={{ fontSize: 10, color: "#FCA5A5" }}>{formatFecha(t.fecha)}</div>}
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 14, color: "#FCA5A5" }}>AGENDA BLOQUEADA</div>
-            <div style={{ fontSize: 12, color: "#FDA4AF" }}>{t.profesional || "Ambas profesionales"}</div>
-            <div style={{ fontSize: 11, color: "#FDA4AF" }}>{t.motivo.replace("🔒 BLOQUEADO: ", "")}</div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#991B1B" }}>AGENDA BLOQUEADA</div>
+            <div style={{ fontSize: 12, color: "#991B1B" }}>{t.profesional || "Ambas profesionales"}</div>
+            <div style={{ fontSize: 11, color: "#991B1B" }}>{t.motivo.replace("🔒 BLOQUEADO: ", "")}</div>
           </div>
         </div>
         <button onClick={() => onEliminar(t.id)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "5px 9px", fontSize: 12, cursor: "pointer" }}>✕ Desbloquear</button>
@@ -933,13 +933,13 @@ function Turnos({ data, db, saldoPaciente }) {
                         if (esBloqueado) {
                           return (
                             <div key={t.id} style={{
-                              background: "repeating-linear-gradient(45deg,#1a1a2e,#1a1a2e 4px,#374151 4px,#374151 8px)",
-                              border: "1.5px solid #DC2626", borderRadius: 8, padding: "8px 12px",
+                              background: "repeating-linear-gradient(45deg, #FEE2E2, #FEE2E2 4px, #fff 4px, #fff 8px)",
+                              border: "1.5px solid #FECACA", borderRadius: 8, padding: "8px 12px",
                               display: "flex", justifyContent: "space-between", alignItems: "center"
                             }}>
                               <div>
-                                <div style={{ fontSize: 12, fontWeight: 800, color: "#FCA5A5" }}>🔒 BLOQUEADO · {t.hora_fin ? `hasta ${t.hora_fin.slice(0,5)}` : ""}</div>
-                                <div style={{ fontSize: 11, color: "#FDA4AF" }}>{t.profesional || "Ambas"} · {(t.motivo||"").replace("🔒 BLOQUEADO: ","")}</div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: "#991B1B" }}>🔒 BLOQUEADO · {t.hora_fin ? `hasta ${t.hora_fin.slice(0,5)}` : ""}</div>
+                                <div style={{ fontSize: 11, color: "#991B1B" }}>{t.profesional || "Ambas"} · {(t.motivo||"").replace("🔒 BLOQUEADO: ","")}</div>
                               </div>
                               <button onClick={() => db.eliminarTurno(t.id)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
                             </div>
@@ -1000,11 +1000,11 @@ function Turnos({ data, db, saldoPaciente }) {
                   const normales = ts.filter(t => !(t.motivo||"").includes("BLOQUEADO"));
                   return (
                     <div onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#1f2937" : "#F8FAFC", border: bloqueados.length > 0 ? "1.5px solid #DC2626" : hoy ? "none" : "1.5px solid #E5E7EB", borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 6, cursor: "pointer" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: hoy || bloqueados.length > 0 ? "rgba(255,255,255,0.6)" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: hoy || bloqueados.length > 0 ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
+                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#FEE2E2" : "#F8FAFC", border: bloqueados.length > 0 ? "1.5px solid #FECACA" : hoy ? "none" : "1.5px solid #E5E7EB", borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 6, cursor: "pointer" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: hoy ? "rgba(255,255,255,0.6)" : bloqueados.length > 0 ? "#991B1B" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: hoy ? "#fff" : bloqueados.length > 0 ? "#991B1B" : "#1a1a2e" }}>{numDia(fecha)}</div>
                       {normales.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#6366F1" }}>{normales.length} turno{normales.length !== 1 ? "s" : ""}</div>}
-                      {bloqueados.length > 0 && <div style={{ fontSize: 10, color: "#FCA5A5", fontWeight: 700 }}>🔒 Bloqueado</div>}
+                      {bloqueados.length > 0 && <div style={{ fontSize: 10, color: "#991B1B", fontWeight: 700 }}>🔒 Bloqueado</div>}
                       {recs.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#D97706" }}>🔔 {recs.length}</div>}
                     </div>
                   );
@@ -1019,7 +1019,7 @@ function Turnos({ data, db, saldoPaciente }) {
                     return (
                       <div key={t.id} style={{
                         background: esBloqueado
-                          ? "repeating-linear-gradient(45deg, #1a1a2e, #1a1a2e 4px, #374151 4px, #374151 8px)"
+                          ? "repeating-linear-gradient(45deg, #FEE2E2, #FEE2E2 4px, #fff 4px, #fff 8px)"
                           : ce.bg,
                         borderRadius: 7, padding: "6px 8px", position: "relative",
                         border: esBloqueado ? "1.5px solid #DC2626" : "none",
