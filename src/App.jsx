@@ -547,6 +547,30 @@ function calcularHoraFin(horaInicio, motivo) {
 
 function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoPaciente }) {
   const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
+  const esBloqueado = (t.motivo || "").includes("BLOQUEADO");
+  if (esBloqueado) {
+    return (
+      <div style={{
+        background: "repeating-linear-gradient(45deg, #1a1a2e, #1a1a2e 5px, #374151 5px, #374151 10px)",
+        border: "1.5px solid #DC2626", borderRadius: 10, padding: "11px 14px",
+        display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6
+      }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <div style={{ background: "rgba(220,38,38,0.3)", borderRadius: 7, padding: "6px 10px", textAlign: "center", minWidth: 80 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#FCA5A5" }}>🔒 {t.hora}</div>
+            {t.hora_fin && <div style={{ fontSize: 10, color: "#FCA5A5" }}>hasta {t.hora_fin}</div>}
+            {mostrarFecha && <div style={{ fontSize: 10, color: "#FCA5A5" }}>{formatFecha(t.fecha)}</div>}
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#FCA5A5" }}>AGENDA BLOQUEADA</div>
+            <div style={{ fontSize: 12, color: "#FDA4AF" }}>{t.profesional || "Ambas profesionales"}</div>
+            <div style={{ fontSize: 11, color: "#FDA4AF" }}>{t.motivo.replace("🔒 BLOQUEADO: ", "")}</div>
+          </div>
+        </div>
+        <button onClick={() => onEliminar(t.id)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "5px 9px", fontSize: 12, cursor: "pointer" }}>✕ Desbloquear</button>
+      </div>
+    );
+  }
   return (
     <div style={{ background: "#fff", border: `1.5px solid ${saldo > 0 ? "#FDE68A" : "#F0F0F0"}`, borderRadius: 10, padding: "11px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
@@ -713,27 +737,54 @@ function Turnos({ data, db, saldoPaciente }) {
             const hoy = fecha === today();
             return (
               <div key={fecha}>
-                <div onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                  style={{ background: hoy ? "#1a1a2e" : "#F8FAFC", border: hoy ? "none" : "1.5px solid #E5E7EB", borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 6, cursor: "pointer" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: hoy ? "rgba(255,255,255,0.6)" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
-                  {ts.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#6366F1" }}>{ts.length} turno{ts.length !== 1 ? "s" : ""}</div>}
-                  {recs.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#D97706" }}>🔔 {recs.length}</div>}
-                </div>
+                {(() => {
+                  const bloqueados = ts.filter(t => (t.motivo||"").includes("BLOQUEADO"));
+                  const normales = ts.filter(t => !(t.motivo||"").includes("BLOQUEADO"));
+                  return (
+                    <div onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
+                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#1f2937" : "#F8FAFC", border: bloqueados.length > 0 ? "1.5px solid #DC2626" : hoy ? "none" : "1.5px solid #E5E7EB", borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 6, cursor: "pointer" }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: hoy || bloqueados.length > 0 ? "rgba(255,255,255,0.6)" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: hoy || bloqueados.length > 0 ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
+                      {normales.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#6366F1" }}>{normales.length} turno{normales.length !== 1 ? "s" : ""}</div>}
+                      {bloqueados.length > 0 && <div style={{ fontSize: 10, color: "#FCA5A5", fontWeight: 700 }}>🔒 Bloqueado</div>}
+                      {recs.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#D97706" }}>🔔 {recs.length}</div>}
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {ts.map(t => {
                     const pac = pacientes.find(p => p.id === t.paciente_id);
-                    const ce = COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
+                    const esBloqueado = (t.motivo || "").includes("BLOQUEADO");
+                    const ce = esBloqueado
+                      ? { bg: "#1a1a2e", color: "#fff" }
+                      : COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
                     return (
-                      <div key={t.id} style={{ background: ce.bg, borderRadius: 7, padding: "6px 8px", position: "relative" }} title={`${t.hora} · ${pacNombre(t.paciente_id)}`}>
+                      <div key={t.id} style={{
+                        background: esBloqueado
+                          ? "repeating-linear-gradient(45deg, #1a1a2e, #1a1a2e 4px, #374151 4px, #374151 8px)"
+                          : ce.bg,
+                        borderRadius: 7, padding: "6px 8px", position: "relative",
+                        border: esBloqueado ? "1.5px solid #DC2626" : "none",
+                      }} title={`${t.hora}–${t.hora_fin || ""} · ${t.motivo || ""}`}>
                         <div onClick={() => editar(t)} style={{ cursor: "pointer" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: ce.color }}>{t.hora}</div>
-                          <div style={{ fontSize: 11, color: ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 16 }}>{pac?.apellido || "—"}</div>
-                          {t.motivo && <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.motivo}</div>}
+                          <div style={{ fontSize: 11, fontWeight: 800, color: esBloqueado ? "#FCA5A5" : ce.color }}>
+                            🔒 {t.hora}{t.hora_fin ? `–${t.hora_fin}` : ""}
+                          </div>
+                          <div style={{ fontSize: 10, color: esBloqueado ? "#FCA5A5" : ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 14, fontWeight: esBloqueado ? 700 : 400 }}>
+                            {esBloqueado ? (t.profesional || "Bloqueado") : (pac?.apellido || "—")}
+                          </div>
+                          {esBloqueado && t.motivo && (
+                            <div style={{ fontSize: 9, color: "#FCA5A5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {t.motivo.replace("🔒 BLOQUEADO: ", "")}
+                            </div>
+                          )}
+                          {!esBloqueado && t.motivo && (
+                            <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.motivo}</div>
+                          )}
                         </div>
                         <button
-                          onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar turno de ${pacNombre(t.paciente_id)}?`)) db.eliminarTurno(t.id); }}
-                          style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,0.15)", border: "none", borderRadius: 4, width: 16, height: 16, fontSize: 10, cursor: "pointer", color: ce.color, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
+                          onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar este bloqueo/turno?`)) db.eliminarTurno(t.id); }}
+                          style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,0.25)", border: "none", borderRadius: 4, width: 16, height: 16, fontSize: 10, cursor: "pointer", color: esBloqueado ? "#FCA5A5" : ce.color, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
                         >×</button>
                       </div>
                     );
@@ -1944,11 +1995,61 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
     horaDesde: "08:00",
     horaHasta: "18:00",
     motivo: "Licencia",
+    repeticion: "ninguna",       // ninguna | diaria | semanal | mensual
+    diasSemana: [],               // para repeticion semanal: [0,1,2,3,4,5,6] lun=0
+    cantRepeticiones: 4,          // cuántas veces repetir
   });
   const [saving, setSaving] = useState(false);
+  const [preview, setPreview] = useState([]);
+
+  const DIAS_LABELS = ["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
+
+  function generarFechas() {
+    const fechas = [];
+    const desde = new Date(form.fechaDesde + "T12:00:00");
+    const hasta = new Date(form.fechaHasta + "T12:00:00");
+
+    if (form.repeticion === "ninguna") {
+      let d = new Date(desde);
+      while (d <= hasta) {
+        fechas.push(d.toISOString().split("T")[0]);
+        d.setDate(d.getDate() + 1);
+      }
+    } else if (form.repeticion === "diaria") {
+      let d = new Date(desde);
+      for (let i = 0; i < form.cantRepeticiones; i++) {
+        fechas.push(d.toISOString().split("T")[0]);
+        d.setDate(d.getDate() + 1);
+      }
+    } else if (form.repeticion === "semanal") {
+      const diasSel = form.diasSemana.length > 0 ? form.diasSemana : [desde.getDay() === 0 ? 6 : desde.getDay() - 1];
+      let semana = 0;
+      let d = new Date(desde);
+      // go to start of week
+      while (semana < form.cantRepeticiones) {
+        const dayOfWeek = d.getDay() === 0 ? 6 : d.getDay() - 1;
+        if (diasSel.includes(dayOfWeek)) {
+          fechas.push(d.toISOString().split("T")[0]);
+        }
+        d.setDate(d.getDate() + 1);
+        if (d.getDay() === 1) semana++; // new week on monday
+      }
+    } else if (form.repeticion === "mensual") {
+      let d = new Date(desde);
+      for (let i = 0; i < form.cantRepeticiones; i++) {
+        fechas.push(d.toISOString().split("T")[0]);
+        d.setMonth(d.getMonth() + 1);
+      }
+    }
+    return [...new Set(fechas)].sort();
+  }
+
+  useEffect(() => {
+    setPreview(generarFechas().slice(0, 10));
+  }, [form.fechaDesde, form.fechaHasta, form.repeticion, form.cantRepeticiones, form.diasSemana.join(",")]);
 
   async function guardar() {
-    if (!form.fechaDesde || !form.fechaHasta) return alert("Completá las fechas.");
+    if (!form.fechaDesde) return alert("Completá la fecha de inicio.");
     setSaving(true);
     try {
       const profs = form.profesional === "ambas"
@@ -1957,10 +2058,9 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
         ? ["Lic. Cecilia Miatello"]
         : ["Lic. Graciela Valles"];
 
-      // Generate one blocked turn per day per professional
-      let fecha = form.fechaDesde;
+      const fechas = generarFechas();
       const promises = [];
-      while (fecha <= form.fechaHasta) {
+      for (const fecha of fechas) {
         for (const prof of profs) {
           promises.push(db.agregarTurno({
             fecha,
@@ -1969,18 +2069,16 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
             motivo: `🔒 BLOQUEADO: ${form.motivo}`,
             profesional: prof,
             estado: "cancelado",
-            notas: "Bloqueo de agenda",
+            notas: `Bloqueo de agenda · Repetición: ${form.repeticion}`,
           }));
         }
-        // next day
-        const d = new Date(fecha + "T12:00:00");
-        d.setDate(d.getDate() + 1);
-        fecha = d.toISOString().split("T")[0];
       }
       await Promise.all(promises);
       onClose();
     } finally { setSaving(false); }
   }
+
+  const totalDias = generarFechas().length;
 
   return (
     <Modal title="🔒 Bloquear agenda" onClose={onClose}>
@@ -1991,12 +2089,12 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
           <option value="ambas">Ambas profesionales</option>
         </select>
       </Field>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Desde (fecha)"><input type="date" style={inputStyle} value={form.fechaDesde} onChange={e => setForm(f => ({ ...f, fechaDesde: e.target.value }))} /></Field>
-        <Field label="Hasta (fecha)"><input type="date" style={inputStyle} value={form.fechaHasta} onChange={e => setForm(f => ({ ...f, fechaHasta: e.target.value }))} /></Field>
         <Field label="Hora inicio"><input type="time" style={inputStyle} value={form.horaDesde} onChange={e => setForm(f => ({ ...f, horaDesde: e.target.value }))} /></Field>
         <Field label="Hora fin"><input type="time" style={inputStyle} value={form.horaHasta} onChange={e => setForm(f => ({ ...f, horaHasta: e.target.value }))} /></Field>
       </div>
+
       <Field label="Motivo">
         <select style={selectStyle} value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))}>
           <option>Licencia</option>
@@ -2006,12 +2104,84 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
           <option>Otro</option>
         </select>
       </Field>
-      <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#92400E", marginBottom: 8 }}>
-        ⚠️ Se bloqueará la agenda para cada día del rango seleccionado.
+
+      {/* Repetición */}
+      <Field label="Repetición">
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[["ninguna","Una vez"],["diaria","Diaria"],["semanal","Semanal"],["mensual","Mensual"]].map(([v, l]) => (
+            <button type="button" key={v} onClick={() => setForm(f => ({ ...f, repeticion: v }))} style={{
+              background: form.repeticion === v ? "#1a1a2e" : "#F3F4F6",
+              color: form.repeticion === v ? "#fff" : "#374151",
+              border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer"
+            }}>{l}</button>
+          ))}
+        </div>
+      </Field>
+
+      {/* Una vez o diaria: mostrar rango de fechas */}
+      {(form.repeticion === "ninguna" || form.repeticion === "diaria") && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Desde"><input type="date" style={inputStyle} value={form.fechaDesde} onChange={e => setForm(f => ({ ...f, fechaDesde: e.target.value, fechaHasta: e.target.value > f.fechaHasta ? e.target.value : f.fechaHasta }))} /></Field>
+          {form.repeticion === "ninguna"
+            ? <Field label="Hasta"><input type="date" style={inputStyle} value={form.fechaHasta} onChange={e => setForm(f => ({ ...f, fechaHasta: e.target.value }))} /></Field>
+            : <Field label="Cantidad de días"><input type="number" min={1} max={365} style={inputStyle} value={form.cantRepeticiones} onChange={e => setForm(f => ({ ...f, cantRepeticiones: parseInt(e.target.value)||1 }))} /></Field>
+          }
+        </div>
+      )}
+
+      {/* Semanal: elegir días de la semana */}
+      {form.repeticion === "semanal" && (
+        <>
+          <Field label="Fecha de inicio"><input type="date" style={inputStyle} value={form.fechaDesde} onChange={e => setForm(f => ({ ...f, fechaDesde: e.target.value }))} /></Field>
+          <Field label="Días de la semana">
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {DIAS_LABELS.map((d, i) => (
+                <button type="button" key={i} onClick={() => {
+                  const ya = form.diasSemana.includes(i);
+                  setForm(f => ({ ...f, diasSemana: ya ? f.diasSemana.filter(x => x !== i) : [...f.diasSemana, i] }));
+                }} style={{
+                  background: form.diasSemana.includes(i) ? "#DC2626" : "#F3F4F6",
+                  color: form.diasSemana.includes(i) ? "#fff" : "#374151",
+                  border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer"
+                }}>{d}</button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Cantidad de semanas"><input type="number" min={1} max={52} style={inputStyle} value={form.cantRepeticiones} onChange={e => setForm(f => ({ ...f, cantRepeticiones: parseInt(e.target.value)||1 }))} /></Field>
+        </>
+      )}
+
+      {/* Mensual */}
+      {form.repeticion === "mensual" && (
+        <>
+          <Field label="Fecha de inicio"><input type="date" style={inputStyle} value={form.fechaDesde} onChange={e => setForm(f => ({ ...f, fechaDesde: e.target.value }))} /></Field>
+          <Field label="Cantidad de meses"><input type="number" min={1} max={24} style={inputStyle} value={form.cantRepeticiones} onChange={e => setForm(f => ({ ...f, cantRepeticiones: parseInt(e.target.value)||1 }))} /></Field>
+        </>
+      )}
+
+      {/* Preview */}
+      {preview.length > 0 && (
+        <div style={{ background: "#1f2937", borderRadius: 10, padding: "12px 14px", marginTop: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#FCA5A5", marginBottom: 8 }}>
+            🔒 Vista previa — {totalDias} día{totalDias !== 1 ? "s" : ""} a bloquear
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {preview.map(f => (
+              <span key={f} style={{ background: "#374151", color: "#FCA5A5", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 600 }}>{formatFecha(f)}</span>
+            ))}
+            {totalDias > 10 && <span style={{ color: "#9CA3AF", fontSize: 11 }}>...y {totalDias - 10} más</span>}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#92400E", margin: "12px 0 8px" }}>
+        ⚠️ Se crearán <strong>{totalDias}</strong> bloqueo{totalDias !== 1 ? "s" : ""} en total.
       </div>
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
         <button onClick={onClose} style={btnSecondary}>Cancelar</button>
-        <button onClick={guardar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#991B1B,#DC2626)" }}>{saving ? "Bloqueando..." : "🔒 Bloquear"}</button>
+        <button onClick={guardar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#991B1B,#DC2626)" }}>
+          {saving ? "Bloqueando..." : `🔒 Bloquear ${totalDias} día${totalDias !== 1 ? "s" : ""}`}
+        </button>
       </div>
     </Modal>
   );
