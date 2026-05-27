@@ -1220,6 +1220,19 @@ function Turnos({ data, db, saldoPaciente }) {
               <Field label="Descripción / evolución">
                 <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.descripcion} onChange={e => setHcForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describí la evolución, indicaciones, observaciones..." />
               </Field>
+              {/* Link rápido a insumos */}
+              {form.paciente_id && (
+                <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: 12, color: "#92400E" }}>¿Entregaste insumos en esta consulta?</span>
+                  <button type="button" onClick={async () => {
+                    // Save turno first then open HC with insumo modal
+                    if (!form.fecha || !form.hora) return alert("Guardá el turno primero.");
+                    await guardar();
+                  }} style={{ background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                    🛍️ Ir a cargar insumo
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1267,6 +1280,9 @@ function Pacientes({ data, db }) {
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+  const [insumoModal, setInsumoModal] = useState(false);
+  const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
 
   const [etiquetasCustom] = useState(() => {
     try { return JSON.parse(localStorage.getItem("etiquetas_custom") || "[]"); } catch { return []; }
@@ -1315,6 +1331,32 @@ function Pacientes({ data, db }) {
       await db.agregarEntradaHC(verHC, evForm);
       setEvModal(false);
       setEvForm({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+    } finally { setSaving(false); }
+  }
+
+  function agregarInsumoItem() {
+    if (!insumoActual.nombre) return;
+    setInsumoForm(f => ({ ...f, insumos: [...f.insumos, { ...insumoActual, id: uid() }] }));
+    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+  }
+
+  function quitarInsumoItem(id) {
+    setInsumoForm(f => ({ ...f, insumos: f.insumos.filter(i => i.id !== id) }));
+  }
+
+  async function guardarInsumo() {
+    if (!verHC) return;
+    if (insumoForm.insumos.length === 0) return alert("Agregá al menos un insumo.");
+    setSaving(true);
+    try {
+      await db.agregarCompra({
+        ...insumoForm,
+        paciente_id: verHC,
+        total: parseFloat(insumoForm.total) || 0,
+        seña: parseFloat(insumoForm.seña) || 0,
+      });
+      setInsumoModal(false);
+      setInsumoForm({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
     } finally { setSaving(false); }
   }
 
@@ -1483,9 +1525,12 @@ function Pacientes({ data, db }) {
               </div>
             )}
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>Evolución clínica</span>
-            <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar entrada</button>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => setInsumoModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A" }}>🛍️ Cargar insumo</button>
+              <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar entrada</button>
+            </div>
           </div>
           {(() => {
             // Unify all activity for this patient
@@ -1529,8 +1574,8 @@ function Pacientes({ data, db }) {
             );
           })()}
           {evModal && (
-            <div style={{ marginTop: 20, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
-              <h4 style={{ margin: "0 0 12px" }}>Nueva entrada</h4>
+            <div style={{ marginTop: 16, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
+              <h4 style={{ margin: "0 0 12px" }}>Nueva entrada clínica</h4>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Fecha"><input type="date" style={inputStyle} value={evForm.fecha} onChange={e => setEvForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
                 <Field label="Tipo">
@@ -1550,6 +1595,54 @@ function Pacientes({ data, db }) {
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button onClick={() => setEvModal(false)} style={btnSecondary}>Cancelar</button>
                 <button onClick={agregarEvento} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Agregar"}</button>
+              </div>
+            </div>
+          )}
+
+          {insumoModal && (
+            <div style={{ marginTop: 16, background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 10, padding: 16 }}>
+              <h4 style={{ margin: "0 0 12px", color: "#92400E" }}>🛍️ Cargar insumo al paciente</h4>
+              <Field label="Fecha"><input type="date" style={inputStyle} value={insumoForm.fecha} onChange={e => setInsumoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+              {/* Agregar insumos */}
+              <div style={{ background: "#fff", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+                  <Field label="Insumo">
+                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                      {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActual.cantidad} onChange={e => setInsumoActual(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
+                  <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} /></Field>
+                  <button type="button" onClick={agregarInsumoItem} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
+                </div>
+                {insumoForm.insumos.length === 0
+                  ? <div style={{ fontSize: 12, color: "#aaa", textAlign: "center" }}>Agregá insumos con +</div>
+                  : insumoForm.insumos.map(i => (
+                    <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#FFFBEB", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 13 }}>
+                      <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
+                      <button onClick={() => quitarInsumoItem(i.id)} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
+                    </div>
+                  ))
+                }
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoForm.total} onChange={e => setInsumoForm(f => ({ ...f, total: e.target.value }))} /></Field>
+                <Field label="Seña / pagado ($)"><input type="number" style={inputStyle} value={insumoForm.seña} onChange={e => setInsumoForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+              </div>
+              {parseFloat(insumoForm.total) > 0 && (
+                <div style={{ background: (parseFloat(insumoForm.total) - parseFloat(insumoForm.seña||0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 600, color: (parseFloat(insumoForm.total) - parseFloat(insumoForm.seña||0)) > 0 ? "#92400E" : "#065F46", marginBottom: 10 }}>
+                  Saldo: ${((parseFloat(insumoForm.total)||0) - (parseFloat(insumoForm.seña)||0)).toLocaleString("es-AR")}
+                </div>
+              )}
+              <Field label="Estado">
+                <select style={selectStyle} value={insumoForm.estado} onChange={e => setInsumoForm(f => ({ ...f, estado: e.target.value }))}>
+                  <option value="pendiente">Pendiente de pago</option>
+                  <option value="pagado">Pagado</option>
+                </select>
+              </Field>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setInsumoModal(false)} style={btnSecondary}>Cancelar</button>
+                <button onClick={guardarInsumo} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#92400E,#D97706)" }}>{saving ? "Guardando..." : "🛍️ Guardar insumo"}</button>
               </div>
             </div>
           )}
