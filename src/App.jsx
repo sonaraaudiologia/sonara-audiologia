@@ -598,7 +598,7 @@ function Dashboard({ data, onNavigate }) {
 }
 
 // ─── TURNOS ───────────────────────────────────────────────────────────────────
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", historia: [], etiquetas: [] };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [] };
 const PRACTICAS_LISTA = [
   "Audiometría",
   "Audiometría y logoaudiometría",
@@ -1156,6 +1156,15 @@ function Turnos({ data, db, saldoPaciente }) {
                   <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formPac.fechaNac} onChange={e => setFormPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
                 </div>
                 <Field label="Diagnóstico"><input style={inputStyle} value={formPac.diagnostico} onChange={e => setFormPac(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
+                <Field label="Derivado por">
+                  <DerivadoPorSelector
+                    value={formPac.derivadoPor || ""}
+                    onChange={v => setFormPac(f => ({ ...f, derivadoPor: v }))}
+                  />
+                </Field>
+                <Field label="Audífono actual (marca/modelo)">
+                  <input style={inputStyle} value={formPac.audifono || ""} onChange={e => setFormPac(f => ({ ...f, audifono: e.target.value }))} placeholder="Ej: Oticon More 1" />
+                </Field>
                 <button onClick={crearPacienteYSeleccionar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", width: "100%", marginTop: 4 }}>✓ Crear y asignar al turno</button>
               </div>
             )}
