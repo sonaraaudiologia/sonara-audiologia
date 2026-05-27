@@ -130,6 +130,64 @@ function getEtiquetaInfo(id) {
   } catch { return null; }
 }
 
+// ─── SELECTOR DERIVADO POR ────────────────────────────────────────────────────
+function DerivadoPorSelector({ value, onChange }) {
+  const [profesionales, setProfesionales] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]"); } catch { return []; }
+  });
+  const [mostrarNuevo, setMostrarNuevo] = useState(false);
+  const [nuevoNombre, setNuevoNombre] = useState("");
+  const [nuevaEsp, setNuevaEsp] = useState("");
+
+  function agregarYSeleccionar() {
+    if (!nuevoNombre.trim()) return;
+    const nuevo = { id: uid(), nombre: nuevoNombre.trim(), especialidad: nuevaEsp.trim(), seguimiento: [] };
+    const actualizados = [...profesionales, nuevo];
+    setProfesionales(actualizados);
+    localStorage.setItem("sonara_profesionales_externos", JSON.stringify(actualizados));
+    onChange(nuevoNombre.trim());
+    setMostrarNuevo(false);
+    setNuevoNombre("");
+    setNuevaEsp("");
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <select style={{ ...selectStyle, flex: 1 }} value={value} onChange={e => onChange(e.target.value)}>
+          <option value="">— Sin derivación —</option>
+          {profesionales.map(p => (
+            <option key={p.id} value={p.nombre}>{p.nombre}{p.especialidad ? ` · ${p.especialidad}` : ""}</option>
+          ))}
+        </select>
+        <button type="button" onClick={() => setMostrarNuevo(!mostrarNuevo)} style={{
+          background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE",
+          borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap"
+        }}>+ Nuevo</button>
+      </div>
+      {mostrarNuevo && (
+        <div style={{ marginTop: 8, background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 8, padding: "12px" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#4338CA", marginBottom: 8 }}>Agregar nuevo profesional derivante</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Nombre *</label>
+              <input style={inputStyle} value={nuevoNombre} onChange={e => setNuevoNombre(e.target.value)} placeholder="Dr. Juan Pérez" onKeyDown={e => e.key === "Enter" && agregarYSeleccionar()} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Especialidad</label>
+              <input style={inputStyle} value={nuevaEsp} onChange={e => setNuevaEsp(e.target.value)} placeholder="Médico clínico..." />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={agregarYSeleccionar} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 12 }}>Agregar y seleccionar</button>
+            <button type="button" onClick={() => setMostrarNuevo(false)} style={{ ...btnSecondary, padding: "7px 12px", fontSize: 12 }}>Cancelar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ETIQUETAS INLINE (sin componente externo, sin closures) ─────────────────
 function EtiquetasInline({ seleccionadas, onChange }) {
   const [custom, setCustom] = useState(() => {
@@ -1125,7 +1183,12 @@ function Pacientes({ data, db }) {
             <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
             <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
           </div>
-          <Field label="Derivado por"><input style={inputStyle} value={form.derivadoPor || ""} onChange={e => setForm(f => ({ ...f, derivadoPor: e.target.value }))} placeholder="Nombre del profesional derivante" /></Field>
+          <Field label="Derivado por">
+            <DerivadoPorSelector
+              value={form.derivadoPor || ""}
+              onChange={v => setForm(f => ({ ...f, derivadoPor: v }))}
+            />
+          </Field>
           <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
@@ -1913,6 +1976,50 @@ function Estadisticas({ data }) {
                   <div key={e.id} style={{ background: e.bg, border: `1.5px solid ${e.color}33`, borderRadius: 10, padding: "10px 16px", textAlign: "center" }}>
                     <div style={{ fontSize: 20, fontWeight: 800, color: e.color }}>{e.total}</div>
                     <div style={{ fontSize: 12, color: e.color, fontWeight: 600 }}>{e.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        } catch { return null; }
+      })()}
+
+      {/* Derivaciones por profesional */}
+      {(() => {
+        try {
+          const profs = JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]");
+          if (profs.length === 0) return null;
+          const conDerivaciones = profs.map(p => ({
+            ...p,
+            pacientes: data.pacientes.filter(pac =>
+              (pac.derivado_por || pac.derivadoPor || "").toLowerCase().includes(p.nombre.toLowerCase())
+            )
+          })).filter(p => p.pacientes.length > 0).sort((a, b) => b.pacientes.length - a.pacientes.length);
+          if (conDerivaciones.length === 0) return null;
+          return (
+            <div style={cardStyle}>
+              <div style={sectionTitle}>🏥 Derivaciones por profesional externo</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {conDerivaciones.map(p => (
+                  <div key={p.id}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, alignItems: "center" }}>
+                      <div>
+                        <span style={{ fontWeight: 600, fontSize: 14 }}>{p.nombre}</span>
+                        {p.especialidad && <span style={{ fontSize: 12, color: "#888", marginLeft: 8 }}>{p.especialidad}</span>}
+                      </div>
+                      <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{p.pacientes.length} paciente{p.pacientes.length !== 1 ? "s" : ""}</span>
+                    </div>
+                    <div style={{ background: "#F3F4F6", borderRadius: 6, height: 8, overflow: "hidden", marginBottom: 6 }}>
+                      <div style={{ background: "#059669", height: "100%", borderRadius: 6, width: `${(p.pacientes.length / data.pacientes.length) * 100}%` }} />
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {p.pacientes.slice(0, 6).map(pac => (
+                        <span key={pac.id} style={{ background: "#F0FDF4", color: "#065F46", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>
+                          {pac.apellido}, {pac.nombre}
+                        </span>
+                      ))}
+                      {p.pacientes.length > 6 && <span style={{ fontSize: 11, color: "#aaa" }}>+{p.pacientes.length - 6} más</span>}
+                    </div>
                   </div>
                 ))}
               </div>
