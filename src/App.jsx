@@ -592,15 +592,63 @@ function Dashboard({ data, onNavigate }) {
 
 // ─── TURNOS ───────────────────────────────────────────────────────────────────
 const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", historia: [], etiquetas: [] };
-const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", profesional: "", estado: "pendiente", notas: "" };
+const PRACTICAS_LISTA = [
+  "Audiometría",
+  "Audiometría y logoaudiometría",
+  "Audiometría por juego",
+  "Calibración de audífono",
+  "Calibración de IC",
+  "Encendido de IC",
+  "Rendimiento de IC",
+  "Rendimiento de OTA",
+  "Toma de impresión para molde",
+  "Retira molde",
+  "Selección de audífonos",
+  "Entrega de audífonos",
+  "Asesoramiento comercial",
+  "Control",
+  "Reunión con profesionales",
+  "Otro",
+];
 
-const DURACION_MOTIVO = { "Selección de audífonos": 60, "Asesoramiento comercial": 60 };
+const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
+
+const DURACION_MOTIVO = { "Selección de audífonos": 60, "Asesoramiento comercial": 60, "Calibración de IC": 60, "Encendido de IC": 60 };
 function calcularHoraFin(horaInicio, motivo) {
   if (!horaInicio) return "";
   const mins = DURACION_MOTIVO[motivo] !== undefined ? DURACION_MOTIVO[motivo] : 30;
   const [h, m] = horaInicio.split(":").map(Number);
   const total = h * 60 + m + mins;
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function SelectorPracticas({ seleccionadas = [], onChange }) {
+  return (
+    <div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {PRACTICAS_LISTA.map(p => {
+          const activa = seleccionadas.includes(p);
+          return (
+            <button type="button" key={p} onClick={() => {
+              const nueva = activa ? seleccionadas.filter(x => x !== p) : [...seleccionadas, p];
+              onChange(nueva);
+            }} style={{
+              background: activa ? "#EEF2FF" : "#F3F4F6",
+              color: activa ? "#4338CA" : "#6B7280",
+              border: activa ? "1.5px solid #6366F1" : "1.5px solid #E5E7EB",
+              borderRadius: 20, padding: "4px 12px", fontSize: 12,
+              fontWeight: activa ? 700 : 500, cursor: "pointer", transition: "all 0.15s"
+            }}>{activa ? "✓ " : ""}{p}</button>
+          );
+        })}
+      </div>
+      {seleccionadas.length > 0 && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#4338CA", fontWeight: 600 }}>
+          {seleccionadas.length} práctica{seleccionadas.length !== 1 ? "s" : ""} seleccionada{seleccionadas.length !== 1 ? "s" : ""}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoPaciente }) {
@@ -638,7 +686,12 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
         </div>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: "#1a1a2e" }}>{pacNombre(t.paciente_id)}</div>
-          <div style={{ fontSize: 12, color: "#888" }}>{t.motivo || "Sin motivo"}{t.profesional ? ` · ${t.profesional}` : ""}</div>
+          <div style={{ fontSize: 12, color: "#888" }}>
+            {Array.isArray(t.practicas) && t.practicas.length > 0 
+              ? t.practicas.join(" · ") 
+              : (t.motivo || "Sin práctica")}
+            {t.profesional ? ` · ${t.profesional}` : ""}
+          </div>
           {saldo > 0 && (
             <div style={{ fontSize: 11, background: "#FEF3C7", color: "#92400E", borderRadius: 6, padding: "2px 8px", display: "inline-block", marginTop: 3, fontWeight: 700 }}>
               💰 Debe insumos: ${saldo.toLocaleString("es-AR")}
@@ -725,10 +778,17 @@ function Turnos({ data, db, saldoPaciente }) {
     setHcForm({ tipo: "consulta", descripcion: "", profesional: "" });
   }
 
-  function editar(t) { setForm({ ...t, paciente_id: t.paciente_id || "" }); cerrarModal(); setModal(t.id); }
+  function editar(t) { 
+    const practicas = Array.isArray(t.practicas) && t.practicas.length > 0 
+      ? t.practicas 
+      : (t.motivo ? [t.motivo] : []);
+    setForm({ ...t, paciente_id: t.paciente_id || "", practicas }); 
+    cerrarModal(); 
+    setModal(t.id); 
+  }
   function nuevo(fechaPreset) {
     const f = fechaPreset || (vista === "dia" ? filtroFecha : today());
-    setForm({ ...FORM_TURNO_VACIO, fecha: f, hora_fin: calcularHoraFin("09:00", "") });
+    setForm({ ...FORM_TURNO_VACIO, fecha: f, hora_fin: calcularHoraFin("09:00", ""), practicas: [] });
     cerrarModal(); setModal("nuevo");
   }
 
@@ -836,8 +896,10 @@ function Turnos({ data, db, saldoPaciente }) {
                               {t.motivo.replace("🔒 BLOQUEADO: ", "")}
                             </div>
                           )}
-                          {!esBloqueado && t.motivo && (
-                            <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.motivo}</div>
+                          {!esBloqueado && (
+                            <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(", ") : (t.motivo || "")}
+                            </div>
                           )}
                         </div>
                         <button
@@ -950,19 +1012,11 @@ function Turnos({ data, db, saldoPaciente }) {
             <Field label="Hora inicio *"><input type="time" style={inputStyle} value={form.hora} onChange={e => setForm(f => ({ ...f, hora: e.target.value, hora_fin: calcularHoraFin(e.target.value, f.motivo) }))} /></Field>
             <Field label="Hora fin"><input type="time" style={inputStyle} value={form.hora_fin || ""} onChange={e => setForm(f => ({ ...f, hora_fin: e.target.value }))} /></Field>
           </div>
-          <Field label="Motivo">
-            <select style={selectStyle} value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value, hora_fin: calcularHoraFin(f.hora, e.target.value) }))}>
-              <option value="">— Sin especificar —</option>
-              <option>Audiometría y logoaudiometría</option>
-              <option>Control</option>
-              <option>Calibración</option>
-              <option>Selección de audífonos</option>
-              <option>Toma de impresión para molde</option>
-              <option>Entrega de molde</option>
-              <option>Asesoramiento comercial</option>
-              <option>Reunión con profesionales</option>
-              <option>Entrega de audífonos</option>
-            </select>
+          <Field label="Prácticas">
+            <SelectorPracticas
+              seleccionadas={form.practicas || (form.motivo ? [form.motivo] : [])}
+              onChange={practicas => setForm(f => ({ ...f, practicas, motivo: practicas[0] || "" }))}
+            />
           </Field>
           <Field label="Profesional">
             <select style={selectStyle} value={form.profesional} onChange={e => setForm(f => ({ ...f, profesional: e.target.value }))}>
@@ -989,16 +1043,7 @@ function Turnos({ data, db, saldoPaciente }) {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                 <Field label="Tipo">
                   <select style={{ ...selectStyle, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.tipo} onChange={e => setHcForm(f => ({ ...f, tipo: e.target.value }))}>
-                    <option>Audiometría y logoaudiometría</option>
-                    <option>Control</option>
-                    <option>Calibración</option>
-                    <option>Selección de audífonos</option>
-                    <option>Toma de impresión para molde</option>
-                    <option>Entrega de molde</option>
-                    <option>Asesoramiento comercial</option>
-                    <option>Reunión con profesionales</option>
-                    <option>Entrega de audífonos</option>
-                    <option>Otro</option>
+                    {PRACTICAS_LISTA.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </Field>
                 <Field label="Profesional">
@@ -1287,16 +1332,7 @@ function Pacientes({ data, db }) {
                 <Field label="Fecha"><input type="date" style={inputStyle} value={evForm.fecha} onChange={e => setEvForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
                 <Field label="Tipo">
                   <select style={selectStyle} value={evForm.tipo} onChange={e => setEvForm(f => ({ ...f, tipo: e.target.value }))}>
-                    <option>Audiometría y logoaudiometría</option>
-                    <option>Control</option>
-                    <option>Calibración</option>
-                    <option>Selección de audífonos</option>
-                    <option>Toma de impresión para molde</option>
-                    <option>Entrega de molde</option>
-                    <option>Asesoramiento comercial</option>
-                    <option>Reunión con profesionales</option>
-                    <option>Entrega de audífonos</option>
-                    <option>Otro</option>
+                    {PRACTICAS_LISTA.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </Field>
               </div>
