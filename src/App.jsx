@@ -2821,9 +2821,8 @@ const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefon
 const TIPOS_SEGUIMIENTO_PROF = ["Visita", "Llamada", "Email", "Derivación recibida", "Derivación enviada", "Reunión", "Otro"];
 const ESPECIALIDADES = ["Médico clínico", "Fonoaudiólogo/a", "Otorrinolaringólogo/a", "Neurólogo/a", "Pediatra", "Geriatra", "Psicólogo/a", "Kinesiólogo/a", "Otro"];
 
-function Profesionales({ data, profExternos = [] }) {
-  const { profesionales: _prof, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
-  const profesionales = profExternos.length > 0 ? profExternos : _prof;
+function Profesionales({ data }) {
+  const { profesionales, loading: loadingProf, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
   const [modal, setModal] = useState(null); // null | "nuevo" | id
   const [verSeg, setVerSeg] = useState(null); // id del prof
   const [busqueda, setBusqueda] = useState("");
@@ -2887,7 +2886,9 @@ function Profesionales({ data, profExternos = [] }) {
 
       <input style={{ ...inputStyle, maxWidth: 320, marginBottom: 16 }} placeholder="Buscar por nombre, especialidad..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
 
-      {lista.length === 0
+      {loadingProf
+        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 30 }}>⏳</div><div>Cargando...</div></div>
+        : lista.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🏥</div><div>No hay profesionales cargados</div></div>
         : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 12 }}>
           {lista.map(p => {
@@ -3298,7 +3299,7 @@ export default function App() {
         {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
         {tab === "estadisticas"  && <Estadisticas data={data} profExternos={profExternos} />}
-        {tab === "profesionales" && <Profesionales data={data} profExternos={profExternos} />}
+        {tab === "profesionales" && <Profesionales data={data} />}
       </div>
     </div>
   );
