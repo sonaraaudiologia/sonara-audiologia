@@ -1253,7 +1253,7 @@ function Turnos({ data, db, saldoPaciente }) {
                                 {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
                               </div>
                               <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
-                                {pac?.apellido || pac?.nombre || "Sin paciente"}
+                                {pac ? `${pac.apellido || ""} ${pac.nombre || ""}`.trim() || "Sin paciente" : "Sin paciente"}
                               </div>
                               <div style={{ fontSize: 9, color: cm.text, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                                 {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
