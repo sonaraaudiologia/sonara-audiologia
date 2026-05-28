@@ -2455,7 +2455,12 @@ function Compras({ data, db }) {
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 // ─── ESTADÍSTICAS ─────────────────────────────────────────────────────────────
-function Estadisticas({ data, profExternos = [] }) {
+function Estadisticas({ data }) {
+  const [profExternos, setProfExternos] = useState([]);
+  useEffect(() => {
+    supabase.from("profesionales_externos").select("*").order("nombre")
+      .then(({ data: d }) => { if (d) setProfExternos(d); });
+  }, []);
   const [periodo, setPeriodo] = useState(6); // meses a mostrar
 
   function getMesLabel(dateStr) {
@@ -2778,7 +2783,8 @@ function useProfesionalesExternos() {
   useEffect(() => {
     cargar();
     // Realtime
-    const ch = supabase.channel("realtime-profesionales_externos")
+    const chName = "realtime-prof-" + Math.random().toString(36).slice(2,7);
+    const ch = supabase.channel(chName)
       .on("postgres_changes", { event: "*", schema: "public", table: "profesionales_externos" }, () => cargar())
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -3230,7 +3236,6 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const db = useSupabase();
   const { data, loading, error } = db;
-  const { profesionales: profExternos } = useProfesionalesExternos();
 
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
@@ -3298,7 +3303,7 @@ export default function App() {
         {tab === "ventas"        && <Ventas data={data} db={db} />}
         {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
-        {tab === "estadisticas"  && <Estadisticas data={data} profExternos={profExternos} />}
+        {tab === "estadisticas"  && <Estadisticas data={data} />}
         {tab === "profesionales" && <Profesionales data={data} />}
       </div>
     </div>
