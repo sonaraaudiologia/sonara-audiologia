@@ -1068,21 +1068,27 @@ function Turnos({ data, db, saldoPaciente }) {
                                 const pac = pacientes.find(p => p.id === t.paciente_id);
                                 const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "");
                                 return (
-                                  <div key={t.id} onClick={() => editar(t)}
+                                  <div key={t.id}
                                     style={{
                                       background: esBloqueado ? "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 4px,#fff 4px,#fff 8px)" : ce.bg,
                                       border: esBloqueado ? "1px solid #FECACA" : `1px solid ${ce.color}33`,
-                                      borderRadius: 5, padding: "3px 5px", cursor: "pointer", fontSize: 10
+                                      borderRadius: 5, padding: "3px 5px", fontSize: 10, position: "relative"
                                     }}>
-                                    <div style={{ fontWeight: 700, color: esBloqueado ? "#991B1B" : ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {esBloqueado ? "🔒 " : ""}{t.hora.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
+                                    <div onClick={() => editar(t)} style={{ cursor: "pointer", paddingRight: 14 }}>
+                                      <div style={{ fontWeight: 700, color: esBloqueado ? "#991B1B" : ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                        {esBloqueado ? "🔒 " : ""}{t.hora.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
+                                      </div>
+                                      <div style={{ color: esBloqueado ? "#991B1B" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+                                        {esBloqueado ? (t.profesional || "Bloqueado") : (pac?.apellido || "Sin paciente")}
+                                      </div>
+                                      {!esBloqueado && practicasTexto && (
+                                        <div style={{ color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{practicasTexto}</div>
+                                      )}
                                     </div>
-                                    <div style={{ color: esBloqueado ? "#991B1B" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
-                                      {esBloqueado ? (t.profesional || "Bloqueado") : (pac?.apellido || "Sin paciente")}
-                                    </div>
-                                    {!esBloqueado && practicasTexto && (
-                                      <div style={{ color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{practicasTexto}</div>
-                                    )}
+                                    <button
+                                      onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar turno?")) db.eliminarTurno(t.id); }}
+                                      style={{ position: "absolute", top: 2, right: 2, background: "rgba(0,0,0,0.12)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: esBloqueado ? "#991B1B" : ce.color, display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1 }}
+                                    >×</button>
                                   </div>
                                 );
                               })}
