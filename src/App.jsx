@@ -1026,15 +1026,15 @@ function Turnos({ data, db, saldoPaciente }) {
                     const { top, height } = turnoLayout(t);
                     const totalCols = Math.max(t._totalCols || 1, 1);
                     const col = t._col || 0;
-                    const pct = 100 / totalCols;
-                    const contentWidth = `calc((100% - 56px) * ${pct / 100} - 3px)`;
-                    const leftOffset = `calc(56px + (100% - 56px) * ${(col * pct) / 100} + 1px)`;
+                    const pctW = (100 / totalCols);
+                    const leftVal = `calc(56px + ${col * pctW}% - ${col * 56 / totalCols}px)`;
+                    const widthVal = `calc(${pctW}% - ${56 / totalCols}px - 3px)`;
                     const cm = colorPorMotivo(t.practicas, t.motivo);
                     const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
                     const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(" · ") : (t.motivo || "");
                     return (
                       <div key={t.id} style={{
-                        position: "absolute", top: top + 2, left: leftOffset, width: contentWidth,
+                        position: "absolute", top: top + 2, left: leftVal, width: widthVal,
                         height: height - 4, zIndex: 4,
                         background: cm.bg, border: `1.5px solid ${saldo > 0 ? "#FCD34D" : cm.border}`,
                         borderRadius: 8, padding: "4px 8px", overflow: "hidden", cursor: "pointer",
