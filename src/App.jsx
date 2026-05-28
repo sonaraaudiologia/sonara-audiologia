@@ -135,21 +135,19 @@ function DerivadoPorSelector({ value, onChange }) {
   const [profesionales, setProfesionales] = useState([]);
 
   useEffect(() => {
-    try {
-      const data = JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]");
-      setProfesionales(data);
-    } catch { setProfesionales([]); }
+    supabase.from("profesionales_externos").select("id,nombre,especialidad").order("nombre")
+      .then(({ data }) => { if (data) setProfesionales(data); });
   }, []);
   const [mostrarNuevo, setMostrarNuevo] = useState(false);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevaEsp, setNuevaEsp] = useState("");
 
-  function agregarYSeleccionar() {
+  async function agregarYSeleccionar() {
     if (!nuevoNombre.trim()) return;
-    const nuevo = { id: uid(), nombre: nuevoNombre.trim(), especialidad: nuevaEsp.trim(), seguimiento: [] };
-    const actualizados = [...profesionales, nuevo];
-    setProfesionales(actualizados);
-    localStorage.setItem("sonara_profesionales_externos", JSON.stringify(actualizados));
+    const { data: row } = await supabase.from("profesionales_externos")
+      .insert({ nombre: nuevoNombre.trim(), especialidad: nuevaEsp.trim(), seguimiento: [] })
+      .select().single();
+    if (row) setProfesionales(p => [...p, row]);
     onChange(nuevoNombre.trim());
     setMostrarNuevo(false);
     setNuevoNombre("");
@@ -1220,14 +1218,14 @@ function Turnos({ data, db, saldoPaciente }) {
                             cursor: "pointer",
                             boxSizing: "border-box",
                           }}>
-                            <div onClick={() => editar(t)} style={{ height: "calc(100% - 14px)", overflow: "hidden" }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div onClick={() => editar(t)} style={{ position: "absolute", top: 2, left: 3, right: 3, bottom: 16, overflow: "hidden" }}>
+                              <div style={{ fontSize: 9, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                                 {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
                               </div>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                                 {pac?.apellido || pac?.nombre || "Sin paciente"}
                               </div>
-                              <div style={{ fontSize: 9, color: cm.text, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              <div style={{ fontSize: 9, color: cm.text, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
                                 {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
                               </div>
                             </div>
@@ -2427,7 +2425,7 @@ function Compras({ data, db }) {
 // ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
 
 // ─── ESTADÍSTICAS ─────────────────────────────────────────────────────────────
-function Estadisticas({ data }) {
+function Estadisticas({ data, profExternos = [] }) {
   const [periodo, setPeriodo] = useState(6); // meses a mostrar
 
   function getMesLabel(dateStr) {
@@ -2696,7 +2694,7 @@ function Estadisticas({ data }) {
       {/* Derivaciones por profesional */}
       {(() => {
         try {
-          const profs = JSON.parse(localStorage.getItem("sonara_profesionales_externos") || "[]");
+          const profs = profExternos || [];
           if (profs.length === 0) return null;
           const conDerivaciones = profs.map(p => ({
             ...p,
@@ -2743,33 +2741,59 @@ function Estadisticas({ data }) {
 
 // ─── PROFESIONALES ────────────────────────────────────────────────────────────
 // ─── PROFESIONALES EXTERNOS ───────────────────────────────────────────────────
-const PROF_STORAGE_KEY = "sonara_profesionales_externos";
-
 function useProfesionalesExternos() {
-  const [profesionales, setProfesionales] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(PROF_STORAGE_KEY) || "[]"); } catch { return []; }
-  });
-  function guardar(lista) {
-    setProfesionales(lista);
-    localStorage.setItem(PROF_STORAGE_KEY, JSON.stringify(lista));
+  const [profesionales, setProfesionales] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    cargar();
+    // Realtime
+    const ch = supabase.channel("realtime-profesionales_externos")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profesionales_externos" }, () => cargar())
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  async function cargar() {
+    const { data } = await supabase.from("profesionales_externos").select("*").order("nombre");
+    if (data) setProfesionales(data);
+    setLoading(false);
   }
-  function agregar(prof) { guardar([...profesionales, { ...prof, id: uid(), seguimiento: [] }]); }
-  function actualizar(prof) { guardar(profesionales.map(p => p.id === prof.id ? prof : p)); }
-  function eliminar(id) { guardar(profesionales.filter(p => p.id !== id)); }
-  function agregarSeguimiento(profId, entrada) {
+
+  async function agregar(prof) {
+    const { data: row } = await supabase.from("profesionales_externos")
+      .insert({ ...prof, seguimiento: prof.seguimiento || [] }).select().single();
+    if (row) setProfesionales(p => [...p, row]);
+    return row;
+  }
+
+  async function actualizar(prof) {
+    await supabase.from("profesionales_externos").update(prof).eq("id", prof.id);
+    setProfesionales(p => p.map(x => x.id === prof.id ? prof : x));
+  }
+
+  async function eliminar(id) {
+    await supabase.from("profesionales_externos").delete().eq("id", id);
+    setProfesionales(p => p.filter(x => x.id !== id));
+  }
+
+  async function agregarSeguimiento(profId, entrada) {
     const prof = profesionales.find(p => p.id === profId);
     if (!prof) return;
-    actualizar({ ...prof, seguimiento: [...(prof.seguimiento || []), { ...entrada, id: uid() }] });
+    const nuevaSeg = [...(prof.seguimiento || []), { ...entrada, id: uid() }];
+    await actualizar({ ...prof, seguimiento: nuevaSeg });
   }
-  return { profesionales, agregar, actualizar, eliminar, agregarSeguimiento };
+
+  return { profesionales, loading, agregar, actualizar, eliminar, agregarSeguimiento };
 }
 
 const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", notas: "" };
 const TIPOS_SEGUIMIENTO_PROF = ["Visita", "Llamada", "Email", "Derivación recibida", "Derivación enviada", "Reunión", "Otro"];
 const ESPECIALIDADES = ["Médico clínico", "Fonoaudiólogo/a", "Otorrinolaringólogo/a", "Neurólogo/a", "Pediatra", "Geriatra", "Psicólogo/a", "Kinesiólogo/a", "Otro"];
 
-function Profesionales({ data }) {
-  const { profesionales, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
+function Profesionales({ data, profExternos = [] }) {
+  const { profesionales: _prof, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
+  const profesionales = profExternos.length > 0 ? profExternos : _prof;
   const [modal, setModal] = useState(null); // null | "nuevo" | id
   const [verSeg, setVerSeg] = useState(null); // id del prof
   const [busqueda, setBusqueda] = useState("");
@@ -3175,6 +3199,7 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const db = useSupabase();
   const { data, loading, error } = db;
+  const { profesionales: profExternos } = useProfesionalesExternos();
 
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
@@ -3242,8 +3267,8 @@ export default function App() {
         {tab === "ventas"        && <Ventas data={data} db={db} />}
         {tab === "compras"       && <Compras data={data} db={db} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} />}
-        {tab === "estadisticas"  && <Estadisticas data={data} />}
-        {tab === "profesionales" && <Profesionales data={data} />}
+        {tab === "estadisticas"  && <Estadisticas data={data} profExternos={profExternos} />}
+        {tab === "profesionales" && <Profesionales data={data} profExternos={profExternos} />}
       </div>
     </div>
   );
