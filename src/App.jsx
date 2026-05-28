@@ -3255,7 +3255,7 @@ export default function App() {
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "system-ui", background: "#f0f7f7" }}>
       <div style={{ textAlign: "center" }}>
-        <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 80, objectFit: "contain", marginBottom: 24 }} />
+        <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 90, objectFit: "contain", marginBottom: 24 }} />
         <div style={{ fontSize: 14, color: "#1a6b6b", marginTop: 8, fontWeight: 600 }}>Cargando...</div>
         <div style={{ width: 200, height: 3, background: "#e0f0f0", borderRadius: 10, margin: "12px auto 0", overflow: "hidden" }}>
           <div style={{ width: "60%", height: "100%", background: "#b5cc2e", borderRadius: 10, animation: "none" }} />
@@ -3281,11 +3281,11 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
-      <div style={{ background: "linear-gradient(135deg, #1a6b6b 0%, #145555 100%)", padding: "14px 28px", borderRadius: "0 0 16px 16px", boxShadow: "0 4px 20px rgba(26,107,107,0.3)" }}>
+      <div style={{ background: "#fff", padding: "12px 28px", borderBottom: "3px solid #1a6b6b", boxShadow: "0 2px 12px rgba(26,107,107,0.1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 48, objectFit: "contain", filter: "brightness(0) invert(1)" }} />
-          <div style={{ width: 1, height: 36, background: "rgba(255,255,255,0.2)" }} />
-          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, letterSpacing: 1 }}>Sistema de Gestión</div>
+          <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 56, objectFit: "contain" }} />
+          <div style={{ width: 1, height: 36, background: "#e0f0f0" }} />
+          <div style={{ color: "#1a6b6b", fontSize: 12, letterSpacing: 1, fontWeight: 600, opacity: 0.7 }}>Sistema de Gestión</div>
         </div>
       </div>
       <div style={{ display: "flex", gap: 4, padding: "10px 16px", background: "#fff", borderBottom: "2px solid #e0f0f0", overflowX: "auto" }}>
