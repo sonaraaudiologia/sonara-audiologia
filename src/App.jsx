@@ -283,7 +283,7 @@ function horaAMin(h) {
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const inputStyle = { width: "100%", padding: "8px 12px", borderRadius: 8, border: "1.5px solid #E5E7EB", fontSize: 14, outline: "none", boxSizing: "border-box", background: "#FAFAFA" };
 const selectStyle = { ...inputStyle };
-const btnPrimary = { background: "linear-gradient(135deg, #1a1a2e, #16213e)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" };
+const btnPrimary = { background: "linear-gradient(135deg, #1a6b6b, #145555)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" };
 const btnSecondary = { background: "#F3F4F6", color: "#374151", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" };
 
 const COLORES_ESTADO = {
@@ -783,7 +783,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
     <div style={{ background: "#fff", border: `1.5px solid ${saldo > 0 ? "#FDE68A" : "#F0F0F0"}`, borderRadius: 10, padding: "11px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", minWidth: 0 }}>
         <div style={{ background: "#EEF2FF", borderRadius: 7, padding: "6px 10px", textAlign: "center", minWidth: 80, flexShrink: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: "#4338CA" }}>{t.hora}{t.hora_fin ? `–${t.hora_fin}` : ""}</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#1a6b6b" }}>{t.hora}{t.hora_fin ? `–${t.hora_fin}` : ""}</div>
           {mostrarFecha && <div style={{ fontSize: 10, color: "#6366F1" }}>{formatFecha(t.fecha)}</div>}
         </div>
         <div style={{ minWidth: 0 }}>
@@ -919,7 +919,7 @@ function Turnos({ data, db, saldoPaciente }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
           {[["dia","Día"],["semana","Semana"],["todos","Todos"]].map(([v, l]) => (
-            <button key={v} onClick={() => setVista(v)} style={{ background: vista === v ? "#1a1a2e" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+            <button key={v} onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
           ))}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -935,7 +935,7 @@ function Turnos({ data, db, saldoPaciente }) {
           <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
             {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
               <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
-                background: filtroProfesional === v ? "#1a1a2e" : "transparent",
+                background: filtroProfesional === v ? "#1a6b6b" : "transparent",
                 color: filtroProfesional === v ? "#fff" : "#555",
                 border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
               }}>{l}</button>
@@ -2903,7 +2903,7 @@ function Profesionales({ data }) {
             return (
               <div key={p.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
                 <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#4338CA", flexShrink: 0 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#e0f0f0", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#1a6b6b", flexShrink: 0 }}>
                     {p.nombre.split(" ").filter(w => w.length > 1).map(w => w[0]).slice(0, 2).join("").toUpperCase()}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -3253,11 +3253,13 @@ export default function App() {
   ];
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "system-ui" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "system-ui", background: "#f0f7f7" }}>
       <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>👂</div>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>Sonara Audiología</div>
-        <div style={{ fontSize: 14, color: "#888", marginTop: 8 }}>Cargando...</div>
+        <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 80, objectFit: "contain", marginBottom: 24 }} />
+        <div style={{ fontSize: 14, color: "#1a6b6b", marginTop: 8, fontWeight: 600 }}>Cargando...</div>
+        <div style={{ width: 200, height: 3, background: "#e0f0f0", borderRadius: 10, margin: "12px auto 0", overflow: "hidden" }}>
+          <div style={{ width: "60%", height: "100%", background: "#b5cc2e", borderRadius: 10, animation: "none" }} />
+        </div>
       </div>
     </div>
   );
@@ -3279,18 +3281,16 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
-      <div style={{ background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)", padding: "20px 28px", borderRadius: "0 0 16px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ fontSize: 32 }}>👂</div>
-          <div>
-            <div style={{ color: "#fff", fontWeight: 800, fontSize: 20 }}>Sonara Audiología</div>
-            <div style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>Sistema de Gestión</div>
-          </div>
+      <div style={{ background: "linear-gradient(135deg, #1a6b6b 0%, #145555 100%)", padding: "14px 28px", borderRadius: "0 0 16px 16px", boxShadow: "0 4px 20px rgba(26,107,107,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <img src="/Logo-Sonara-Audiología.png" alt="Sonara Audiología" style={{ height: 48, objectFit: "contain", filter: "brightness(0) invert(1)" }} />
+          <div style={{ width: 1, height: 36, background: "rgba(255,255,255,0.2)" }} />
+          <div style={{ color: "rgba(255,255,255,0.7)", fontSize: 12, letterSpacing: 1 }}>Sistema de Gestión</div>
         </div>
       </div>
-      <div style={{ display: "flex", gap: 4, padding: "12px 16px", background: "#F8FAFC", borderBottom: "1px solid #E5E7EB", overflowX: "auto" }}>
+      <div style={{ display: "flex", gap: 4, padding: "10px 16px", background: "#fff", borderBottom: "2px solid #e0f0f0", overflowX: "auto" }}>
         {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ position: "relative", background: tab === t.id ? "#1a1a2e" : "transparent", color: tab === t.id ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 14, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ position: "relative", background: tab === t.id ? "#1a6b6b" : "transparent", color: tab === t.id ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 16px", fontSize: 14, fontWeight: tab === t.id ? 700 : 500, cursor: "pointer", whiteSpace: "nowrap" }}>
             {t.icon} {t.label}
             {t.badge && <span style={{ position: "absolute", top: 2, right: 2, background: t.badgeColor || "#4338CA", color: "#fff", borderRadius: 20, fontSize: 10, fontWeight: 700, padding: "1px 5px" }}>{t.badge}</span>}
           </button>
