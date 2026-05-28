@@ -940,24 +940,28 @@ function Turnos({ data, db, saldoPaciente }) {
         // Detectar solapamientos y asignar columnas
         function asignarColumnas(turnos) {
           const sorted = [...turnos].sort((a, b) => horaAMin(a.hora) - horaAMin(b.hora));
-          const cols = [];
-          return sorted.map(t => {
-            const inicioT = horaAMin(t.hora);
-            const finT = t.hora_fin ? horaAMin(t.hora_fin) : inicioT + 30;
+
+          // Assign column index to each turno
+          const colFin = []; // tracks when each column is free
+          const withCols = sorted.map(t => {
+            const ini = horaAMin(t.hora);
+            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
             let col = 0;
-            while (cols[col] && cols[col] > inicioT) col++;
-            cols[col] = finT;
-            return { ...t, _col: col, _totalCols: 0 };
-          }).map((t, _, arr) => {
-            // Count how many events overlap with this one
-            const inicio = horaAMin(t.hora);
-            const fin = t.hora_fin ? horaAMin(t.hora_fin) : inicio + 30;
-            const overlapping = arr.filter(u => {
+            while (colFin[col] !== undefined && colFin[col] > ini) col++;
+            colFin[col] = fin;
+            return { ...t, _col: col };
+          });
+
+          // For each turno, find max concurrent columns in its time range
+          return withCols.map(t => {
+            const ini = horaAMin(t.hora);
+            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
+            const concurrent = withCols.filter(u => {
               const ui = horaAMin(u.hora);
               const uf = u.hora_fin ? horaAMin(u.hora_fin) : ui + 30;
-              return ui < fin && uf > inicio;
+              return ui < fin && uf > ini;
             });
-            return { ...t, _totalCols: overlapping.length };
+            return { ...t, _totalCols: concurrent.length };
           });
         }
 
@@ -1020,10 +1024,11 @@ function Turnos({ data, db, saldoPaciente }) {
                   {/* Turnos con layout */}
                   {turnosConLayout.map(t => {
                     const { top, height } = turnoLayout(t);
-                    const totalCols = t._totalCols || 1;
+                    const totalCols = Math.max(t._totalCols || 1, 1);
                     const col = t._col || 0;
-                    const contentWidth = `calc((100% - 56px) / ${totalCols})`;
-                    const leftOffset = `calc(56px + (100% - 56px) / ${totalCols} * ${col})`;
+                    const pct = 100 / totalCols;
+                    const contentWidth = `calc((100% - 56px) * ${pct / 100} - 3px)`;
+                    const leftOffset = `calc(56px + (100% - 56px) * ${(col * pct) / 100} + 1px)`;
                     const cm = colorPorMotivo(t.practicas, t.motivo);
                     const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
                     const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(" · ") : (t.motivo || "");
