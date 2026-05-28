@@ -1054,10 +1054,6 @@ function Turnos({ data, db, saldoPaciente }) {
                         </div>
                         <div style={{ position: "absolute", top: 3, right: 3, display: "flex", gap: 2 }}>
                           <button onClick={e => { e.stopPropagation(); editar(t); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: cm.text, fontWeight: 700 }}>✎</button>
-                          {t.paciente_id && (
-                            <button onClick={e => { e.stopPropagation(); setVerHCTurno(t.paciente_id); }}
-                              style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: "#4338CA", fontWeight: 700 }}>HC</button>
-                          )}
                           <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar turno?")) db.eliminarTurno(t.id); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: "#DC2626", fontWeight: 700 }}>✕</button>
                         </div>
                       </div>
@@ -1239,10 +1235,6 @@ function Turnos({ data, db, saldoPaciente }) {
                             <div style={{ position: "absolute", bottom: 1, left: 1, right: 1, display: "flex", gap: 2 }}>
                               <button onClick={e => { e.stopPropagation(); editar(t); }}
                                 style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: cm.text, padding: "1px 0", fontWeight: 700 }}>✎</button>
-                              {t.paciente_id && (
-                                <button onClick={e => { e.stopPropagation(); setVerHCTurno(t.paciente_id); }}
-                                  style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: "#4338CA", padding: "1px 0", fontWeight: 700 }}>HC</button>
-                              )}
                               <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar?")) db.eliminarTurno(t.id); }}
                                 style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: "#DC2626", padding: "1px 0", fontWeight: 700 }}>✕</button>
                             </div>
@@ -1559,6 +1551,12 @@ function Turnos({ data, db, saldoPaciente }) {
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6, flexWrap: "wrap" }}>
             <button onClick={cerrarModal} style={btnSecondary}>Cancelar</button>
+            {form.paciente_id && (
+              <button onClick={() => { cerrarModal(); setVerHCTurno(form.paciente_id); }}
+                style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE", fontWeight: 700 }}>
+                📋 Ver historia clínica
+              </button>
+            )}
             {modal !== "nuevo" && form.paciente_id && (
               <button onClick={async () => {
                 const pac = pacientes.find(p => p.id === form.paciente_id);
