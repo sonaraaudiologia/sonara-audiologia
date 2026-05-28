@@ -789,6 +789,7 @@ function Turnos({ data, db, saldoPaciente }) {
   const [modal, setModal] = useState(null);
   const [modalBloqueo, setModalBloqueo] = useState(false);
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
+  const [verHCTurno, setVerHCTurno] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_TURNO_VACIO);
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
@@ -918,7 +919,7 @@ function Turnos({ data, db, saldoPaciente }) {
       </div>
 
       {vista === "dia" && (() => {
-        const SLOT_H = 40; // px por cada media hora
+        const SLOT_H = 52; // px por cada media hora
         const HORA_INICIO = 8;
         const HORA_FIN = 20;
         const TOTAL_SLOTS = (HORA_FIN - HORA_INICIO) * 2; // 24 slots de 30min
@@ -1052,8 +1053,12 @@ function Turnos({ data, db, saldoPaciente }) {
                           {height > 70 && t.profesional && <div style={{ fontSize: 10, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.profesional}</div>}
                         </div>
                         <div style={{ position: "absolute", top: 3, right: 3, display: "flex", gap: 2 }}>
-                          <button onClick={e => { e.stopPropagation(); editar(t); }} style={{ background: "rgba(255,255,255,0.8)", border: "none", borderRadius: 3, padding: "1px 5px", fontSize: 9, cursor: "pointer", color: cm.text }}>✎</button>
-                          <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar turno?")) db.eliminarTurno(t.id); }} style={{ background: "rgba(255,255,255,0.8)", border: "none", borderRadius: 3, padding: "1px 5px", fontSize: 9, cursor: "pointer", color: "#DC2626" }}>✕</button>
+                          <button onClick={e => { e.stopPropagation(); editar(t); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: cm.text, fontWeight: 700 }}>✎</button>
+                          {t.paciente_id && (
+                            <button onClick={e => { e.stopPropagation(); setVerHCTurno(t.paciente_id); }}
+                              style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: "#4338CA", fontWeight: 700 }}>HC</button>
+                          )}
+                          <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar turno?")) db.eliminarTurno(t.id); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: "#DC2626", fontWeight: 700 }}>✕</button>
                         </div>
                       </div>
                     );
@@ -1084,7 +1089,7 @@ function Turnos({ data, db, saldoPaciente }) {
       })()}
 
       {vista === "semana" && (() => {
-        const SLOT_H = 28;
+        const SLOT_H = 48;
         const HORA_INICIO = 8;
         const HORA_FIN = 20;
         const TOTAL_SLOTS = (HORA_FIN - HORA_INICIO) * 2;
@@ -1219,23 +1224,28 @@ function Turnos({ data, db, saldoPaciente }) {
                             cursor: "pointer",
                             boxSizing: "border-box",
                           }}>
-                            <div onClick={() => editar(t)} style={{ height: "100%", overflow: "hidden" }}>
+                            <div onClick={() => editar(t)} style={{ height: "calc(100% - 14px)", overflow: "hidden" }}>
                               <div style={{ fontSize: 9, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                                 {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
                               </div>
-                              {height > 30 && (
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {pac?.apellido || "—"}
-                                </div>
-                              )}
-                              {height > 48 && (
-                                <div style={{ fontSize: 8, color: cm.text, opacity: 0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                  {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
-                                </div>
-                              )}
+                              <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {pac?.apellido || pac?.nombre || "Sin paciente"}
+                              </div>
+                              <div style={{ fontSize: 9, color: cm.text, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
+                              </div>
                             </div>
-                            <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar?")) db.eliminarTurno(t.id); }}
-                              style={{ position: "absolute", top: 1, right: 1, background: "rgba(255,255,255,0.8)", border: "none", borderRadius: 2, width: 12, height: 12, fontSize: 8, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>
+                            {/* Botones acción */}
+                            <div style={{ position: "absolute", bottom: 1, left: 1, right: 1, display: "flex", gap: 2 }}>
+                              <button onClick={e => { e.stopPropagation(); editar(t); }}
+                                style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: cm.text, padding: "1px 0", fontWeight: 700 }}>✎</button>
+                              {t.paciente_id && (
+                                <button onClick={e => { e.stopPropagation(); setVerHCTurno(t.paciente_id); }}
+                                  style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: "#4338CA", padding: "1px 0", fontWeight: 700 }}>HC</button>
+                              )}
+                              <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar?")) db.eliminarTurno(t.id); }}
+                                style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: "#DC2626", padding: "1px 0", fontWeight: 700 }}>✕</button>
+                            </div>
                           </div>
                         );
                       })}
@@ -1265,6 +1275,66 @@ function Turnos({ data, db, saldoPaciente }) {
       )}
 
       {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
+
+      {/* HC rápida desde turno */}
+      {verHCTurno && (() => {
+        const pac = pacientes.find(p => p.id === verHCTurno);
+        if (!pac) return null;
+        const TIPO_HC = { consulta: "🩺", estudio: "📋", adaptacion: "👂", venta: "🛒", otro: "📌" };
+        const comprasPac = data.compras.filter(c => c.paciente_id === verHCTurno).map(c => ({
+          id: c.id, fecha: c.fecha, _tipo: "compra",
+          descripcion: `Insumos: ${(c.insumos||[]).map(i => i.nombre).join(", ")} · $${(parseFloat(c.total)||0).toLocaleString("es-AR")}`,
+          tipo: c.estado === "pagado" ? "✅ Insumo pagado" : "🛍️ Insumo pendiente"
+        }));
+        const ventasPac = data.ventas.filter(v => v.paciente_id === verHCTurno).map(v => ({
+          id: v.id, fecha: v.fecha, _tipo: "venta",
+          descripcion: `${v.dispositivo||""} ${v.marca||""} ${v.modelo||""} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
+          tipo: `🛒 Venta: ${v.estado}`
+        }));
+        const recsPac = data.recordatorios.filter(r => r.paciente_id === verHCTurno).map(r => ({
+          id: r.id, fecha: r.fecha, _tipo: "rec",
+          descripcion: r.descripcion || r.titulo,
+          tipo: `🔔 ${r.titulo}`
+        }));
+        const historia = [...(pac.historia||[]).map(e => ({...e, _tipo:"hc"})), ...comprasPac, ...ventasPac, ...recsPac]
+          .filter(e => e.fecha).sort((a,b) => b.fecha.localeCompare(a.fecha));
+        const colores = { hc: { bg: "#F0FDF4", border: "#BBF7D0" }, compra: { bg: "#FEF3C7", border: "#FDE68A" }, rec: { bg: "#EDE9FE", border: "#C4B5FD" }, venta: { bg: "#E0F2FE", border: "#BAE6FD" } };
+        return (
+          <Modal title={`HC · ${pac.apellido}, ${pac.nombre}`} onClose={() => setVerHCTurno(null)}>
+            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>📞 {pac.telefono||"—"}{pac.telefono && <CopyButton text={pac.telefono} label="tel" />}</div>
+                <div>🏥 {pac.obraSocial||pac.obra_social||"Particular"}</div>
+                {pac.diagnostico && <div style={{ gridColumn: "span 2" }}>🩺 {pac.diagnostico}</div>}
+                {pac.audifono && <div style={{ gridColumn: "span 2" }}>👂 {pac.audifono}</div>}
+                {(pac.derivadoPor||pac.derivado_por) && <div style={{ gridColumn: "span 2" }}>Derivado: {pac.derivadoPor||pac.derivado_por}</div>}
+              </div>
+            </div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Historial completo</div>
+            {historia.length === 0
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin entradas</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
+                {historia.map(ev => {
+                  const c = colores[ev._tipo] || colores.hc;
+                  return (
+                    <div key={ev._tipo+ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                        <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 13 }}>{ev.descripcion}</p>
+                      {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            }
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+              <button onClick={() => setVerHCTurno(null)} style={btnSecondary}>Cerrar</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo turno" : "Editar turno"} onClose={cerrarModal}>
