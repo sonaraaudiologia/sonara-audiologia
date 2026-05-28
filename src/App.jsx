@@ -1248,14 +1248,14 @@ function Turnos({ data, db, saldoPaciente }) {
                             cursor: "pointer",
                             boxSizing: "border-box",
                           }}>
-                            <div onClick={() => editar(t)} style={{ position: "absolute", top: 2, left: 3, right: 3, bottom: 16, overflow: "hidden" }}>
-                              <div style={{ fontSize: 9, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
+                            <div onClick={() => editar(t)} style={{ position: "absolute", top: 1, left: 2, right: 2, bottom: 14, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: 0 }}>
+                              <div style={{ fontSize: 8, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 }}>
                                 {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
                               </div>
-                              <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 }}>
                                 {pac ? `${pac.apellido || ""} ${pac.nombre || ""}`.trim() || "Sin paciente" : "Sin paciente"}
                               </div>
-                              <div style={{ fontSize: 9, color: cm.text, opacity: 0.85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.3 }}>
+                              <div style={{ fontSize: 8, color: cm.text, opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2, fontWeight: 600 }}>
                                 {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
                               </div>
                             </div>
