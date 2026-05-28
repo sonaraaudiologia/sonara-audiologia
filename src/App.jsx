@@ -408,14 +408,33 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
   }, []);
 
+  function toDBTurno(turno) {
+    return {
+      paciente_id: turno.paciente_id || null,
+      fecha: turno.fecha,
+      hora: turno.hora,
+      hora_fin: turno.hora_fin || null,
+      motivo: Array.isArray(turno.practicas) && turno.practicas.length > 0
+        ? turno.practicas.join(", ")
+        : (turno.motivo || ""),
+      practicas: Array.isArray(turno.practicas) ? turno.practicas : [],
+      profesional: turno.profesional || "",
+      estado: turno.estado || "pendiente",
+      notas: turno.notas || "",
+    };
+  }
+
   const agregarTurno = useCallback(async (turno) => {
-    const { data: row, error } = await supabase.from("turnos").insert(turno).select().single();
+    const payload = toDBTurno(turno);
+    const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
+    if (error) { console.error("Error turno:", error); return; }
     if (!error) setData(d => ({ ...d, turnos: [...d.turnos, row] }));
   }, []);
 
   const actualizarTurno = useCallback(async (turno) => {
-    const { error } = await supabase.from("turnos").update(turno).eq("id", turno.id);
-    if (!error) setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? turno : t) }));
+    const payload = { ...toDBTurno(turno), id: turno.id };
+    const { error } = await supabase.from("turnos").update(payload).eq("id", turno.id);
+    if (!error) setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
   }, []);
 
   const eliminarTurno = useCallback(async (id) => {
@@ -858,12 +877,12 @@ function Turnos({ data, db, saldoPaciente }) {
               <div style={{ fontSize: 12, fontWeight: 700, color: "#D97706", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>🔔 Recordatorios del día</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado).sort((a,b) => a.hora.localeCompare(b.hora)).map(r => (
-                  <div key={r.id} style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 9, padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div key={r.id} style={{ background: "#F3F4F6", border: "1.5px solid #D1D5DB", borderRadius: 9, padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: "#92400E" }}>{r.hora} · {r.titulo}</div>
-                      {r.descripcion && <div style={{ fontSize: 12, color: "#B45309", marginTop: 2 }}>{r.descripcion}</div>}
+                      <div style={{ fontWeight: 600, fontSize: 13, color: "#4B5563" }}>🔔 {r.hora} · {r.titulo}</div>
+                      {r.descripcion && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{r.descripcion}</div>}
                     </div>
-                    <button onClick={() => db.actualizarRecordatorio({ ...r, completado: true })} style={{ background: "#FDE68A", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#92400E", cursor: "pointer" }}>✓ Listo</button>
+                    <button onClick={() => db.actualizarRecordatorio({ ...r, completado: true })} style={{ background: "#E5E7EB", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#374151", cursor: "pointer" }}>✓ Listo</button>
                   </div>
                 ))}
               </div>
@@ -987,81 +1006,104 @@ function Turnos({ data, db, saldoPaciente }) {
         </div>
       )}
 
-      {vista === "semana" && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
-          {diasSemana.map(fecha => {
-            const ts = turnosDia(fecha);
-            const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
-            const hoy = fecha === today();
-            return (
-              <div key={fecha}>
-                {(() => {
+      {vista === "semana" && (() => {
+        const HORAS = Array.from({ length: 25 }, (_, i) => {
+          const h = Math.floor(i / 2) + 8;
+          const m = i % 2 === 0 ? "00" : "30";
+          return `${String(h).padStart(2,"0")}:${m}`;
+        }).filter(h => h <= "20:00");
+
+        return (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 700, border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+              {/* Header días */}
+              <div style={{ display: "grid", gridTemplateColumns: "52px repeat(6, 1fr)", borderBottom: "2px solid #E5E7EB" }}>
+                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
+                {diasSemana.map(fecha => {
+                  const hoy = fecha === today();
+                  const ts = filtrarPorProf(data.turnos.filter(t => t.fecha === fecha));
                   const bloqueados = ts.filter(t => (t.motivo||"").includes("BLOQUEADO"));
-                  const normales = ts.filter(t => !(t.motivo||"").includes("BLOQUEADO"));
                   return (
-                    <div onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#FEE2E2" : "#F8FAFC", border: bloqueados.length > 0 ? "1.5px solid #FECACA" : hoy ? "none" : "1.5px solid #E5E7EB", borderRadius: 9, padding: "8px 6px", textAlign: "center", marginBottom: 6, cursor: "pointer" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: hoy ? "rgba(255,255,255,0.6)" : bloqueados.length > 0 ? "#991B1B" : "#888", textTransform: "uppercase" }}>{nombreDia(fecha)}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: hoy ? "#fff" : bloqueados.length > 0 ? "#991B1B" : "#1a1a2e" }}>{numDia(fecha)}</div>
-                      {normales.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#6366F1" }}>{normales.length} turno{normales.length !== 1 ? "s" : ""}</div>}
-                      {bloqueados.length > 0 && <div style={{ fontSize: 10, color: "#991B1B", fontWeight: 700 }}>🔒 Bloqueado</div>}
-                      {recs.length > 0 && <div style={{ fontSize: 10, color: hoy ? "rgba(255,255,255,0.6)" : "#D97706" }}>🔔 {recs.length}</div>}
+                    <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
+                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#FEE2E2" : "#F8FAFC", padding: "8px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB" }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : bloqueados.length > 0 ? "#991B1B" : "#888" }}>{nombreDia(fecha)}</div>
+                      <div style={{ fontSize: 18, fontWeight: 800, color: hoy ? "#fff" : bloqueados.length > 0 ? "#991B1B" : "#1a1a2e" }}>{numDia(fecha)}</div>
+                      <div style={{ fontSize: 9, color: hoy ? "rgba(255,255,255,0.5)" : "#6366F1" }}>
+                        {ts.filter(t=>!(t.motivo||"").includes("BLOQUEADO")).length > 0 && `${ts.filter(t=>!(t.motivo||"").includes("BLOQUEADO")).length}t`}
+                        {bloqueados.length > 0 && " 🔒"}
+                      </div>
                     </div>
                   );
-                })()}
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {ts.map(t => {
-                    const pac = pacientes.find(p => p.id === t.paciente_id);
-                    const esBloqueado = (t.motivo || "").includes("BLOQUEADO");
-                    const ce = esBloqueado
-                      ? { bg: "#1a1a2e", color: "#fff" }
-                      : COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
-                    return (
-                      <div key={t.id} style={{
-                        background: esBloqueado
-                          ? "repeating-linear-gradient(45deg, #FEE2E2, #FEE2E2 4px, #fff 4px, #fff 8px)"
-                          : ce.bg,
-                        borderRadius: 7, padding: "6px 8px", position: "relative",
-                        border: esBloqueado ? "1.5px solid #DC2626" : "none",
-                      }} title={`${t.hora}–${t.hora_fin || ""} · ${t.motivo || ""}`}>
-                        <div onClick={() => editar(t)} style={{ cursor: "pointer" }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: esBloqueado ? "#FCA5A5" : ce.color }}>
-                            🔒 {t.hora}{t.hora_fin ? `–${t.hora_fin}` : ""}
-                          </div>
-                          <div style={{ fontSize: 10, color: esBloqueado ? "#FCA5A5" : ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 14, fontWeight: esBloqueado ? 700 : 400 }}>
-                            {esBloqueado ? (t.profesional || "Bloqueado") : (pac?.apellido || "—")}
-                          </div>
-                          {esBloqueado && t.motivo && (
-                            <div style={{ fontSize: 9, color: "#FCA5A5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {t.motivo.replace("🔒 BLOQUEADO: ", "")}
-                            </div>
-                          )}
-                          {!esBloqueado && (
-                            <div style={{ fontSize: 10, color: ce.color, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(", ") : (t.motivo || "")}
-                            </div>
+                })}
+              </div>
+
+              {/* Grilla horaria */}
+              {HORAS.map((hora, i) => {
+                const esMediaHora = i % 2 !== 0;
+                return (
+                  <div key={hora} style={{ display: "grid", gridTemplateColumns: "52px repeat(6, 1fr)", borderBottom: `1px solid ${esMediaHora ? "#F5F5F5" : "#E5E7EB"}`, minHeight: 36 }}>
+                    {/* Hora */}
+                    <div style={{ background: esMediaHora ? "#FAFAFA" : "#F8FAFC", borderRight: "1.5px solid #E5E7EB", padding: "4px 6px", display: "flex", alignItems: "flex-start", justifyContent: "flex-end" }}>
+                      <span style={{ fontSize: 10, fontWeight: esMediaHora ? 400 : 700, color: esMediaHora ? "#ccc" : "#888" }}>{esMediaHora ? "·" : hora}</span>
+                    </div>
+                    {/* Celdas por día */}
+                    {diasSemana.map(fecha => {
+                      const todosDelDia = filtrarPorProf(data.turnos.filter(t => t.fecha === fecha));
+                      const enSlot = todosDelDia.filter(t => (t.hora || "").slice(0,5) === hora);
+                      const recs = !esMediaHora ? data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.hora||"").slice(0,5) === hora) : [];
+                      const vacio = enSlot.length === 0 && recs.length === 0;
+                      return (
+                        <div key={fecha} style={{ borderRight: "1px solid #EFEFEF", padding: vacio ? 0 : "3px 4px", display: "flex", flexDirection: "column", gap: 2, background: esMediaHora ? "#FAFAFA" : "#fff" }}>
+                          {vacio ? (
+                            <div onClick={() => nuevo(fecha, hora)}
+                              style={{ width: "100%", height: "100%", minHeight: 36, cursor: "pointer" }}
+                              onMouseEnter={e => e.currentTarget.style.background = "#EEF2FF"}
+                              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                            />
+                          ) : (
+                            <>
+                              {enSlot.map(t => {
+                                const esBloqueado = (t.motivo||"").includes("BLOQUEADO");
+                                const ce = COLORES_ESTADO[t.estado] || COLORES_ESTADO.pendiente;
+                                const pac = pacientes.find(p => p.id === t.paciente_id);
+                                const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "");
+                                return (
+                                  <div key={t.id} onClick={() => editar(t)}
+                                    style={{
+                                      background: esBloqueado ? "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 4px,#fff 4px,#fff 8px)" : ce.bg,
+                                      border: esBloqueado ? "1px solid #FECACA" : `1px solid ${ce.color}33`,
+                                      borderRadius: 5, padding: "3px 5px", cursor: "pointer", fontSize: 10
+                                    }}>
+                                    <div style={{ fontWeight: 700, color: esBloqueado ? "#991B1B" : ce.color, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {esBloqueado ? "🔒 " : ""}{t.hora.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
+                                    </div>
+                                    <div style={{ color: esBloqueado ? "#991B1B" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+                                      {esBloqueado ? (t.profesional || "Bloqueado") : (pac?.apellido || "Sin paciente")}
+                                    </div>
+                                    {!esBloqueado && practicasTexto && (
+                                      <div style={{ color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{practicasTexto}</div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {recs.map(r => (
+                                <div key={r.id} style={{ background: "#F3F4F6", border: "1px solid #D1D5DB", borderRadius: 5, padding: "3px 5px", fontSize: 10 }}>
+                                  <div style={{ fontWeight: 700, color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>🔔 {r.hora?.slice(0,5)}</div>
+                                  <div style={{ color: "#6B7280", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.titulo}</div>
+                                </div>
+                              ))}
+                            </>
                           )}
                         </div>
-                        <button
-                          onClick={e => { e.stopPropagation(); if (window.confirm(`¿Eliminar este bloqueo/turno?`)) db.eliminarTurno(t.id); }}
-                          style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,0.25)", border: "none", borderRadius: 4, width: 16, height: 16, fontSize: 10, cursor: "pointer", color: esBloqueado ? "#FCA5A5" : ce.color, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, padding: 0 }}
-                        >×</button>
-                      </div>
-                    );
-                  })}
-                  <button onClick={() => nuevo(fecha)} style={{ background: "transparent", border: "1.5px dashed #D1D5DB", borderRadius: 7, padding: 5, fontSize: 11, color: "#9CA3AF", cursor: "pointer" }}>+ turno</button>
-                  {recs.map(r => (
-                    <div key={r.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 7, padding: "5px 7px" }} title={`${r.hora} · ${r.titulo}`}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: "#D97706" }}>🔔 {r.hora}</div>
-                      <div style={{ fontSize: 10, color: "#92400E", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.titulo}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {vista === "todos" && (turnosFiltrados.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
