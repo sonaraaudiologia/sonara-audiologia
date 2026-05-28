@@ -386,7 +386,7 @@ function useSupabase() {
       const [p, t, v, r, c] = await Promise.all([
         supabase.from("pacientes").select("*").order("apellido"),
         supabase.from("turnos").select("*").order("fecha").order("hora"),
-        supabase.from("ventas").select("*").order("fecha", { ascending: false }),
+        supabase.from("ventas").select("*").order("fecha", { ascending: false }).then(r => ({ ...r, data: (r.data||[]).map(v => ({ ...v, obraSocialCubre: v.obra_social_cubre||"", saldoPaciente: v.saldo_paciente||"" })) })),
         supabase.from("recordatorios").select("*").order("fecha"),
         supabase.from("compras").select("*").order("fecha", { ascending: false }),
       ]);
@@ -488,15 +488,45 @@ function useSupabase() {
     if (!error) setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
   }, []);
 
+  function toDBVenta(v) {
+    return {
+      paciente_id: v.paciente_id || null,
+      fecha: v.fecha || today(),
+      dispositivo: v.dispositivo || "",
+      marca: v.marca || "",
+      modelo: v.modelo || "",
+      oido: v.oido || "bilateral",
+      precio: parseFloat(v.precio) || null,
+      obra_social_cubre: parseFloat(v.obraSocialCubre || v.obra_social_cubre) || null,
+      saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
+      estado: v.estado || "presupuesto",
+      observaciones: v.observaciones || "",
+    };
+  }
+
+  function fromDBVenta(row) {
+    return {
+      ...row,
+      obraSocialCubre: row.obra_social_cubre || "",
+      saldoPaciente: row.saldo_paciente || "",
+    };
+  }
+
   const agregarVenta = useCallback(async (venta) => {
-    const { data: row, error } = await supabase.from("ventas").insert(venta).select().single();
-    if (!error) setData(d => ({ ...d, ventas: [...d.ventas, row] }));
-    return row;
+    const { data: row, error } = await supabase.from("ventas").insert(toDBVenta(venta)).select().single();
+    if (error) { console.error("Error venta:", error); return null; }
+    const v = fromDBVenta(row);
+    setData(d => ({ ...d, ventas: [...d.ventas, v] }));
+    return v;
   }, []);
 
   const actualizarVenta = useCallback(async (venta) => {
-    const { error } = await supabase.from("ventas").update(venta).eq("id", venta.id);
-    if (!error) setData(d => ({ ...d, ventas: d.ventas.map(v => v.id === venta.id ? venta : v) }));
+    const payload = { ...toDBVenta(venta), id: venta.id };
+    const { error } = await supabase.from("ventas").update(payload).eq("id", venta.id);
+    if (!error) {
+      const v = fromDBVenta(payload);
+      setData(d => ({ ...d, ventas: d.ventas.map(x => x.id === venta.id ? { ...x, ...v } : x) }));
+    }
   }, []);
 
   const eliminarVenta = useCallback(async (id) => {
