@@ -332,7 +332,32 @@ function useSupabase() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => { cargarTodo(); }, []);
+  useEffect(() => {
+    cargarTodo();
+
+    // ─── Tiempo real: escuchar cambios en todas las tablas ────────────────────
+    const tablas = ["pacientes", "turnos", "ventas", "recordatorios", "compras"];
+    const channels = tablas.map(tabla =>
+      supabase.channel(`realtime-${tabla}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: tabla }, payload => {
+          setData(prev => {
+            const lista = [...prev[tabla]];
+            if (payload.eventType === "INSERT") {
+              // Avoid duplicates
+              if (!lista.find(r => r.id === payload.new.id)) return { ...prev, [tabla]: [...lista, payload.new] };
+            } else if (payload.eventType === "UPDATE") {
+              return { ...prev, [tabla]: lista.map(r => r.id === payload.new.id ? payload.new : r) };
+            } else if (payload.eventType === "DELETE") {
+              return { ...prev, [tabla]: lista.filter(r => r.id !== payload.old.id) };
+            }
+            return prev;
+          });
+        })
+        .subscribe()
+    );
+
+    return () => { channels.forEach(ch => supabase.removeChannel(ch)); };
+  }, []);
 
   async function cargarTodo() {
     try {
