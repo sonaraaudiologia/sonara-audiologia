@@ -294,10 +294,14 @@ const COLORES_ESTADO = {
   ausente:    { bg: "#F3F4F6", color: "#4B5563", label: "Ausente" },
 };
 const COLORES_VENTA = {
-  presupuesto: { bg: "#EDE9FE", color: "#4C1D95", label: "Presupuesto" },
-  en_proceso:  { bg: "#FEF3C7", color: "#92400E", label: "En proceso" },
-  vendido:     { bg: "#D1FAE5", color: "#065F46", label: "Vendido" },
-  cancelado:   { bg: "#FEE2E2", color: "#991B1B", label: "Cancelado" },
+  presupuestado:        { bg: "#EDE9FE", color: "#4C1D95",  label: "Presupuestado" },
+  aprobado:             { bg: "#DBEAFE", color: "#1E40AF",  label: "Aprobado" },
+  señado:               { bg: "#FEF3C7", color: "#92400E",  label: "Señado" },
+  subido_sios:          { bg: "#E0F2FE", color: "#075985",  label: "Subido a SIOS" },
+  pedido_acompañamiento:{ bg: "#F3E8FF", color: "#6D28D9",  label: "Pedido acompañamiento" },
+  atendido_fono:        { bg: "#ECFDF5", color: "#047857",  label: "Atendido por Fono" },
+  vendido:              { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
+  perdido:              { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
 };
 
 function Badge({ estado, tipo = "turno" }) {
@@ -495,11 +499,17 @@ function useSupabase() {
       dispositivo: v.dispositivo || "",
       marca: v.marca || "",
       modelo: v.modelo || "",
+      marca_der: v.marca_der || "",
+      modelo_der: v.modelo_der || "",
+      marca_izq: v.marca_izq || "",
+      modelo_izq: v.modelo_izq || "",
       oido: v.oido || "bilateral",
       precio: parseFloat(v.precio) || null,
       obra_social_cubre: parseFloat(v.obraSocialCubre || v.obra_social_cubre) || null,
+      condicion_pago_os: v.condicion_pago_os || "",
       saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
-      estado: v.estado || "presupuesto",
+      condicion_pago_paciente: v.condicion_pago_paciente || "",
+      estado: v.estado || "presupuestado",
       observaciones: v.observaciones || "",
     };
   }
@@ -509,6 +519,12 @@ function useSupabase() {
       ...row,
       obraSocialCubre: row.obra_social_cubre || "",
       saldoPaciente: row.saldo_paciente || "",
+      marca_der: row.marca_der || "",
+      modelo_der: row.modelo_der || "",
+      marca_izq: row.marca_izq || "",
+      modelo_izq: row.modelo_izq || "",
+      condicion_pago_os: row.condicion_pago_os || "",
+      condicion_pago_paciente: row.condicion_pago_paciente || "",
     };
   }
 
@@ -1635,6 +1651,9 @@ function Pacientes({ data, db }) {
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
   const [insumoModal, setInsumoModal] = useState(false);
+  const [ventaModal, setVentaModal] = useState(false);
+  const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
+  const [editPacModal, setEditPacModal] = useState(false);
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
 
@@ -1711,6 +1730,26 @@ function Pacientes({ data, db }) {
       });
       setInsumoModal(false);
       setInsumoForm({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+    } finally { setSaving(false); }
+  }
+
+  async function guardarVentaHC() {
+    if (!verHC) return;
+    setSaving(true);
+    try {
+      await db.agregarVenta({ ...ventaForm, paciente_id: verHC });
+      setVentaModal(false);
+      setVentaForm({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
+    } finally { setSaving(false); }
+  }
+
+  async function guardarEditPac() {
+    const pac = data.pacientes.find(p => p.id === verHC);
+    if (!pac) return;
+    setSaving(true);
+    try {
+      await db.actualizarPaciente({ ...pac, ...form });
+      setEditPacModal(false);
     } finally { setSaving(false); }
   }
 
@@ -1939,9 +1978,11 @@ function Pacientes({ data, db }) {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
             <span style={{ fontWeight: 700, fontSize: 15 }}>Evolución clínica</span>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              <button onClick={() => { editar(data.pacientes.find(p => p.id === verHC)); setEditPacModal(true); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE" }}>✏️ Editar paciente</button>
+              <button onClick={() => setVentaModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#D1FAE5", color: "#065F46", border: "1.5px solid #A7F3D0" }}>🛒 Cargar venta</button>
               <button onClick={() => setInsumoModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A" }}>🛍️ Cargar insumo</button>
-              <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar entrada</button>
+              <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Entrada</button>
             </div>
           </div>
           {(() => {
@@ -1985,6 +2026,79 @@ function Pacientes({ data, db }) {
               </div>
             );
           })()}
+          {/* Modal editar paciente desde HC */}
+          {editPacModal && (
+            <div style={{ marginTop: 16, background: "#EEF2FF", border: "1.5px solid #C7D2FE", borderRadius: 10, padding: 16 }}>
+              <h4 style={{ margin: "0 0 12px", color: "#4338CA" }}>✏️ Editar datos del paciente</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Nombre *"><input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} /></Field>
+                <Field label="Apellido *"><input style={inputStyle} value={form.apellido} onChange={e => setForm(f => ({ ...f, apellido: e.target.value }))} /></Field>
+                <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
+                <Field label="Email"><input style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
+                <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
+                <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
+                <Field label="Audífono actual"><input style={inputStyle} value={form.audifono || ""} onChange={e => setForm(f => ({ ...f, audifono: e.target.value }))} /></Field>
+                <Field label="Fecha de nac."><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
+              </div>
+              <Field label="Derivado por">
+                <DerivadoPorSelector value={form.derivadoPor || ""} onChange={v => setForm(f => ({ ...f, derivadoPor: v }))} />
+              </Field>
+              <Field label="Diagnóstico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
+              <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+                <button onClick={() => setEditPacModal(false)} style={btnSecondary}>Cancelar</button>
+                <button onClick={guardarEditPac} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+              </div>
+            </div>
+          )}
+
+          {/* Modal venta desde HC */}
+          {ventaModal && (
+            <div style={{ marginTop: 16, background: "#ECFDF5", border: "1.5px solid #A7F3D0", borderRadius: 10, padding: 16 }}>
+              <h4 style={{ margin: "0 0 12px", color: "#065F46" }}>🛒 Nueva venta / presupuesto</h4>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Fecha"><input type="date" style={inputStyle} value={ventaForm.fecha} onChange={e => setVentaForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                <Field label="Estado">
+                  <select style={selectStyle} value={ventaForm.estado} onChange={e => setVentaForm(f => ({ ...f, estado: e.target.value }))}>
+                    {Object.entries(COLORES_VENTA).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", margin: "8px 0 6px" }}>👂 Oído derecho</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Marca"><input style={inputStyle} value={ventaForm.marca_der} onChange={e => setVentaForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
+                <Field label="Modelo"><input style={inputStyle} value={ventaForm.modelo_der} onChange={e => setVentaForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", margin: "8px 0 6px" }}>👂 Oído izquierdo</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Marca"><input style={inputStyle} value={ventaForm.marca_izq} onChange={e => setVentaForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
+                <Field label="Modelo"><input style={inputStyle} value={ventaForm.modelo_izq} onChange={e => setVentaForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
+              </div>
+              <Field label="Precio total ($)"><input type="number" style={inputStyle} value={ventaForm.precio} onChange={e => setVentaForm(f => ({ ...f, precio: e.target.value }))} /></Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <Field label="Cobertura OS ($)"><input type="number" style={inputStyle} value={ventaForm.obraSocialCubre} onChange={e => setVentaForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
+                <Field label="Condición pago OS">
+                  <select style={selectStyle} value={ventaForm.condicion_pago_os} onChange={e => setVentaForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
+                    <option value="">— Seleccionar —</option>
+                    {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label="Saldo paciente ($)"><input type="number" style={inputStyle} value={ventaForm.saldoPaciente} onChange={e => setVentaForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
+                <Field label="Condición pago pac.">
+                  <select style={selectStyle} value={ventaForm.condicion_pago_paciente} onChange={e => setVentaForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
+                    <option value="">— Seleccionar —</option>
+                    {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={ventaForm.observaciones} onChange={e => setVentaForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button onClick={() => setVentaModal(false)} style={btnSecondary}>Cancelar</button>
+                <button onClick={guardarVentaHC} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)" }}>{saving ? "Guardando..." : "🛒 Guardar venta"}</button>
+              </div>
+            </div>
+          )}
+
           {evModal && (
             <div style={{ marginTop: 16, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
               <h4 style={{ margin: "0 0 12px" }}>Nueva entrada clínica</h4>
@@ -2065,18 +2179,21 @@ function Pacientes({ data, db }) {
 }
 
 // ─── VENTAS ───────────────────────────────────────────────────────────────────
+const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Cheque", "SIOS / OS directo", "Pendiente"];
+
 function Ventas({ data, db }) {
   const [modal, setModal] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("");
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ paciente_id: "", fecha: today(), dispositivo: "", marca: "", modelo: "", oido: "bilateral", precio: "", obraSocialCubre: "", saldoPaciente: "", estado: "presupuesto", observaciones: "" });
+  const FORM_VENTA_VACIO = { paciente_id: "", fecha: today(), dispositivo: "Audífono", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" };
+  const [form, setForm] = useState(FORM_VENTA_VACIO);
 
   const ventas = data.ventas.filter(v => !filtroEstado || v.estado === filtroEstado).sort((a, b) => b.fecha.localeCompare(a.fecha));
   const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
   const totalVendido = data.ventas.filter(v => v.estado === "vendido").reduce((s, v) => s + (parseFloat(v.precio) || 0), 0);
 
   async function guardar() {
-    if (!form.paciente_id || !form.dispositivo) return alert("Completá paciente y dispositivo.");
+    if (!form.paciente_id) return alert("Seleccioná un paciente.");
     setSaving(true);
     try {
       const esNueva = modal === "nuevo";
@@ -2087,9 +2204,8 @@ function Ventas({ data, db }) {
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
-        const disp = form.dispositivo || "audífono";
-        await db.agregarRecordatorio({ titulo: `Control 3 meses · ${nombre}`, fecha: sumarMeses(form.fecha, 3), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control de uso del ${disp}. Venta: ${formatFecha(form.fecha)}.`, completado: false });
-        await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual del ${disp}. Venta: ${formatFecha(form.fecha)}.`, completado: false });
+        await db.agregarRecordatorio({ titulo: `Control 3 meses · ${nombre}`, fecha: sumarMeses(form.fecha, 3), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control 3 meses. Venta: ${formatFecha(form.fecha)}.`, completado: false });
+        await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual. Venta: ${formatFecha(form.fecha)}.`, completado: false });
       }
       setModal(null);
     } finally { setSaving(false); }
@@ -2097,50 +2213,67 @@ function Ventas({ data, db }) {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
-        {[["vendido","Vendidas"],["en_proceso","En proceso"],["presupuesto","Presupuestos"]].map(([e, l]) => (
-          <div key={e} style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontSize: 22, fontWeight: 800 }}>{data.ventas.filter(v => v.estado === e).length}</div>
-            <div style={{ fontSize: 12, color: "#888" }}>{l}</div>
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16 }}>
+        {Object.entries(COLORES_VENTA).map(([k, v]) => (
+          <div key={k} style={{ background: v.bg, border: `1.5px solid ${v.color}22`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", opacity: filtroEstado === k || filtroEstado === "" ? 1 : 0.5 }}
+            onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: v.color }}>{data.ventas.filter(x => x.estado === k).length}</div>
+            <div style={{ fontSize: 11, color: v.color, fontWeight: 600 }}>{v.label}</div>
           </div>
         ))}
-        <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "12px 16px" }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: "#166534" }}>${totalVendido.toLocaleString("es-AR")}</div>
-          <div style={{ fontSize: 12, color: "#15803D" }}>Total vendido</div>
+        <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "10px 14px" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#166534" }}>${totalVendido.toLocaleString("es-AR")}</div>
+          <div style={{ fontSize: 11, color: "#15803D", fontWeight: 600 }}>Total vendido</div>
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => setFiltroEstado("")} style={{ ...btnSecondary, background: filtroEstado === "" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Todos</button>
-          {Object.entries(COLORES_VENTA).map(([k, v]) => (
-            <button key={k} onClick={() => setFiltroEstado(k)} style={{ ...btnSecondary, background: filtroEstado === k ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === k ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>{v.label}</button>
-          ))}
-        </div>
-        <button onClick={() => { setForm({ paciente_id: "", fecha: today(), dispositivo: "", marca: "", modelo: "", oido: "bilateral", precio: "", obraSocialCubre: "", saldoPaciente: "", estado: "presupuesto", observaciones: "" }); setModal("nuevo"); }} style={btnPrimary}>+ Nueva venta</button>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={() => { setForm(FORM_VENTA_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nueva venta</button>
       </div>
+
       {ventas.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🛒</div><div>No hay ventas</div></div>
         : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {ventas.map(v => (
-            <div key={v.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-              <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{pacNombre(v.paciente_id)}</div>
-                  <div style={{ fontSize: 13, color: "#888" }}>{v.marca} {v.modelo} · {v.dispositivo} · {formatFecha(v.fecha)}</div>
-                  {v.precio && <div style={{ fontSize: 13, fontWeight: 600, color: "#166534" }}>${parseFloat(v.precio).toLocaleString("es-AR")}</div>}
+          {ventas.map(v => {
+            const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
+            const derInfo = [v.marca_der, v.modelo_der].filter(Boolean).join(" ");
+            const izqInfo = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ");
+            const saldoTotal = (parseFloat(v.precio)||0) - (parseFloat(v.obraSocialCubre || v.obra_social_cubre)||0) - (parseFloat(v.saldoPaciente || v.saldo_paciente)||0);
+            return (
+              <div key={v.id} style={{ background: "#fff", border: `1.5px solid ${cv.color}33`, borderRadius: 12, padding: "14px 18px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{pacNombre(v.paciente_id)}</div>
+                      <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>{cv.label}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "#555" }}>
+                      {derInfo && <span>👂D: {derInfo}</span>}
+                      {izqInfo && <span>👂I: {izqInfo}</span>}
+                      <span style={{ color: "#aaa" }}>{formatFecha(v.fecha)}</span>
+                    </div>
+                    {v.precio && (
+                      <div style={{ fontSize: 13, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, color: "#166534" }}>Total: ${parseFloat(v.precio).toLocaleString("es-AR")}</span>
+                        {(v.obraSocialCubre || v.obra_social_cubre) && <span style={{ color: "#1E40AF" }}>OS: ${parseFloat(v.obraSocialCubre || v.obra_social_cubre).toLocaleString("es-AR")}</span>}
+                        {(v.saldoPaciente || v.saldo_paciente) && <span style={{ color: "#D97706" }}>Pac: ${parseFloat(v.saldoPaciente || v.saldo_paciente).toLocaleString("es-AR")}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => { setForm({ ...FORM_VENTA_VACIO, ...v, obraSocialCubre: v.obra_social_cubre || v.obraSocialCubre || "", saldoPaciente: v.saldo_paciente || v.saldoPaciente || "" }); setModal(v.id); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
+                    <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarVenta(v.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                  </div>
                 </div>
-                <Badge estado={v.estado} tipo="venta" />
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => { setForm({ ...v }); setModal(v.id); }} style={{ ...btnSecondary, padding: "6px 14px", fontSize: 13 }}>Editar</button>
-                <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarVenta(v.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}>✕</button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>}
 
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva venta / presupuesto" : "Editar venta"} onClose={() => setModal(null)}>
+          {/* Paciente */}
           <Field label="Paciente *">
             <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
               <option value="">Seleccionar...</option>
@@ -2155,34 +2288,76 @@ function Ventas({ data, db }) {
               </select>
             </Field>
           </div>
+
           {form.estado === "vendido" && (() => {
             const anterior = modal !== "nuevo" && data.ventas.find(v => v.id === modal);
             if (anterior?.estado === "vendido") return null;
             return (
               <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 4 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8", marginBottom: 6 }}>🔔 Se crearán recordatorios automáticos</div>
-                <div style={{ fontSize: 13, color: "#1E40AF" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8", marginBottom: 4 }}>🔔 Se crearán recordatorios automáticos</div>
+                <div style={{ fontSize: 12, color: "#1E40AF" }}>
                   <div>📅 Control 3 meses · {form.fecha ? formatFecha(sumarMeses(form.fecha, 3)) : "—"}</div>
                   <div>📅 Control anual · {form.fecha ? formatFecha(sumarMeses(form.fecha, 12)) : "—"}</div>
                 </div>
               </div>
             );
           })()}
-          <Field label="Dispositivo *"><input style={inputStyle} value={form.dispositivo} onChange={e => setForm(f => ({ ...f, dispositivo: e.target.value }))} placeholder="Ej: Audífono retroauricular" /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} /></Field>
-            <Field label="Oído">
-              <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
-                <option value="bilateral">Bilateral</option>
-                <option value="derecho">Derecho</option>
-                <option value="izquierdo">Izquierdo</option>
-              </select>
-            </Field>
-            <Field label="Precio ($)"><input type="number" style={inputStyle} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} /></Field>
-            <Field label="Cobertura OS ($)"><input type="number" style={inputStyle} value={form.obraSocialCubre} onChange={e => setForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
-            <Field label="Saldo paciente ($)"><input type="number" style={inputStyle} value={form.saldoPaciente} onChange={e => setForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
+
+          {/* Oído derecho */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído derecho</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_der || ""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_der || ""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} placeholder="Ej: More 1" /></Field>
           </div>
+
+          {/* Oído izquierdo */}
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído izquierdo</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_izq || ""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq || ""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} placeholder="Ej: More 1" /></Field>
+          </div>
+
+          {/* Precios */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💰 Precios</div>
+          <Field label="Precio total ($)"><input type="number" style={inputStyle} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} /></Field>
+
+          <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 8 }}>Cobertura Obra Social</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={form.obraSocialCubre} onChange={e => setForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
+              <Field label="Condición de pago OS">
+                <select style={selectStyle} value={form.condicion_pago_os || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </Field>
+            </div>
+          </div>
+
+          <div style={{ background: "#FEF9EC", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 8 }}>Saldo Paciente</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Monto paciente ($)"><input type="number" style={inputStyle} value={form.saldoPaciente} onChange={e => setForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
+              <Field label="Condición de pago paciente">
+                <select style={selectStyle} value={form.condicion_pago_paciente || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                </select>
+              </Field>
+            </div>
+          </div>
+
+          {/* Resumen */}
+          {parseFloat(form.precio) > 0 && (
+            <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontSize: 13 }}>
+              <span style={{ fontWeight: 700, color: "#166534" }}>
+                Saldo restante: ${Math.max(0, (parseFloat(form.precio)||0) - (parseFloat(form.obraSocialCubre)||0) - (parseFloat(form.saldoPaciente)||0)).toLocaleString("es-AR")}
+              </span>
+            </div>
+          )}
+
           <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
