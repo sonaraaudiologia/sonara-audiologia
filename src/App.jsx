@@ -819,6 +819,7 @@ function Turnos({ data, db, saldoPaciente }) {
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verHCTurno, setVerHCTurno] = useState(null);
   const [saving, setSaving] = useState(false);
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const [form, setForm] = useState(FORM_TURNO_VACIO);
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
   const [insumoFormT, setInsumoFormT] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
@@ -916,33 +917,39 @@ function Turnos({ data, db, saldoPaciente }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
-          {[["dia","Día"],["semana","Semana"],["todos","Todos"]].map(([v, l]) => (
-            <button key={v} onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {vista === "dia" && <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} style={{ ...inputStyle, width: "auto" }} />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+        {/* Fila 1: vistas + fecha/semana */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+          <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
+            {[["dia","Día"],["semana","Semana"],["todos","Todos"]].map(([v, l]) => (
+              <button key={v} onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+          {vista === "dia" && <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1, maxWidth: 160 }} />}
           {vista === "semana" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <button onClick={() => setSemanaBase(addDays(semanaBase, -7))} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 16 }}>‹</button>
-              <span style={{ fontSize: 14, fontWeight: 600, minWidth: 130, textAlign: "center" }}>{semanaLabel}</span>
-              <button onClick={() => setSemanaBase(addDays(semanaBase, 7))} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 16 }}>›</button>
-              <button onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Hoy</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <button onClick={() => setSemanaBase(addDays(semanaBase, -7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>‹</button>
+              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 110, textAlign: "center" }}>{semanaLabel}</span>
+              <button onClick={() => setSemanaBase(addDays(semanaBase, 7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>›</button>
+              <button onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 11 }}>Hoy</button>
             </div>
           )}
+        </div>
+        {/* Fila 2: filtros + acciones */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
           <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
             {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
               <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
                 background: filtroProfesional === v ? "#1a6b6b" : "transparent",
                 color: filtroProfesional === v ? "#fff" : "#555",
-                border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
+                border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
               }}>{l}</button>
             ))}
           </div>
-          <button onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>🔒 Bloquear</button>
-          <button onClick={() => nuevo()} style={btnPrimary}>+ Nuevo turno</button>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🔒</button>
+            <button onClick={() => nuevo()} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>+ Turno</button>
+          </div>
         </div>
       </div>
 
@@ -1156,9 +1163,9 @@ function Turnos({ data, db, saldoPaciente }) {
 
         return (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: 760, border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            <div style={{ minWidth: Math.max(window.innerWidth - 32, 760), border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
               {/* Header días */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, 1fr)", borderBottom: "2px solid #E5E7EB" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))", borderBottom: "2px solid #E5E7EB" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
                 {diasSemana.map(fecha => {
                   const hoy = fecha === today();
@@ -1179,7 +1186,7 @@ function Turnos({ data, db, saldoPaciente }) {
               </div>
 
               {/* Cuerpo: posicionamiento absoluto por columna día */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, 1fr)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))" }}>
                 {/* Columna horas */}
                 <div style={{ borderRight: "1.5px solid #E5E7EB", position: "relative", height: totalHeight, background: "#F8FAFC" }}>
                   {HORAS.map((h, i) => {
@@ -3280,7 +3287,7 @@ export default function App() {
     .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
 
   return (
-    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40 }}>
+    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40, minWidth: 0 }}>
       <div style={{ background: "#fff", padding: "12px 28px", borderBottom: "3px solid #1a6b6b", boxShadow: "0 2px 12px rgba(26,107,107,0.1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <img src="/logo-sonara.png" alt="Sonara Audiología" style={{ height: 56, objectFit: "contain" }} />
@@ -3296,7 +3303,7 @@ export default function App() {
           </button>
         ))}
       </div>
-      <div style={{ padding: "20px 16px" }}>
+      <div style={{ padding: "12px 10px" }}>
         {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "recordatorios")} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} />}
