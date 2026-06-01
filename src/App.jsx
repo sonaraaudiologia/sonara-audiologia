@@ -1280,8 +1280,12 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
                       <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
                       <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 2 }}>
-                        <span style={{ fontSize: 8, fontWeight: 700, opacity: filtroProfesional === "Lic. Graciela Valles" ? 0.4 : 1, color: bCM ? "#991B1B" : "#1a6b6b", background: bCM ? "#FEE2E2" : "#e0f4f4", borderRadius: 4, padding: "1px 4px" }}>{bCM ? "🔒CM" : "CM"}</span>
-                        <span style={{ fontSize: 8, fontWeight: 700, opacity: filtroProfesional === "Lic. Cecilia Miatello" ? 0.4 : 1, color: bGV ? "#991B1B" : "#4338CA", background: bGV ? "#FEE2E2" : "#EEF2FF", borderRadius: 4, padding: "1px 4px" }}>{bGV ? "🔒GV" : "GV"}</span>
+                        {(filtroProfesional === "todas" || filtroProfesional === "Lic. Cecilia Miatello") && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: bCM ? "#991B1B" : "#1a6b6b", background: bCM ? "#FEE2E2" : "#e0f4f4", borderRadius: 4, padding: "1px 4px" }}>{bCM ? "🔒CM" : "CM"}</span>
+                        )}
+                        {(filtroProfesional === "todas" || filtroProfesional === "Lic. Graciela Valles") && (
+                          <span style={{ fontSize: 8, fontWeight: 700, color: bGV ? "#991B1B" : "#4338CA", background: bGV ? "#FEE2E2" : "#EEF2FF", borderRadius: 4, padding: "1px 4px" }}>{bGV ? "🔒GV" : "GV"}</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -1295,17 +1299,17 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
 
                 {/* 6 días */}
                 <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
-                  {diasSemana.map(fecha => (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-                      {PROFS_SEM.map((prof, pi) => {
+                  {diasSemana.map(fecha => {
+                    const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
+                    return (
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
+                      {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
-                        const dimmed = filtroProfesional !== "todas" && filtroProfesional !== prof.key;
                         const conCols = asignarCols(ents);
                         const totalH = TOTAL_SLOTS * SLOT_H_SEM;
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
                         return (
-                          <div key={prof.key} style={{ position: "relative", height: totalH, borderRight: pi === 0 ? "1px dashed #E5E7EB" : "none",
-                            background: tieneBloqueo ? "repeating-linear-gradient(45deg,#FFF5F5,#FFF5F5 4px,#fff 4px,#fff 8px)" : "transparent" }}>
+                          <div key={prof.key} style={{ position: "relative", height: totalH, borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
                             {/* Líneas fondo */}
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
@@ -1342,7 +1346,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                         );
                       })}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -1391,9 +1396,9 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
 
             <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
               {/* Header profesionales */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 1fr", borderBottom: "2px solid #E5E7EB" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
-                {PROFS.map(prof => {
+                {PROFS.filter(p => filtroProfesional === "todas" || p.key === filtroProfesional).map(prof => {
                   const ents = entradasProf(prof.key);
                   const bloqueos = ents.filter(e => e._kind === "bloqueo");
                   const normales = ents.filter(e => e._kind !== "bloqueo");
@@ -1415,7 +1420,7 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
               </div>
 
               {/* Cuerpo dual */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 1fr" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}` }}>
                 {/* Columna horas */}
                 <ColumnaHoras slotH={SLOT_H_AG} />
 
