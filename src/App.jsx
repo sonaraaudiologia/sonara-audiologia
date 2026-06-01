@@ -3514,6 +3514,292 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+
+// ─── FERIADOS ARGENTINA ────────────────────────────────────────────────────────
+function getFeriadosArgentina(anio) {
+  // Feriados fijos
+  const fijos = [
+    `${anio}-01-01`, // Año nuevo
+    `${anio}-02-24`, // Carnaval (aprox)
+    `${anio}-02-25`, // Carnaval (aprox)
+    `${anio}-03-24`, // Día de la memoria
+    `${anio}-04-02`, // Malvinas
+    `${anio}-05-01`, // Día del trabajador
+    `${anio}-05-25`, // Revolución de Mayo
+    `${anio}-06-20`, // Paso a la Inmortalidad del Gral. Belgrano
+    `${anio}-07-09`, // Independencia
+    `${anio}-08-17`, // Paso a la Inmortalidad del Gral. San Martín
+    `${anio}-10-12`, // Día del Respeto a la Diversidad
+    `${anio}-11-20`, // Día de la Soberanía Nacional
+    `${anio}-12-08`, // Inmaculada Concepción
+    `${anio}-12-25`, // Navidad
+  ];
+  // Semana Santa (cálculo aproximado)
+  const easter = calcEaster(anio);
+  fijos.push(addDays(easter, -2)); // Viernes Santo
+  fijos.push(addDays(easter, -1)); // Sábado Santo
+  return fijos;
+}
+
+function calcEaster(year) {
+  const a = year % 19, b = Math.floor(year/100), c = year % 100;
+  const d = Math.floor(b/4), e = b % 4, f = Math.floor((b+8)/25);
+  const g = Math.floor((b-f+1)/3), h = (19*a+b-d-g+15) % 30;
+  const i = Math.floor(c/4), k = c % 4;
+  const l = (32+2*e+2*i-h-k) % 7;
+  const m = Math.floor((a+11*h+22*l)/451);
+  const month = Math.floor((h+l-7*m+114)/31);
+  const day = ((h+l-7*m+114) % 31) + 1;
+  return `${year}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+
+const DIAS_SEMANA = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+const MESES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+function useDisponibilidad() {
+  const [disps, setDisps] = useState([]);
+
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-disponibilidad-" + Math.random().toString(36).slice(2,6))
+      .on("postgres_changes", { event: "*", schema: "public", table: "disponibilidad" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  async function cargar() {
+    const { data } = await supabase.from("disponibilidad").select("*");
+    if (data) setDisps(data);
+  }
+
+  async function guardar(prof, mes, anio, dias_horarios) {
+    const existing = disps.find(d => d.profesional === prof && d.mes === mes && d.anio === anio);
+    if (existing) {
+      await supabase.from("disponibilidad").update({ dias_horarios }).eq("id", existing.id);
+    } else {
+      await supabase.from("disponibilidad").insert({ profesional: prof, mes, anio, dias_horarios });
+    }
+    cargar();
+  }
+
+  function getDisp(prof, mes, anio) {
+    const d = disps.find(d => d.profesional === prof && d.mes === mes && d.anio === anio);
+    return d?.dias_horarios || [];
+  }
+
+  return { disps, guardar, getDisp };
+}
+
+function Disponibilidad({ usuario }) {
+  const hoy = new Date();
+  const [mesActual, setMesActual] = useState(hoy.getMonth() + 1);
+  const [anioActual, setAnioActual] = useState(hoy.getFullYear());
+  const [profSelec, setProfSelec] = useState("Lic. Cecilia Miatello");
+  const { guardar, getDisp } = useDisponibilidad();
+  const [saving, setSaving] = useState(false);
+
+  const PROFS_DISP = [
+    { key: "Lic. Cecilia Miatello", label: "Cecilia Miatello", color: "#1a6b6b", bg: "#e0f4f4" },
+    { key: "Lic. Graciela Valles",  label: "Graciela Valles",  color: "#4338CA", bg: "#EEF2FF" },
+  ];
+
+  const diasHorarios = getDisp(profSelec, mesActual, anioActual);
+
+  function getDiaDisp(diaSemana) {
+    return diasHorarios.find(d => d.dia === diaSemana) || { dia: diaSemana, activo: false, horaDesde: "08:00", horaHasta: "18:00", pausas: [] };
+  }
+
+  function updateDia(diaSemana, cambios) {
+    const actual = getDiaDisp(diaSemana);
+    const nuevos = diasHorarios.filter(d => d.dia !== diaSemana);
+    const nuevo = { ...actual, ...cambios };
+    guardarLocal([...nuevos, nuevo]);
+  }
+
+  const [localDisp, setLocalDisp] = useState(null);
+  const dispActual = localDisp !== null ? localDisp : diasHorarios;
+
+  function getDiaDispLocal(diaSemana) {
+    return (dispActual || []).find(d => d.dia === diaSemana) || { dia: diaSemana, activo: false, horaDesde: "08:00", horaHasta: "18:00" };
+  }
+
+  function updateDiaLocal(diaSemana, cambios) {
+    const actual = getDiaDispLocal(diaSemana);
+    const nuevos = (dispActual || []).filter(d => d.dia !== diaSemana);
+    setLocalDisp([...nuevos, { ...actual, ...cambios }]);
+  }
+
+  function guardarLocal(lista) { setLocalDisp(lista); }
+
+  useEffect(() => { setLocalDisp(null); }, [mesActual, anioActual, profSelec]);
+
+  async function guardarDisp() {
+    setSaving(true);
+    try {
+      await guardar(profSelec, mesActual, anioActual, dispActual || []);
+      setLocalDisp(null);
+      alert("✅ Disponibilidad guardada correctamente.");
+    } finally { setSaving(false); }
+  }
+
+  // Generar días del mes para vista previa
+  function getDiasDelMes() {
+    const dias = [];
+    const primerDia = new Date(anioActual, mesActual - 1, 1);
+    const ultimoDia = new Date(anioActual, mesActual, 0);
+    const feriados = getFeriadosArgentina(anioActual);
+
+    for (let d = 1; d <= ultimoDia.getDate(); d++) {
+      const fecha = new Date(anioActual, mesActual - 1, d);
+      const diaSemana = fecha.getDay(); // 0=dom, 1=lun...
+      const diasSemanaIdx = diaSemana === 0 ? 6 : diaSemana - 1; // 0=lun...5=sab
+      const fechaStr = `${anioActual}-${String(mesActual).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const esFeriado = feriados.includes(fechaStr);
+      const esDomingo = diaSemana === 0;
+      const dispDia = getDiaDispLocal(DIAS_SEMANA[diasSemanaIdx]);
+      dias.push({ d, fecha: fechaStr, diaSemana, diasSemanaIdx, esFeriado, esDomingo, dispDia });
+    }
+    return dias;
+  }
+
+  const diasMes = getDiasDelMes();
+  const feriados = getFeriadosArgentina(anioActual);
+  const prof = PROFS_DISP.find(p => p.key === profSelec);
+
+  return (
+    <div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e", marginBottom: 20 }}>📅 Disponibilidad de agenda</div>
+
+      {/* Selector profesional */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {PROFS_DISP.map(p => (
+          <button key={p.key} type="button" onClick={() => setProfSelec(p.key)} style={{
+            background: profSelec === p.key ? p.bg : "#F3F4F6",
+            color: profSelec === p.key ? p.color : "#6B7280",
+            border: profSelec === p.key ? `2px solid ${p.color}` : "2px solid #E5E7EB",
+            borderRadius: 10, padding: "8px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer"
+          }}>{p.label}</button>
+        ))}
+      </div>
+
+      {/* Selector mes/año */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 20 }}>
+        <button type="button" onClick={() => { if (mesActual === 1) { setMesActual(12); setAnioActual(a => a-1); } else setMesActual(m => m-1); }}
+          style={{ ...btnSecondary, padding: "6px 12px" }}>‹</button>
+        <span style={{ fontSize: 16, fontWeight: 700, minWidth: 160, textAlign: "center" }}>{MESES[mesActual-1]} {anioActual}</span>
+        <button type="button" onClick={() => { if (mesActual === 12) { setMesActual(1); setAnioActual(a => a+1); } else setMesActual(m => m+1); }}
+          style={{ ...btnSecondary, padding: "6px 12px" }}>›</button>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+        {/* ── Configuración días ── */}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: prof?.color, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+            Horarios disponibles — {MESES[mesActual-1]}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {DIAS_SEMANA.map(dia => {
+              const d = getDiaDispLocal(dia);
+              return (
+                <div key={dia} style={{ background: d.activo ? prof?.bg : "#F8FAFC", border: `1.5px solid ${d.activo ? prof?.color + "44" : "#E5E7EB"}`, borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: d.activo ? 10 : 0 }}>
+                    <input type="checkbox" checked={d.activo || false} onChange={e => updateDiaLocal(dia, { activo: e.target.checked })}
+                      style={{ width: 16, height: 16, cursor: "pointer", accentColor: prof?.color }} />
+                    <span style={{ fontWeight: 700, fontSize: 14, color: d.activo ? prof?.color : "#888" }}>{dia}</span>
+                    {!d.activo && <span style={{ fontSize: 12, color: "#aaa" }}>Sin atención</span>}
+                  </div>
+                  {d.activo && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginLeft: 26 }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Desde</label>
+                        <input type="time" value={d.horaDesde || "08:00"} onChange={e => updateDiaLocal(dia, { horaDesde: e.target.value })}
+                          style={{ ...inputStyle, fontSize: 13 }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Hasta</label>
+                        <input type="time" value={d.horaHasta || "18:00"} onChange={e => updateDiaLocal(dia, { horaHasta: e.target.value })}
+                          style={{ ...inputStyle, fontSize: 13 }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <button onClick={guardarDisp} disabled={saving} style={{ ...btnPrimary, width: "100%", marginTop: 16, padding: "12px" }}>
+            {saving ? "Guardando..." : `✅ Guardar disponibilidad de ${MESES[mesActual-1]}`}
+          </button>
+        </div>
+
+        {/* ── Vista previa del mes ── */}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
+            Vista previa del mes
+          </div>
+          {/* Leyenda */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: prof?.bg, border: `1.5px solid ${prof?.color}` }} />
+              <span>Disponible</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#FEE2E2", border: "1.5px solid #FECACA" }} />
+              <span>Feriado</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+              <div style={{ width: 12, height: 12, borderRadius: 3, background: "#F3F4F6", border: "1.5px solid #E5E7EB" }} />
+              <span>Sin atención</span>
+            </div>
+          </div>
+
+          {/* Grilla del mes */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+            {["L","M","X","J","V","S","D"].map(d => (
+              <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#888", padding: "4px 0" }}>{d}</div>
+            ))}
+            {/* Espacios vacíos hasta el primer día */}
+            {Array.from({ length: diasMes[0]?.diasSemanaIdx === 6 ? 6 : diasMes[0]?.diasSemanaIdx || 0 }).map((_, i) => (
+              <div key={"empty"+i} />
+            ))}
+            {diasMes.map(({ d, fecha, esFeriado, esDomingo, diasSemanaIdx, dispDia }) => {
+              const disponible = !esFeriado && !esDomingo && dispDia?.activo;
+              return (
+                <div key={d} style={{
+                  textAlign: "center", padding: "5px 2px", borderRadius: 6, fontSize: 11, fontWeight: disponible ? 700 : 400,
+                  background: esFeriado ? "#FEE2E2" : esDomingo ? "#F9FAFB" : disponible ? prof?.bg : "#F3F4F6",
+                  color: esFeriado ? "#991B1B" : esDomingo ? "#ddd" : disponible ? prof?.color : "#aaa",
+                  border: esFeriado ? "1px solid #FECACA" : disponible ? `1px solid ${prof?.color}33` : "1px solid transparent",
+                  position: "relative",
+                }}>
+                  {d}
+                  {esFeriado && <div style={{ fontSize: 7, color: "#DC2626", lineHeight: 1 }}>fer.</div>}
+                  {disponible && <div style={{ fontSize: 7, color: prof?.color, lineHeight: 1 }}>{dispDia.horaDesde?.slice(0,5)}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Feriados del mes */}
+          {(() => {
+            const feriadosMes = feriados.filter(f => f.startsWith(`${anioActual}-${String(mesActual).padStart(2,"0")}`));
+            if (feriadosMes.length === 0) return null;
+            return (
+              <div style={{ marginTop: 14, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginBottom: 6 }}>🗓️ Feriados del mes</div>
+                {feriadosMes.map(f => (
+                  <div key={f} style={{ fontSize: 12, color: "#DC2626" }}>• {formatFecha(f)}</div>
+                ))}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function App() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -3537,7 +3823,8 @@ export default function App() {
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
     { id: "recordatorios", label: "Recordatorios", icon: "🔔", badge: recVencidos > 0 ? recVencidos : null, badgeColor: "#DC2626" },
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
-    { id: "profesionales", label: "Profesionales", icon: "👩‍⚕️" },
+    { id: "profesionales",  label: "Profesionales",  icon: "👩‍⚕️" },
+    { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
   ];
 
   if (loading) return (
@@ -3593,6 +3880,7 @@ export default function App() {
         {tab === "recordatorios" && <Recordatorios data={data} db={db} usuario={usuarioActual} />}
         {tab === "estadisticas"  && <Estadisticas data={data} />}
         {tab === "profesionales" && <Profesionales data={data} />}
+        {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
       </div>
     </div>
   );
