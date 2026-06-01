@@ -834,6 +834,7 @@ function Turnos({ data, db, saldoPaciente }) {
   const [modalBloqueo, setModalBloqueo] = useState(false);
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verHCTurno, setVerHCTurno] = useState(null);
+  const [editandoPacTurno, setEditandoPacTurno] = useState(false);
   const [saving, setSaving] = useState(false);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
   const [form, setForm] = useState(FORM_TURNO_VACIO);
@@ -906,6 +907,7 @@ function Turnos({ data, db, saldoPaciente }) {
     setModal(null); setMostrarNuevoPac(false); setBusquedaPac("");
     setHcForm({ tipo: "consulta", descripcion: "", profesional: "" });
     setMostrarInsumos(false);
+    setEditandoPacTurno(false);
     setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   }
 
@@ -1397,15 +1399,51 @@ function Turnos({ data, db, saldoPaciente }) {
                     </div>
                     <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
                   </div>
-                  {/* Derivado por + Etiquetas editables desde turno */}
+                  {/* Editar datos del paciente desde turno */}
                   <div style={{ marginTop: 8, background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Derivado por</div>
-                    <DerivadoPorSelector
-                      value={pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por || ""}
-                      onChange={async (v) => {
-                        await db.actualizarPaciente({ ...pacSeleccionado, derivadoPor: v });
-                      }}
-                    />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>Datos del paciente</div>
+                      <button type="button" onClick={() => setEditandoPacTurno(!editandoPacTurno)}
+                        style={{ background: editandoPacTurno ? "#EEF2FF" : "#F3F4F6", color: "#4338CA", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                        {editandoPacTurno ? "✓ Cerrar" : "✏️ Editar"}
+                      </button>
+                    </div>
+                    {!editandoPacTurno ? (
+                      <div style={{ fontSize: 12, color: "#555" }}>
+                        <div>📞 {pacSeleccionado.telefono || "—"}</div>
+                        <div>🏥 {pacSeleccionado.obraSocial || pacSeleccionado.obra_social || "Particular"}</div>
+                        {(pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por) && <div>Derivado: {pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por}</div>}
+                        {pacSeleccionado.audifono && <div>👂 {pacSeleccionado.audifono}</div>}
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
+                          <Field label="Teléfono"><input style={inputStyle} defaultValue={pacSeleccionado.telefono || ""} id="edit-tel-turno" /></Field>
+                          <Field label="Email"><input style={inputStyle} defaultValue={pacSeleccionado.email || ""} id="edit-email-turno" /></Field>
+                          <Field label="Obra social"><input style={inputStyle} defaultValue={pacSeleccionado.obraSocial || pacSeleccionado.obra_social || ""} id="edit-os-turno" /></Field>
+                          <Field label="Audífono"><input style={inputStyle} defaultValue={pacSeleccionado.audifono || ""} id="edit-audio-turno" /></Field>
+                        </div>
+                        <Field label="Derivado por">
+                          <DerivadoPorSelector
+                            value={pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por || ""}
+                            onChange={async (v) => { await db.actualizarPaciente({ ...pacSeleccionado, derivadoPor: v }); }}
+                          />
+                        </Field>
+                        <button type="button" onClick={async () => {
+                          await db.actualizarPaciente({
+                            ...pacSeleccionado,
+                            telefono: document.getElementById("edit-tel-turno")?.value || pacSeleccionado.telefono,
+                            email: document.getElementById("edit-email-turno")?.value || pacSeleccionado.email,
+                            obraSocial: document.getElementById("edit-os-turno")?.value || pacSeleccionado.obraSocial,
+                            audifono: document.getElementById("edit-audio-turno")?.value || pacSeleccionado.audifono,
+                          });
+                          setEditandoPacTurno(false);
+                          alert("✅ Datos del paciente actualizados.");
+                        }} style={{ ...btnPrimary, width: "100%", padding: "8px", fontSize: 12, marginTop: 6 }}>
+                          Guardar cambios del paciente
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div style={{ marginTop: 6, background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Etiquetas del paciente</div>
@@ -1554,7 +1592,10 @@ function Turnos({ data, db, saldoPaciente }) {
                         <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActualT.cantidad} onChange={e => setInsumoActualT(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
                         <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActualT.precio} onChange={e => setInsumoActualT(i => ({ ...i, precio: e.target.value }))} /></Field>
                         <button type="button" onClick={() => {
-                          setInsumoFormT(f => ({ ...f, insumos: [...f.insumos, { ...insumoActualT, id: uid() }] }));
+                          const nuevo = { ...insumoActualT, id: uid() };
+                          const nuevosInsumos = [...insumoFormT.insumos, nuevo];
+                          const nuevoTotal = nuevosInsumos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+                          setInsumoFormT(f => ({ ...f, insumos: nuevosInsumos, total: nuevoTotal > 0 ? String(nuevoTotal) : f.total }));
                           setInsumoActualT({ nombre: "Pilas", cantidad: 1, precio: "" });
                         }} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
                       </div>
@@ -1563,7 +1604,11 @@ function Turnos({ data, db, saldoPaciente }) {
                           {insumoFormT.insumos.map(i => (
                             <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 13 }}>
                               <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
-                              <button type="button" onClick={() => setInsumoFormT(f => ({ ...f, insumos: f.insumos.filter(x => x.id !== i.id) }))} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
+                              <button type="button" onClick={() => {
+                                const nuevos = insumoFormT.insumos.filter(x => x.id !== i.id);
+                                const nuevoTotal = nuevos.reduce((s, x) => s + (parseFloat(x.precio)||0) * (parseInt(x.cantidad)||1), 0);
+                                setInsumoFormT(f => ({ ...f, insumos: nuevos, total: nuevoTotal > 0 ? String(nuevoTotal) : "" }));
+                              }} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
                             </div>
                           ))}
                         </div>
@@ -1714,7 +1759,11 @@ function Pacientes({ data, db }) {
   }
 
   function quitarInsumoItem(id) {
-    setInsumoForm(f => ({ ...f, insumos: f.insumos.filter(i => i.id !== id) }));
+    setInsumoForm(f => {
+      const nuevos = f.insumos.filter(i => i.id !== id);
+      const nuevoTotal = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+      return { ...f, insumos: nuevos, total: nuevoTotal > 0 ? String(nuevoTotal) : "" };
+    });
   }
 
   async function guardarInsumo() {
@@ -2490,12 +2539,21 @@ function Compras({ data, db }) {
 
   function agregarInsumo() {
     if (!insumoActual.nombre) return;
-    setForm(f => ({ ...f, insumos: [...f.insumos, { ...insumoActual, id: uid() }] }));
+    const nuevo = { ...insumoActual, id: uid() };
+    setForm(f => {
+      const nuevos = [...f.insumos, nuevo];
+      const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+      return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
+    });
     setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
   }
 
   function quitarInsumo(id) {
-    setForm(f => ({ ...f, insumos: f.insumos.filter(i => i.id !== id) }));
+    setForm(f => {
+      const nuevos = f.insumos.filter(i => i.id !== id);
+      const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+      return { ...f, insumos: nuevos, total: total > 0 ? String(total) : "" };
+    });
   }
 
   async function guardar() {
