@@ -280,6 +280,20 @@ function horaAMin(h) {
   return hh * 60 + mm;
 }
 
+
+// ─── TIPOS DE ENTRADA DE AGENDA ───────────────────────────────────────────────
+const TIPOS_ENTRADA = {
+  turno:        { label: "Turno paciente",        color: "#1a6b6b", bg: "#e0f4f4", emoji: "👤" },
+  recordatorio: { label: "Recordatorio",          color: "#6B7280", bg: "#F3F4F6", emoji: "🔔" },
+  visita:       { label: "Visita / Reunión",      color: "#92400E", bg: "#FEF3C7", emoji: "🤝" },
+  bloqueo:      { label: "Bloqueo de agenda",     color: "#991B1B", bg: "#FEE2E2", emoji: "🔒" },
+};
+
+const COLORES_PRESET = [
+  "#1a6b6b","#4338CA","#065F46","#92400E","#991B1B",
+  "#1D4ED8","#6D28D9","#0369A1","#B45309","#374151",
+];
+
 // ─── ESTILOS ──────────────────────────────────────────────────────────────────
 const inputStyle = { width: "100%", padding: "8px 12px", borderRadius: 8, border: "1.5px solid #E5E7EB", fontSize: 14, outline: "none", boxSizing: "border-box", background: "#FAFAFA" };
 const selectStyle = { ...inputStyle };
@@ -830,101 +844,39 @@ function Turnos({ data, db, saldoPaciente }) {
   const [vista, setVista] = useState("dia");
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
-  const [modal, setModal] = useState(null);
-  const [modalBloqueo, setModalBloqueo] = useState(false);
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
-  const [verHCTurno, setVerHCTurno] = useState(null);
-  const [editandoPacTurno, setEditandoPacTurno] = useState(false);
+
+  // Modal nueva entrada
+  const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
+  const [tipoEntrada, setTipoEntrada] = useState("turno");
+  const [colorEntrada, setColorEntrada] = useState("");
+  const [formEntrada, setFormEntrada] = useState({});
   const [saving, setSaving] = useState(false);
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
-  const [form, setForm] = useState(FORM_TURNO_VACIO);
+
+  // Modal bloqueo
+  const [modalBloqueo, setModalBloqueo] = useState(false);
+
+  // HC desde agenda
+  const [verHCTurno, setVerHCTurno] = useState(null);
+
+  // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
   const [insumoFormT, setInsumoFormT] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   const [insumoActualT, setInsumoActualT] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
-  const [mostrarNuevoPac, setMostrarNuevoPac] = useState(false);
-  const [formPac, setFormPac] = useState(FORM_PAC_VACIO);
-  const [busquedaPac, setBusquedaPac] = useState("");
-  const [hcForm, setHcForm] = useState({ tipo: "consulta", descripcion: "", profesional: "" });
 
   const pacientes = data.pacientes;
-  const pacientesFiltrados = pacientes.filter(p =>
-    busquedaPac === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busquedaPac.toLowerCase())
-  );
   const diasSemana = Array.from({ length: 6 }, (_, i) => addDays(semanaBase, i));
 
-  function turnosDia(fecha) {
-    return data.turnos.filter(t => t.fecha === fecha).sort((a, b) => a.hora.localeCompare(b.hora));
-  }
-
-  const filtrarPorProf = (lista) => {
-    if (filtroProfesional === "todas") return lista;
-    return lista.filter(t => (t.profesional || "") === filtroProfesional);
-  };
-
-  const turnosFiltrados = filtrarPorProf(
-    vista === "dia"
-      ? data.turnos.filter(t => t.fecha === filtroFecha).sort((a, b) => a.hora.localeCompare(b.hora))
-      : vista === "todos"
-      ? [...data.turnos].sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`))
-      : []
-  );
-
-  const pacNombre = (id) => { const p = pacientes.find(p => p.id === id); return p ? `${p.nombre} ${p.apellido}` : "—"; };
-  const pacSeleccionado = pacientes.find(p => p.id === form.paciente_id);
-
-  async function guardar() {
-    if (!form.fecha) return alert("Completá la fecha.");
-    if (!form.hora) return alert("Completá la hora.");
-    setSaving(true);
-    try {
-      if (modal === "nuevo") {
-        await db.agregarTurno(form);
-      } else {
-        await db.actualizarTurno({ ...form, id: modal });
-      }
-      if (form.estado === "realizado" && hcForm.descripcion.trim()) {
-        await db.agregarEntradaHC(form.paciente_id, { fecha: form.fecha, tipo: hcForm.tipo, descripcion: hcForm.descripcion, profesional: hcForm.profesional });
-      }
-      cerrarModal();
-    } finally { setSaving(false); }
-  }
-
-  async function crearPacienteYSeleccionar() {
-    if (!formPac.nombre || !formPac.apellido) return alert("Nombre y apellido son obligatorios.");
-    setSaving(true);
-    try {
-      const np = await db.agregarPaciente(formPac);
-      if (np) {
-        setForm(f => ({ ...f, paciente_id: np.id }));
-        setBusquedaPac(`${np.apellido} ${np.nombre}`);
-      }
-      setMostrarNuevoPac(false);
-      setFormPac(FORM_PAC_VACIO);
-    } finally { setSaving(false); }
-  }
-
-  function cerrarModal() {
-    setModal(null); setMostrarNuevoPac(false); setBusquedaPac("");
-    setHcForm({ tipo: "consulta", descripcion: "", profesional: "" });
-    setMostrarInsumos(false);
-    setEditandoPacTurno(false);
-    setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
-  }
-
-  function editar(t) { 
-    const practicas = Array.isArray(t.practicas) && t.practicas.length > 0 
-      ? t.practicas 
-      : (t.motivo ? [t.motivo] : []);
-    setForm({ ...t, paciente_id: t.paciente_id || "", practicas }); 
-    cerrarModal(); 
-    setModal(t.id); 
-  }
-  function nuevo(fechaPreset, horaPreset) {
-    const f = fechaPreset || (vista === "dia" ? filtroFecha : today());
-    const h = horaPreset || "09:00";
-    setForm({ ...FORM_TURNO_VACIO, fecha: f, hora: h, hora_fin: calcularHoraFin(h, ""), practicas: [] });
-    cerrarModal(); setModal("nuevo");
-  }
+  const SLOT_H_DIA = 52;
+  const SLOT_H_SEM = 48;
+  const HORA_INICIO = 8;
+  const HORA_FIN = 20;
+  const TOTAL_SLOTS = (HORA_FIN - HORA_INICIO) * 2;
+  const HORAS = Array.from({ length: TOTAL_SLOTS + 1 }, (_, i) => {
+    const h = HORA_INICIO + Math.floor(i / 2);
+    const m = i % 2 === 0 ? "00" : "30";
+    return `${String(h).padStart(2,"0")}:${m}`;
+  });
 
   const semanaLabel = (() => {
     const fin = addDays(semanaBase, 5);
@@ -933,28 +885,280 @@ function Turnos({ data, db, saldoPaciente }) {
       : `${numDia(semanaBase)} ${mesCorto(semanaBase)} – ${numDia(fin)} ${mesCorto(fin)}`;
   })();
 
+  // ── Obtener todas las entradas de una fecha (turnos + recordatorios) ─────────
+  function entradasDia(fecha) {
+    const turnos = data.turnos.filter(t => t.fecha === fecha);
+    const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
+    const todas = [
+      ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
+      ...recs.map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" })),
+    ];
+    if (filtroProfesional !== "todas") {
+      return todas.filter(e => e._kind === "recordatorio" || e.profesional === filtroProfesional);
+    }
+    return todas;
+  }
+
+  // ── Color de entrada ──────────────────────────────────────────────────────────
+  function getColor(entrada) {
+    if (entrada.color_custom) return { color: entrada.color_custom, bg: entrada.color_custom + "22" };
+    if (entrada._kind === "bloqueo") return { color: "#991B1B", bg: "#FEE2E2" };
+    if (entrada._kind === "recordatorio") return { color: "#6B7280", bg: "#F3F4F6" };
+    // turno: por motivo/practica
+    return colorPorMotivo(entrada.practicas, entrada.motivo);
+  }
+
+  function pacNombre(id) {
+    const p = pacientes.find(p => p.id === id);
+    return p ? `${p.apellido} ${p.nombre}` : "Sin paciente";
+  }
+
+  // ── Abrir modal nueva entrada ─────────────────────────────────────────────────
+  function abrirNueva(fecha, hora) {
+    setTipoEntrada("turno");
+    setColorEntrada("");
+    setFormEntrada({ fecha, hora, hora_fin: calcularHoraFin(hora, ""), paciente_id: "", busqueda: "", titulo: "", motivo: "", practicas: [], profesional: "", notas: "", estado: "pendiente" });
+    setModalEntrada({ fecha, hora });
+    setMostrarInsumos(false);
+  }
+
+  function abrirEditar(entrada) {
+    const kind = entrada._kind || "turno";
+    setTipoEntrada(kind === "recordatorio" ? "recordatorio" : kind === "bloqueo" ? "bloqueo" : "turno");
+    setColorEntrada(entrada.color_custom || "");
+    if (kind === "recordatorio") {
+      setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5) });
+    } else {
+      setFormEntrada({ ...entrada, practicas: Array.isArray(entrada.practicas) ? entrada.practicas : (entrada.motivo ? [entrada.motivo] : []) });
+    }
+    setModalEntrada({ editando: entrada });
+    setMostrarInsumos(false);
+  }
+
+  function cerrarModal() {
+    setModalEntrada(null);
+    setMostrarInsumos(false);
+    setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  }
+
+  // ── Guardar entrada ───────────────────────────────────────────────────────────
+  async function guardarEntrada() {
+    if (!formEntrada.fecha || !formEntrada.hora) return alert("Completá fecha y hora.");
+    setSaving(true);
+    try {
+      const esNueva = !modalEntrada?.editando;
+      const colorFinal = colorEntrada || null;
+
+      if (tipoEntrada === "recordatorio") {
+        if (!formEntrada.titulo) return alert("Escribí un título.");
+        const rec = {
+          titulo: formEntrada.titulo,
+          fecha: formEntrada.fecha,
+          hora: formEntrada.hora,
+          tipo: "seguimiento",
+          paciente_id: formEntrada.paciente_id || null,
+          descripcion: formEntrada.notas || "",
+          completado: false,
+        };
+        if (esNueva) await db.agregarRecordatorio(rec);
+        else await db.actualizarRecordatorio({ ...rec, id: modalEntrada.editando.id });
+
+      } else {
+        // turno o bloqueo
+        const turno = {
+          fecha: formEntrada.fecha,
+          hora: formEntrada.hora,
+          hora_fin: formEntrada.hora_fin || "",
+          paciente_id: tipoEntrada === "bloqueo" ? null : (formEntrada.paciente_id || null),
+          motivo: tipoEntrada === "bloqueo"
+            ? `🔒 BLOQUEADO: ${formEntrada.titulo || "Bloqueo"}`
+            : (Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0 ? formEntrada.practicas.join(", ") : formEntrada.motivo || ""),
+          practicas: tipoEntrada === "bloqueo" ? [] : (formEntrada.practicas || []),
+          profesional: formEntrada.profesional || "",
+          estado: tipoEntrada === "bloqueo" ? "cancelado" : (formEntrada.estado || "pendiente"),
+          notas: formEntrada.notas || "",
+          color_custom: colorFinal,
+        };
+        if (esNueva) await db.agregarTurno(turno);
+        else await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+      }
+      cerrarModal();
+    } finally { setSaving(false); }
+  }
+
+  async function eliminarEntrada(entrada) {
+    if (!window.confirm("¿Eliminar esta entrada?")) return;
+    if (entrada._kind === "recordatorio") await db.eliminarRecordatorio(entrada.id);
+    else await db.eliminarTurno(entrada.id);
+  }
+
+  // ── Layout para grilla ────────────────────────────────────────────────────────
+  function entradaLayout(e, slotH) {
+    const inicio = horaAMin(e.hora);
+    const fin = e.hora_fin ? horaAMin(e.hora_fin) : inicio + 30;
+    const top = (inicio - HORA_INICIO * 60) / 30 * slotH;
+    const height = Math.max((fin - inicio) / 30 * slotH, slotH);
+    return { top, height };
+  }
+
+  function asignarCols(entradas) {
+    const sorted = [...entradas].sort((a,b) => horaAMin(a.hora) - horaAMin(b.hora));
+    const colFin = [];
+    const withCols = sorted.map(e => {
+      const ini = horaAMin(e.hora);
+      const fin = e.hora_fin ? horaAMin(e.hora_fin) : ini + 30;
+      let col = 0;
+      while (colFin[col] !== undefined && colFin[col] > ini) col++;
+      colFin[col] = fin;
+      return { ...e, _col: col };
+    });
+    return withCols.map(e => {
+      const ini = horaAMin(e.hora);
+      const fin = e.hora_fin ? horaAMin(e.hora_fin) : ini + 30;
+      const concurrent = withCols.filter(u => {
+        const ui = horaAMin(u.hora); const uf = u.hora_fin ? horaAMin(u.hora_fin) : ui + 30;
+        return ui < fin && uf > ini;
+      });
+      return { ...e, _totalCols: concurrent.length };
+    });
+  }
+
+  // ── Render entrada (chip) ─────────────────────────────────────────────────────
+  function ChipEntrada({ entrada, slotH, col, totalCols, onEdit, onDelete }) {
+    const { top, height } = entradaLayout(entrada, slotH);
+    const cm = getColor(entrada);
+    const pct = 100 / Math.max(totalCols, 1);
+    const esBloqueo = entrada._kind === "bloqueo";
+    const esRec = entrada._kind === "recordatorio";
+    const pac = !esRec && !esBloqueo ? pacientes.find(p => p.id === entrada.paciente_id) : null;
+
+    const displayName = esRec
+      ? entrada.titulo
+      : esBloqueo
+      ? (entrada.profesional || "Bloqueado")
+      : (pac ? `${pac.apellido} ${pac.nombre}` : "Sin paciente");
+
+    const displaySub = esRec ? "🔔 Recordatorio" : esBloqueo
+      ? (entrada.motivo||"").replace("🔒 BLOQUEADO: ","")
+      : (Array.isArray(entrada.practicas) && entrada.practicas.length > 0 ? entrada.practicas[0] : entrada.motivo || "");
+
+    return (
+      <div style={{
+        position: "absolute",
+        top: top + 1,
+        left: `${col * pct}%`,
+        width: `calc(${pct}% - 2px)`,
+        height: height - 2,
+        background: esBloqueo
+          ? "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,#fff 5px,#fff 10px)"
+          : cm.bg,
+        border: `1.5px solid ${cm.color}`,
+        borderRadius: 7,
+        overflow: "hidden",
+        cursor: "pointer",
+        boxSizing: "border-box",
+        zIndex: 4,
+      }}>
+        <div onClick={onEdit} style={{ position: "absolute", top: 2, left: 3, right: 20, bottom: 2, overflow: "hidden" }}>
+          <div style={{ fontSize: 9, fontWeight: 800, color: cm.color, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {entrada.hora?.slice(0,5)}{entrada.hora_fin ? `–${entrada.hora_fin.slice(0,5)}` : ""}
+            {entrada.profesional && ` · ${entrada.profesional.includes("Miatello") ? "CM" : entrada.profesional.includes("Valles") ? "GV" : entrada.profesional}`}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {displayName}
+          </div>
+          <div style={{ fontSize: 9, color: cm.color, opacity: 0.85, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {displaySub}
+          </div>
+        </div>
+        <button onClick={e => { e.stopPropagation(); onDelete(); }}
+          style={{ position: "absolute", top: 2, right: 2, background: "rgba(255,255,255,0.8)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>
+      </div>
+    );
+  }
+
+  // ── Grilla horaria (reutilizable para día y semana) ──────────────────────────
+  function GrillaHoraria({ fecha, entradas, slotH, width = "100%" }) {
+    const totalHeight = TOTAL_SLOTS * slotH;
+    const conCols = asignarCols(entradas);
+
+    return (
+      <div style={{ position: "relative", height: totalHeight, width }}>
+        {/* Líneas de fondo */}
+        {HORAS.map((h, i) => {
+          const esM = i % 2 !== 0;
+          return (
+            <div key={h} style={{ position: "absolute", top: i * slotH, left: 0, right: 0, height: slotH,
+              borderBottom: `1px solid ${esM ? "#F5F5F5" : "#E5E7EB"}`,
+              background: esM ? "#FAFAFA" : "#fff", zIndex: 1 }}
+              onClick={() => abrirNueva(fecha, h)}
+              onMouseEnter={e => { if (!e.target.closest('[data-entrada]')) e.currentTarget.style.background = "#EEF2FF"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = esM ? "#FAFAFA" : "#fff"; }}
+            />
+          );
+        })}
+        {/* Entradas */}
+        {conCols.map(e => (
+          <ChipEntrada key={e._kind + e.id} entrada={e} slotH={slotH}
+            col={e._col || 0} totalCols={e._totalCols || 1}
+            onEdit={() => abrirEditar(e)}
+            onDelete={() => eliminarEntrada(e)}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // ── Columna de horas ─────────────────────────────────────────────────────────
+  function ColumnaHoras({ slotH }) {
+    const totalHeight = TOTAL_SLOTS * slotH;
+    return (
+      <div style={{ width: 44, flexShrink: 0, position: "relative", height: totalHeight, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }}>
+        {HORAS.map((h, i) => {
+          const esM = i % 2 !== 0;
+          return (
+            <div key={h} style={{ position: "absolute", top: i * slotH, left: 0, right: 0, height: slotH,
+              borderBottom: `1px solid ${esM ? "#F0F0F0" : "#E5E7EB"}`, background: esM ? "#FAFAFA" : "#F8FAFC",
+              display: "flex", alignItems: "flex-start", justifyContent: "flex-end", paddingRight: 6, paddingTop: 3 }}>
+              {!esM && <span style={{ fontSize: 10, fontWeight: 700, color: "#aaa" }}>{h}</span>}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div>
+      {/* ── Barra de control ─────────────────────────────────────────────────── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-        {/* Fila 1: vistas + fecha/semana */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-          <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
+          {/* Vistas */}
+          <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
             {[["dia","Día"],["semana","Semana"],["todos","Todos"]].map(([v, l]) => (
-              <button key={v} onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+              <button key={v} type="button" onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
             ))}
           </div>
-          {vista === "dia" && <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1, maxWidth: 160 }} />}
+          {/* Navegación */}
+          {vista === "dia" && (
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button type="button" onClick={() => setFiltroFecha(addDays(filtroFecha, -1))} style={{ ...btnSecondary, padding: "6px 10px" }}>‹</button>
+              <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+              <button type="button" onClick={() => setFiltroFecha(addDays(filtroFecha, 1))} style={{ ...btnSecondary, padding: "6px 10px" }}>›</button>
+              <button type="button" onClick={() => setFiltroFecha(today())} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 12 }}>Hoy</button>
+            </div>
+          )}
           {vista === "semana" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button onClick={() => setSemanaBase(addDays(semanaBase, -7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>‹</button>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button type="button" onClick={() => setSemanaBase(addDays(semanaBase, -7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>‹</button>
               <span style={{ fontSize: 13, fontWeight: 600, minWidth: 110, textAlign: "center" }}>{semanaLabel}</span>
-              <button onClick={() => setSemanaBase(addDays(semanaBase, 7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>›</button>
-              <button onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 11 }}>Hoy</button>
+              <button type="button" onClick={() => setSemanaBase(addDays(semanaBase, 7))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 16 }}>›</button>
+              <button type="button" onClick={() => setSemanaBase(getLunes(today()))} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 12 }}>Hoy</button>
             </div>
           )}
         </div>
-        {/* Fila 2: filtros + acciones */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+          {/* Filtro profesional */}
           <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
             {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
               <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
@@ -964,721 +1168,321 @@ function Turnos({ data, db, saldoPaciente }) {
               }}>{l}</button>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🔒</button>
-            <button onClick={() => nuevo()} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>+ Turno</button>
+          {/* Leyenda tipos */}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            {Object.entries(TIPOS_ENTRADA).filter(([k]) => k !== "bloqueo").map(([k, v]) => (
+              <div key={k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: v.color }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: v.bg, border: `1.5px solid ${v.color}` }} />
+                {v.label}
+              </div>
+            ))}
+            <button type="button" onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🔒 Bloquear</button>
           </div>
         </div>
       </div>
 
-      {vista === "dia" && (() => {
-        const SLOT_H = 52; // px por cada media hora
-        const HORA_INICIO = 8;
-        const HORA_FIN = 20;
-        const TOTAL_SLOTS = (HORA_FIN - HORA_INICIO) * 2; // 24 slots de 30min
-        const HORAS = Array.from({ length: TOTAL_SLOTS + 1 }, (_, i) => {
-          const h = HORA_INICIO + Math.floor(i / 2);
-          const m = i % 2 === 0 ? "00" : "30";
-          return `${String(h).padStart(2,"0")}:${m}`;
-        });
-
-        // Calcular posición y altura de cada turno
-        function turnoLayout(t) {
-          const inicio = horaAMin(t.hora);
-          const fin = t.hora_fin ? horaAMin(t.hora_fin) : inicio + 30;
-          const top = (inicio - HORA_INICIO * 60) / 30 * SLOT_H;
-          const height = Math.max((fin - inicio) / 30 * SLOT_H, SLOT_H);
-          return { top, height };
-        }
-
-        // Detectar solapamientos y asignar columnas
-        function asignarColumnas(turnos) {
-          const sorted = [...turnos].sort((a, b) => horaAMin(a.hora) - horaAMin(b.hora));
-
-          // Assign column index to each turno
-          const colFin = []; // tracks when each column is free
-          const withCols = sorted.map(t => {
-            const ini = horaAMin(t.hora);
-            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
-            let col = 0;
-            while (colFin[col] !== undefined && colFin[col] > ini) col++;
-            colFin[col] = fin;
-            return { ...t, _col: col };
-          });
-
-          // For each turno, find max concurrent columns in its time range
-          return withCols.map(t => {
-            const ini = horaAMin(t.hora);
-            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
-            const concurrent = withCols.filter(u => {
-              const ui = horaAMin(u.hora);
-              const uf = u.hora_fin ? horaAMin(u.hora_fin) : ui + 30;
-              return ui < fin && uf > ini;
-            });
-            return { ...t, _totalCols: concurrent.length };
-          });
-        }
-
-        const turnosConLayout = asignarColumnas(turnosFiltrados.filter(t => !(t.motivo||"").includes("BLOQUEADO")));
-        const bloqueados = turnosFiltrados.filter(t => (t.motivo||"").includes("BLOQUEADO"));
-        const recsDelDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado);
-        const totalHeight = TOTAL_SLOTS * SLOT_H;
-
-        return (
-          <div>
-            <div style={{ display: "flex", gap: 12 }}>
-              {/* Grilla principal */}
-              <div style={{ flex: 1, border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-                <div style={{ position: "relative", height: totalHeight }}>
-                  {/* Líneas de hora */}
-                  {HORAS.map((h, i) => {
-                    const esMediaHora = i % 2 !== 0;
-                    const top = i * SLOT_H;
-                    return (
-                      <div key={h} style={{ position: "absolute", top, left: 0, right: 0, height: SLOT_H, display: "flex", pointerEvents: "none", zIndex: 1 }}>
-                        <div style={{ width: 52, flexShrink: 0, borderRight: "1.5px solid #E5E7EB", background: esMediaHora ? "#FAFAFA" : "#F8FAFC", display: "flex", alignItems: "flex-start", paddingTop: 4, paddingLeft: 8 }}>
-                          {!esMediaHora && <span style={{ fontSize: 10, fontWeight: 700, color: "#888" }}>{h}</span>}
-                        </div>
-                        <div style={{ flex: 1, borderBottom: `1px solid ${esMediaHora ? "#F5F5F5" : "#E5E7EB"}`, background: esMediaHora ? "#FAFAFA" : "#fff" }} />
-                      </div>
-                    );
-                  })}
-
-                  {/* Zona clickeable para nuevo turno */}
-                  {HORAS.map((h, i) => {
-                    const esMediaHora = i % 2 !== 0;
-                    const top = i * SLOT_H;
-                    const hayTurno = turnosConLayout.some(t => (t.hora||"").slice(0,5) === h);
-                    if (hayTurno) return null;
-                    return (
-                      <div key={"click-"+h} onClick={() => nuevo(filtroFecha, h)}
-                        style={{ position: "absolute", top, left: 52, right: 0, height: SLOT_H, zIndex: 2, cursor: "pointer" }}
-                        onMouseEnter={e => { e.currentTarget.style.background = "#EEF2FF"; e.currentTarget.style.opacity = "0.7"; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.opacity = "1"; }}
-                      />
-                    );
-                  })}
-
-                  {/* Bloqueados */}
-                  {bloqueados.map(t => {
-                    const { top, height } = turnoLayout(t);
-                    return (
-                      <div key={t.id} style={{ position: "absolute", top: top + 2, left: 54, right: 4, height: height - 4, zIndex: 3,
-                        background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,#fff 5px,#fff 10px)",
-                        border: "1.5px solid #FECACA", borderRadius: 8, padding: "4px 8px", overflow: "hidden", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: "#991B1B" }}>🔒 {t.hora?.slice(0,5)}–{t.hora_fin?.slice(0,5)} BLOQUEADO</div>
-                          <div style={{ fontSize: 10, color: "#991B1B" }}>{t.profesional || "Ambas"}</div>
-                        </div>
-                        <button onClick={() => db.eliminarTurno(t.id)} style={{ background: "#FEE2E2", border: "none", borderRadius: 4, padding: "2px 6px", fontSize: 10, color: "#991B1B", cursor: "pointer" }}>✕</button>
-                      </div>
-                    );
-                  })}
-
-                  {/* Turnos con layout */}
-                  {turnosConLayout.map(t => {
-                    const { top, height } = turnoLayout(t);
-                    const totalCols = Math.max(t._totalCols || 1, 1);
-                    const col = t._col || 0;
-                    const pctW = (100 / totalCols);
-                    const leftVal = `calc(56px + ${col * pctW}% - ${col * 56 / totalCols}px)`;
-                    const widthVal = `calc(${pctW}% - ${56 / totalCols}px - 3px)`;
-                    const cm = colorPorMotivo(t.practicas, t.motivo);
-                    const saldo = saldoPaciente ? saldoPaciente(t.paciente_id) : 0;
-                    const practicasTexto = Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(" · ") : (t.motivo || "");
-                    return (
-                      <div key={t.id} style={{
-                        position: "absolute", top: top + 2, left: leftVal, width: widthVal,
-                        height: height - 4, zIndex: 4,
-                        background: cm.bg, border: `1.5px solid ${saldo > 0 ? "#FCD34D" : cm.border}`,
-                        borderRadius: 8, padding: "4px 8px", overflow: "hidden", cursor: "pointer",
-                        boxSizing: "border-box",
-                      }}>
-                        <div onClick={() => editar(t)} style={{ height: "100%", overflow: "hidden" }}>
-                          <div style={{ fontSize: 11, fontWeight: 800, color: cm.text }}>
-                            {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
-                            {saldo > 0 && <span style={{ marginLeft: 4, fontSize: 10 }}>💰</span>}
-                          </div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#1a1a2e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {pacNombre(t.paciente_id) !== "—" ? pacNombre(t.paciente_id) : "Sin paciente"}
-                          </div>
-                          {height > 50 && <div style={{ fontSize: 11, color: cm.text, opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{practicasTexto}</div>}
-                          {height > 70 && t.profesional && <div style={{ fontSize: 10, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.profesional}</div>}
-                        </div>
-                        <div style={{ position: "absolute", top: 3, right: 3, display: "flex", gap: 2 }}>
-                          <button onClick={e => { e.stopPropagation(); editar(t); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: cm.text, fontWeight: 700 }}>✎</button>
-                          <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar turno?")) db.eliminarTurno(t.id); }} style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "2px 6px", fontSize: 10, cursor: "pointer", color: "#DC2626", fontWeight: 700 }}>✕</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Recordatorios al pie */}
-            {recsDelDia.length > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>🔔 Recordatorios del día</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {recsDelDia.sort((a,b) => (a.hora||"").localeCompare(b.hora||"")).map(r => (
-                    <div key={r.id} style={{ background: "#F3F4F6", border: "1.5px solid #D1D5DB", borderRadius: 9, padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 13, color: "#4B5563" }}>🔔 {r.hora?.slice(0,5)} · {r.titulo}</div>
-                        {r.descripcion && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{r.descripcion}</div>}
-                      </div>
-                      <button onClick={() => db.actualizarRecordatorio({ ...r, completado: true })} style={{ background: "#E5E7EB", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, fontWeight: 700, color: "#374151", cursor: "pointer" }}>✓ Listo</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
-      {vista === "semana" && (() => {
-        const SLOT_H = 48;
-        const HORA_INICIO = 8;
-        const HORA_FIN = 20;
-        const TOTAL_SLOTS = (HORA_FIN - HORA_INICIO) * 2;
-        const HORAS = Array.from({ length: TOTAL_SLOTS + 1 }, (_, i) => {
-          const h = HORA_INICIO + Math.floor(i / 2);
-          const m = i % 2 === 0 ? "00" : "30";
-          return `${String(h).padStart(2,"0")}:${m}`;
-        });
-        const totalHeight = TOTAL_SLOTS * SLOT_H;
-
-        function turnoLayoutS(t) {
-          const inicio = horaAMin(t.hora);
-          const fin = t.hora_fin ? horaAMin(t.hora_fin) : inicio + 30;
-          const top = (inicio - HORA_INICIO * 60) / 30 * SLOT_H;
-          const height = Math.max((fin - inicio) / 30 * SLOT_H, SLOT_H);
-          return { top, height };
-        }
-
-        function asignarColsS(turnos) {
-          const sorted = [...turnos].sort((a,b) => horaAMin(a.hora) - horaAMin(b.hora));
-          const colFin = [];
-          const withCols = sorted.map(t => {
-            const ini = horaAMin(t.hora);
-            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
-            let col = 0;
-            while (colFin[col] !== undefined && colFin[col] > ini) col++;
-            colFin[col] = fin;
-            return { ...t, _col: col };
-          });
-          return withCols.map(t => {
-            const ini = horaAMin(t.hora);
-            const fin = t.hora_fin ? horaAMin(t.hora_fin) : ini + 30;
-            const concurrent = withCols.filter(u => {
-              const ui = horaAMin(u.hora); const uf = u.hora_fin ? horaAMin(u.hora_fin) : ui + 30;
-              return ui < fin && uf > ini;
-            });
-            return { ...t, _totalCols: concurrent.length };
-          });
-        }
-
-        return (
-          <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: Math.max(window.innerWidth - 32, 760), border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-              {/* Header días */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))", borderBottom: "2px solid #E5E7EB" }}>
-                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
-                {diasSemana.map(fecha => {
-                  const hoy = fecha === today();
-                  const ts = filtrarPorProf(data.turnos.filter(t => t.fecha === fecha));
-                  const bloqueados = ts.filter(t => (t.motivo||"").includes("BLOQUEADO"));
-                  const normales = ts.filter(t => !(t.motivo||"").includes("BLOQUEADO"));
-                  return (
-                    <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a1a2e" : bloqueados.length > 0 ? "#FEE2E2" : "#F8FAFC", padding: "7px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB" }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : bloqueados.length > 0 ? "#991B1B" : "#888" }}>{nombreDia(fecha)}</div>
-                      <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : bloqueados.length > 0 ? "#991B1B" : "#1a1a2e" }}>{numDia(fecha)}</div>
-                      <div style={{ fontSize: 9, color: hoy ? "rgba(255,255,255,0.5)" : "#6366F1" }}>
-                        {normales.length > 0 && `${normales.length}t`}{bloqueados.length > 0 && " 🔒"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Cuerpo: posicionamiento absoluto por columna día */}
-              <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))" }}>
-                {/* Columna horas */}
-                <div style={{ borderRight: "1.5px solid #E5E7EB", position: "relative", height: totalHeight, background: "#F8FAFC" }}>
-                  {HORAS.map((h, i) => {
-                    const esM = i % 2 !== 0;
-                    return (
-                      <div key={h} style={{ position: "absolute", top: i * SLOT_H, left: 0, right: 0, height: SLOT_H, display: "flex", alignItems: "flex-start", justifyContent: "flex-end", paddingRight: 4, paddingTop: 2, borderBottom: `1px solid ${esM ? "#F0F0F0" : "#E5E7EB"}`, background: esM ? "#FAFAFA" : "#F8FAFC" }}>
-                        {!esM && <span style={{ fontSize: 9, fontWeight: 700, color: "#aaa" }}>{h}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Columnas por día */}
-                {diasSemana.map(fecha => {
-                  const todosDelDia = filtrarPorProf(data.turnos.filter(t => t.fecha === fecha));
-                  const normales = asignarColsS(todosDelDia.filter(t => !(t.motivo||"").includes("BLOQUEADO")));
-                  const bloqueados = todosDelDia.filter(t => (t.motivo||"").includes("BLOQUEADO"));
-                  const recsD = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
-                  return (
-                    <div key={fecha} style={{ position: "relative", height: totalHeight, borderRight: "1px solid #EFEFEF" }}>
-                      {/* Líneas de fondo */}
-                      {HORAS.map((h, i) => {
-                        const esM = i % 2 !== 0;
-                        return (
-                          <div key={h} onClick={() => nuevo(fecha, h)}
-                            style={{ position: "absolute", top: i * SLOT_H, left: 0, right: 0, height: SLOT_H, borderBottom: `1px solid ${esM ? "#F9F9F9" : "#F0F0F0"}`, background: esM ? "#FAFAFA" : "#fff", cursor: "pointer", zIndex: 1 }}
-                            onMouseEnter={e => e.currentTarget.style.background = "#EEF2FF"}
-                            onMouseLeave={e => e.currentTarget.style.background = esM ? "#FAFAFA" : "#fff"}
-                          />
-                        );
-                      })}
-
-                      {/* Bloqueados */}
-                      {bloqueados.map(t => {
-                        const { top, height } = turnoLayoutS(t);
-                        return (
-                          <div key={t.id} style={{ position: "absolute", top: top + 1, left: 1, right: 1, height: height - 2, zIndex: 3,
-                            background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 4px,#fff 4px,#fff 8px)",
-                            border: "1px solid #FECACA", borderRadius: 5, overflow: "hidden", padding: "2px 4px" }}>
-                            <div style={{ fontSize: 9, fontWeight: 800, color: "#991B1B" }}>🔒 {t.hora?.slice(0,5)}</div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Turnos normales */}
-                      {normales.map(t => {
-                        const { top, height } = turnoLayoutS(t);
-                        const totalCols = Math.max(t._totalCols || 1, 1);
-                        const col = t._col || 0;
-                        const pct = 100 / totalCols;
-                        const cm = colorPorMotivo(t.practicas, t.motivo);
-                        const pac = pacientes.find(p => p.id === t.paciente_id);
-                        return (
-                          <div key={t.id} style={{
-                            position: "absolute",
-                            top: top + 1,
-                            left: `${col * pct}%`,
-                            width: `calc(${pct}% - 2px)`,
-                            height: height - 2,
-                            zIndex: 4,
-                            background: cm.bg,
-                            border: `1.5px solid ${cm.border}`,
-                            borderRadius: 5,
-                            overflow: "hidden",
-                            padding: "2px 4px",
-                            cursor: "pointer",
-                            boxSizing: "border-box",
-                          }}>
-                            <div onClick={() => editar(t)} style={{ position: "absolute", top: 1, left: 2, right: 2, bottom: 14, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "flex-start", gap: 0 }}>
-                              <div style={{ fontSize: 8, fontWeight: 800, color: cm.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 }}>
-                                {t.hora?.slice(0,5)}{t.hora_fin ? `–${t.hora_fin.slice(0,5)}` : ""}
-                              </div>
-                              <div style={{ fontSize: 9, fontWeight: 700, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2 }}>
-                                {pac ? `${pac.apellido || ""} ${pac.nombre || ""}`.trim() || "Sin paciente" : "Sin paciente"}
-                              </div>
-                              <div style={{ fontSize: 8, color: cm.text, opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: 1.2, fontWeight: 600 }}>
-                                {Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : (t.motivo || "")}
-                              </div>
-                            </div>
-                            {/* Botones acción */}
-                            <div style={{ position: "absolute", bottom: 1, left: 1, right: 1, display: "flex", gap: 2 }}>
-                              <button onClick={e => { e.stopPropagation(); editar(t); }}
-                                style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: cm.text, padding: "1px 0", fontWeight: 700 }}>✎</button>
-                              <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar?")) db.eliminarTurno(t.id); }}
-                                style={{ flex: 1, background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 2, fontSize: 8, cursor: "pointer", color: "#DC2626", padding: "1px 0", fontWeight: 700 }}>✕</button>
-                            </div>
-                          </div>
-                        );
-                      })}
-
-                      {/* Recordatorios — pequeño indicador al pie */}
-                      {recsD.length > 0 && (
-                        <div style={{ position: "absolute", bottom: 2, left: 2, right: 2, zIndex: 5 }}>
-                          {recsD.slice(0,2).map(r => (
-                            <div key={r.id} style={{ background: "#F3F4F6", border: "1px solid #D1D5DB", borderRadius: 3, padding: "1px 4px", fontSize: 8, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 1 }}>
-                              🔔 {r.titulo}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+      {/* ── Vista DÍA ─────────────────────────────────────────────────────────── */}
+      {vista === "dia" && (
+        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+          <div style={{ display: "flex" }}>
+            <ColumnaHoras slotH={SLOT_H_DIA} />
+            <div style={{ flex: 1 }}>
+              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha)} slotH={SLOT_H_DIA} />
             </div>
           </div>
-        );
-      })()}
-
-      {vista === "todos" && (turnosFiltrados.length === 0
-        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay turnos</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{turnosFiltrados.map(t => <TarjetaTurno key={t.id} t={t} pacNombre={pacNombre} onEditar={editar} onEliminar={(id) => db.eliminarTurno(id)} mostrarFecha={true} saldoPaciente={saldoPaciente} />)}</div>
+        </div>
       )}
 
+      {/* ── Vista SEMANA ──────────────────────────────────────────────────────── */}
+      {vista === "semana" && (
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 760, border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            {/* Header días */}
+            <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))", borderBottom: "2px solid #E5E7EB" }}>
+              <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
+              {diasSemana.map(fecha => {
+                const hoy = fecha === today();
+                const ents = entradasDia(fecha);
+                const bloqueos = ents.filter(e => e._kind === "bloqueo");
+                return (
+                  <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
+                    style={{ background: hoy ? "#1a6b6b" : bloqueos.length > 0 ? "#FEE2E2" : "#F8FAFC", padding: "7px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : bloqueos.length > 0 ? "#991B1B" : "#888" }}>{nombreDia(fecha)}</div>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : bloqueos.length > 0 ? "#991B1B" : "#1a1a2e" }}>{numDia(fecha)}</div>
+                    <div style={{ fontSize: 9, color: hoy ? "rgba(255,255,255,0.5)" : "#1a6b6b" }}>
+                      {ents.filter(e => e._kind !== "bloqueo").length > 0 && `${ents.filter(e => e._kind !== "bloqueo").length}t`}
+                      {bloqueos.length > 0 && " 🔒"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {/* Cuerpo */}
+            <div style={{ display: "grid", gridTemplateColumns: "44px repeat(6, minmax(100px, 1fr))" }}>
+              <ColumnaHoras slotH={SLOT_H_SEM} />
+              {diasSemana.map(fecha => (
+                <div key={fecha} style={{ borderRight: "1px solid #EFEFEF" }}>
+                  <GrillaHoraria fecha={fecha} entradas={entradasDia(fecha)} slotH={SLOT_H_SEM} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Vista TODOS ───────────────────────────────────────────────────────── */}
+      {vista === "todos" && (() => {
+        const hoy = today();
+        const todos = data.turnos
+          .filter(t => filtroProfesional === "todas" || t.profesional === filtroProfesional)
+          .sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+        if (todos.length === 0) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay entradas</div></div>;
+        return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {todos.map(t => {
+              const cm = colorPorMotivo(t.practicas, t.motivo);
+              const esBloqueo = (t.motivo||"").includes("BLOQUEADO");
+              const pac = pacientes.find(p => p.id === t.paciente_id);
+              return (
+                <div key={t.id} style={{ background: "#fff", border: `1.5px solid ${cm.border}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <div style={{ background: cm.bg, border: `1.5px solid ${cm.border}`, borderRadius: 8, padding: "6px 10px", textAlign: "center", minWidth: 70 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: cm.text }}>{t.hora?.slice(0,5)}</div>
+                      <div style={{ fontSize: 10, color: cm.text }}>{formatFecha(t.fecha)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>{esBloqueo ? "🔒 BLOQUEADO" : (pac ? `${pac.apellido}, ${pac.nombre}` : "Sin paciente")}</div>
+                      <div style={{ fontSize: 12, color: "#888" }}>{Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(" · ") : t.motivo || ""}{t.profesional ? ` · ${t.profesional}` : ""}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => abrirEditar({ ...t, _kind: esBloqueo ? "bloqueo" : "turno" })} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Editar</button>
+                    <button onClick={() => eliminarEntrada({ ...t, _kind: "turno" })} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {/* ── Modal bloqueo ─────────────────────────────────────────────────────── */}
       {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
 
-      {/* HC rápida desde turno */}
+      {/* ── HC rápida ─────────────────────────────────────────────────────────── */}
       {verHCTurno && (() => {
         const pac = pacientes.find(p => p.id === verHCTurno);
         if (!pac) return null;
-        const TIPO_HC = { consulta: "🩺", estudio: "📋", adaptacion: "👂", venta: "🛒", otro: "📌" };
-        const comprasPac = data.compras.filter(c => c.paciente_id === verHCTurno).map(c => ({
-          id: c.id, fecha: c.fecha, _tipo: "compra",
-          descripcion: `Insumos: ${(c.insumos||[]).map(i => i.nombre).join(", ")} · $${(parseFloat(c.total)||0).toLocaleString("es-AR")}`,
-          tipo: c.estado === "pagado" ? "✅ Insumo pagado" : "🛍️ Insumo pendiente"
-        }));
-        const ventasPac = data.ventas.filter(v => v.paciente_id === verHCTurno).map(v => ({
-          id: v.id, fecha: v.fecha, _tipo: "venta",
-          descripcion: `${v.dispositivo||""} ${v.marca||""} ${v.modelo||""} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
-          tipo: `🛒 Venta: ${v.estado}`
-        }));
-        const recsPac = data.recordatorios.filter(r => r.paciente_id === verHCTurno).map(r => ({
-          id: r.id, fecha: r.fecha, _tipo: "rec",
-          descripcion: r.descripcion || r.titulo,
-          tipo: `🔔 ${r.titulo}`
-        }));
-        const historia = [...(pac.historia||[]).map(e => ({...e, _tipo:"hc"})), ...comprasPac, ...ventasPac, ...recsPac]
-          .filter(e => e.fecha).sort((a,b) => b.fecha.localeCompare(a.fecha));
-        const colores = { hc: { bg: "#F0FDF4", border: "#BBF7D0" }, compra: { bg: "#FEF3C7", border: "#FDE68A" }, rec: { bg: "#EDE9FE", border: "#C4B5FD" }, venta: { bg: "#E0F2FE", border: "#BAE6FD" } };
+        const historia = [...(pac.historia||[])].reverse();
         return (
           <Modal title={`HC · ${pac.apellido}, ${pac.nombre}`} onClose={() => setVerHCTurno(null)}>
             <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>📞 {pac.telefono||"—"}{pac.telefono && <CopyButton text={pac.telefono} label="tel" />}</div>
+                <div>📞 {pac.telefono||"—"}</div>
                 <div>🏥 {pac.obraSocial||pac.obra_social||"Particular"}</div>
-                {pac.diagnostico && <div style={{ gridColumn: "span 2" }}>🩺 {pac.diagnostico}</div>}
-                {pac.audifono && <div style={{ gridColumn: "span 2" }}>👂 {pac.audifono}</div>}
-                {(pac.derivadoPor||pac.derivado_por) && <div style={{ gridColumn: "span 2" }}>Derivado: {pac.derivadoPor||pac.derivado_por}</div>}
+                {pac.diagnostico && <div style={{ gridColumn:"span 2" }}>🩺 {pac.diagnostico}</div>}
+                {pac.audifono && <div style={{ gridColumn:"span 2" }}>👂 {pac.audifono}</div>}
               </div>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Historial completo</div>
-            {historia.length === 0
-              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin entradas</div>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 400, overflowY: "auto" }}>
-                {historia.map(ev => {
-                  const c = colores[ev._tipo] || colores.hc;
-                  return (
-                    <div key={ev._tipo+ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "8px 12px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
-                        <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
-                      </div>
-                      <p style={{ margin: 0, fontSize: 13 }}>{ev.descripcion}</p>
-                      {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
+            {historia.length === 0 ? <div style={{ textAlign:"center", color:"#aaa", padding: 20 }}>Sin entradas</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap: 8, maxHeight: 400, overflowY:"auto" }}>
+                {historia.map(ev => (
+                  <div key={ev.id} style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                      <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
                     </div>
-                  );
-                })}
+                    <p style={{ margin: 0, fontSize: 13 }}>{ev.descripcion}</p>
+                  </div>
+                ))}
               </div>
             }
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+            <div style={{ display:"flex", justifyContent:"flex-end", marginTop: 14 }}>
               <button onClick={() => setVerHCTurno(null)} style={btnSecondary}>Cerrar</button>
             </div>
           </Modal>
         );
       })()}
 
-      {modal && (
-        <Modal title={modal === "nuevo" ? "Nuevo turno" : "Editar turno"} onClose={cerrarModal}>
-          {/* Paciente */}
-          <div style={{ background: "#F8FAFC", border: `1.5px solid ${!form.paciente_id && "nuevo" === modal ? "#FCA5A5" : "#E5E7EB"}`, borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>👤 Paciente <span style={{ fontSize: 11, color: "#888", fontWeight: 400 }}>(opcional para visitas/reuniones)</span></span>
-              {!mostrarNuevoPac && <button onClick={() => { setMostrarNuevoPac(true); setForm(f => ({ ...f, paciente_id: "" })); }} style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Crear nuevo</button>}
+      {/* ── Modal nueva/editar entrada ────────────────────────────────────────── */}
+      {modalEntrada && (
+        <Modal title={modalEntrada.editando ? "Editar entrada" : "Nueva entrada"} onClose={cerrarModal}>
+          {/* Selector tipo */}
+          {!modalEntrada.editando && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 8 }}>Tipo de entrada</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {Object.entries(TIPOS_ENTRADA).filter(([k]) => k !== "bloqueo").map(([k, v]) => (
+                  <button key={k} type="button" onClick={() => setTipoEntrada(k)} style={{
+                    background: tipoEntrada === k ? v.bg : "#F3F4F6",
+                    color: tipoEntrada === k ? v.color : "#6B7280",
+                    border: tipoEntrada === k ? `2px solid ${v.color}` : "2px solid #E5E7EB",
+                    borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer"
+                  }}>{v.emoji} {v.label}</button>
+                ))}
+              </div>
             </div>
-            {!mostrarNuevoPac ? (
-              pacSeleccionado ? (
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#EEF2FF", borderRadius: 8, padding: "10px 14px" }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>{pacSeleccionado.apellido}, {pacSeleccionado.nombre}</div>
-                      <div style={{ fontSize: 12, color: "#6366F1" }}>DNI: {pacSeleccionado.dni || "—"} · {pacSeleccionado.telefono || "Sin teléfono"}</div>
-                    </div>
-                    <button onClick={() => { setForm(f => ({ ...f, paciente_id: "" })); setBusquedaPac(""); }} style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
-                  </div>
-                  {/* Editar datos del paciente desde turno */}
-                  <div style={{ marginTop: 8, background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555" }}>Datos del paciente</div>
-                      <button type="button" onClick={() => setEditandoPacTurno(!editandoPacTurno)}
-                        style={{ background: editandoPacTurno ? "#EEF2FF" : "#F3F4F6", color: "#4338CA", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                        {editandoPacTurno ? "✓ Cerrar" : "✏️ Editar"}
-                      </button>
-                    </div>
-                    {!editandoPacTurno ? (
-                      <div style={{ fontSize: 12, color: "#555" }}>
-                        <div>📞 {pacSeleccionado.telefono || "—"}</div>
-                        <div>🏥 {pacSeleccionado.obraSocial || pacSeleccionado.obra_social || "Particular"}</div>
-                        {(pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por) && <div>Derivado: {pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por}</div>}
-                        {pacSeleccionado.audifono && <div>👂 {pacSeleccionado.audifono}</div>}
-                      </div>
-                    ) : (
-                      <div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
-                          <Field label="Teléfono"><input style={inputStyle} defaultValue={pacSeleccionado.telefono || ""} id="edit-tel-turno" /></Field>
-                          <Field label="Email"><input style={inputStyle} defaultValue={pacSeleccionado.email || ""} id="edit-email-turno" /></Field>
-                          <Field label="Obra social"><input style={inputStyle} defaultValue={pacSeleccionado.obraSocial || pacSeleccionado.obra_social || ""} id="edit-os-turno" /></Field>
-                          <Field label="Audífono"><input style={inputStyle} defaultValue={pacSeleccionado.audifono || ""} id="edit-audio-turno" /></Field>
-                        </div>
-                        <Field label="Derivado por">
-                          <DerivadoPorSelector
-                            value={pacSeleccionado.derivadoPor || pacSeleccionado.derivado_por || ""}
-                            onChange={async (v) => { await db.actualizarPaciente({ ...pacSeleccionado, derivadoPor: v }); }}
-                          />
-                        </Field>
-                        <button type="button" onClick={async () => {
-                          await db.actualizarPaciente({
-                            ...pacSeleccionado,
-                            telefono: document.getElementById("edit-tel-turno")?.value || pacSeleccionado.telefono,
-                            email: document.getElementById("edit-email-turno")?.value || pacSeleccionado.email,
-                            obraSocial: document.getElementById("edit-os-turno")?.value || pacSeleccionado.obraSocial,
-                            audifono: document.getElementById("edit-audio-turno")?.value || pacSeleccionado.audifono,
-                          });
-                          setEditandoPacTurno(false);
-                          alert("✅ Datos del paciente actualizados.");
-                        }} style={{ ...btnPrimary, width: "100%", padding: "8px", fontSize: 12, marginTop: 6 }}>
-                          Guardar cambios del paciente
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ marginTop: 6, background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Etiquetas del paciente</div>
-                    <EtiquetasInline
-                      seleccionadas={pacSeleccionado.etiquetas || []}
-                      onChange={async (nuevasEtiquetas) => {
-                        await db.actualizarPaciente({ ...pacSeleccionado, etiquetas: nuevasEtiquetas });
-                      }}
-                    />
-                  </div>
-                  {saldoPaciente && saldoPaciente(pacSeleccionado.id) > 0 && (
-                    <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "8px 14px", marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 18 }}>💰</span>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>Tiene saldo pendiente de insumos</div>
-                        <div style={{ fontSize: 12, color: "#92400E" }}>Debe: ${saldoPaciente(pacSeleccionado.id).toLocaleString("es-AR")}</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Buscar por nombre o DNI..." value={busquedaPac} onChange={e => setBusquedaPac(e.target.value)} />
-                  {busquedaPac.length > 0 && (
-                    <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
-                      {pacientesFiltrados.length === 0
-                        ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado. <button onClick={() => setMostrarNuevoPac(true)} style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button></div>
-                        : pacientesFiltrados.map(p => {
-                            const deuda = saldoPaciente ? saldoPaciente(p.id) : 0;
-                            return (
-                              <div key={p.id} onClick={() => { setForm(f => ({ ...f, paciente_id: p.id })); setBusquedaPac(""); }}
-                                style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14, background: deuda > 0 ? "#FFFBEB" : "transparent" }}
-                                onMouseEnter={e => e.currentTarget.style.background = deuda > 0 ? "#FEF3C7" : "#F0F4FF"}
-                                onMouseLeave={e => e.currentTarget.style.background = deuda > 0 ? "#FFFBEB" : "transparent"}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                  <div>
-                                    <span style={{ fontWeight: 600 }}>{p.apellido}, {p.nombre}</span>
-                                    <span style={{ color: "#888", fontSize: 12, marginLeft: 8 }}>DNI: {p.dni || "—"}</span>
-                                  </div>
-                                  {deuda > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#92400E", background: "#FEF3C7", borderRadius: 6, padding: "2px 8px" }}>💰 Debe ${deuda.toLocaleString("es-AR")}</span>}
-                                </div>
-                              </div>
-                            );
-                          })}
-                    </div>
-                  )}
-                  {busquedaPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Escribí para buscar entre {pacientes.length} paciente{pacientes.length !== 1 ? "s" : ""}.</div>}
-                </>
-              )
-            ) : (
-              <div style={{ borderTop: "1px solid #E5E7EB", paddingTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>✦ Nuevo paciente</span>
-                  <button onClick={() => setMostrarNuevoPac(false)} style={{ background: "none", border: "none", color: "#888", fontSize: 13, cursor: "pointer" }}>← Volver</button>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  <Field label="Nombre *"><input style={inputStyle} value={formPac.nombre} onChange={e => setFormPac(f => ({ ...f, nombre: e.target.value }))} /></Field>
-                  <Field label="Apellido *"><input style={inputStyle} value={formPac.apellido} onChange={e => setFormPac(f => ({ ...f, apellido: e.target.value }))} /></Field>
-                  <Field label="DNI"><input style={inputStyle} value={formPac.dni} onChange={e => setFormPac(f => ({ ...f, dni: e.target.value }))} /></Field>
-                  <Field label="Teléfono"><input style={inputStyle} value={formPac.telefono} onChange={e => setFormPac(f => ({ ...f, telefono: e.target.value }))} /></Field>
-                  <Field label="Obra social"><input style={inputStyle} value={formPac.obraSocial} onChange={e => setFormPac(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
-                  <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formPac.fechaNac} onChange={e => setFormPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
-                </div>
-                <Field label="Diagnóstico"><input style={inputStyle} value={formPac.diagnostico} onChange={e => setFormPac(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
-                <Field label="Derivado por">
-                  <DerivadoPorSelector
-                    value={formPac.derivadoPor || ""}
-                    onChange={v => setFormPac(f => ({ ...f, derivadoPor: v }))}
-                  />
-                </Field>
-                <Field label="Audífono actual (marca/modelo)">
-                  <input style={inputStyle} value={formPac.audifono || ""} onChange={e => setFormPac(f => ({ ...f, audifono: e.target.value }))} placeholder="Ej: Oticon More 1" />
-                </Field>
-                <button onClick={crearPacienteYSeleccionar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", width: "100%", marginTop: 4 }}>✓ Crear y asignar al turno</button>
-              </div>
-            )}
+          )}
+
+          {/* Color personalizado */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 6 }}>Color de la entrada</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {COLORES_PRESET.map(c => (
+                <button key={c} type="button" onClick={() => setColorEntrada(colorEntrada === c ? "" : c)}
+                  style={{ width: 24, height: 24, borderRadius: "50%", background: c, border: colorEntrada === c ? "3px solid #1a1a2e" : "2px solid #fff", boxShadow: "0 0 0 1.5px #ccc", cursor: "pointer", padding: 0 }} />
+              ))}
+              <span style={{ fontSize: 11, color: "#aaa" }}>{colorEntrada ? "Color personalizado activo" : "Color por defecto según tipo"}</span>
+              {colorEntrada && <button type="button" onClick={() => setColorEntrada("")} style={{ fontSize: 11, background: "none", border: "none", color: "#DC2626", cursor: "pointer" }}>✕ Quitar</button>}
+            </div>
           </div>
 
+          {/* Fecha y hora */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            <Field label="Fecha *"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-            <Field label="Hora inicio *"><input type="time" style={inputStyle} value={form.hora} onChange={e => setForm(f => ({ ...f, hora: e.target.value, hora_fin: calcularHoraFin(e.target.value, f.motivo) }))} /></Field>
-            <Field label="Hora fin"><input type="time" style={inputStyle} value={form.hora_fin || ""} onChange={e => setForm(f => ({ ...f, hora_fin: e.target.value }))} /></Field>
+            <Field label="Fecha *"><input type="date" style={inputStyle} value={formEntrada.fecha || ""} onChange={e => setFormEntrada(f => ({ ...f, fecha: e.target.value }))} /></Field>
+            <Field label="Hora inicio *"><input type="time" style={inputStyle} value={formEntrada.hora || ""} onChange={e => setFormEntrada(f => ({ ...f, hora: e.target.value, hora_fin: calcularHoraFin(e.target.value, f.practicas?.[0] || "") }))} /></Field>
+            {tipoEntrada !== "recordatorio" && <Field label="Hora fin"><input type="time" style={inputStyle} value={formEntrada.hora_fin || ""} onChange={e => setFormEntrada(f => ({ ...f, hora_fin: e.target.value }))} /></Field>}
           </div>
-          <Field label="Prácticas">
-            <SelectorPracticas
-              seleccionadas={form.practicas || (form.motivo ? [form.motivo] : [])}
-              onChange={practicas => setForm(f => ({ ...f, practicas, motivo: practicas[0] || "" }))}
-            />
-          </Field>
-          <Field label="Profesional">
-            <select style={selectStyle} value={form.profesional} onChange={e => setForm(f => ({ ...f, profesional: e.target.value }))}>
-              <option value="">— Sin asignar —</option>
-              <option>Lic. Cecilia Miatello</option>
-              <option>Lic. Graciela Valles</option>
-            </select>
-          </Field>
-          <Field label="Estado">
-            <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-              {Object.entries(COLORES_ESTADO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-          </Field>
 
-          {form.estado === "realizado" && form.paciente_id && (
-            <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "14px 16px", marginBottom: 4 }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10 }}>
-                <span style={{ fontSize: 18 }}>📋</span>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>Registrar en historia clínica</div>
-                  <div style={{ fontSize: 12, color: "#16A34A" }}>Completá la evolución antes de guardar (opcional)</div>
-                </div>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                <Field label="Tipo">
-                  <select style={{ ...selectStyle, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.tipo} onChange={e => setHcForm(f => ({ ...f, tipo: e.target.value }))}>
-                    {PRACTICAS_LISTA.map(p => <option key={p}>{p}</option>)}
-                  </select>
-                </Field>
+          {/* Según tipo */}
+          {tipoEntrada === "turno" && (
+            <>
+              <Field label="Paciente">
+                <select style={selectStyle} value={formEntrada.paciente_id || ""} onChange={e => setFormEntrada(f => ({ ...f, paciente_id: e.target.value }))}>
+                  <option value="">— Sin paciente (visita/reunion) —</option>
+                  {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+                </select>
+              </Field>
+              <Field label="Prácticas">
+                <SelectorPracticas
+                  seleccionadas={formEntrada.practicas || []}
+                  onChange={practicas => setFormEntrada(f => ({ ...f, practicas }))}
+                />
+              </Field>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <Field label="Profesional">
-                  <select style={{ ...selectStyle, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.profesional} onChange={e => setHcForm(f => ({ ...f, profesional: e.target.value }))}>
+                  <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
                     <option value="">— Sin asignar —</option>
                     <option>Lic. Cecilia Miatello</option>
                     <option>Lic. Graciela Valles</option>
                   </select>
                 </Field>
+                <Field label="Estado">
+                  <select style={selectStyle} value={formEntrada.estado || "pendiente"} onChange={e => setFormEntrada(f => ({ ...f, estado: e.target.value }))}>
+                    {Object.entries(COLORES_ESTADO).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                  </select>
+                </Field>
               </div>
-              <Field label="Descripción / evolución">
-                <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70, borderColor: "#BBF7D0", background: "#fff" }} value={hcForm.descripcion} onChange={e => setHcForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Describí la evolución, indicaciones, observaciones..." />
+            </>
+          )}
+
+          {tipoEntrada === "recordatorio" && (
+            <>
+              <Field label="Título *"><input style={inputStyle} value={formEntrada.titulo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Llamar a paciente, Control audífono..." /></Field>
+              <Field label="Paciente (opcional)">
+                <select style={selectStyle} value={formEntrada.paciente_id || ""} onChange={e => setFormEntrada(f => ({ ...f, paciente_id: e.target.value }))}>
+                  <option value="">— General —</option>
+                  {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+                </select>
               </Field>
-              {/* Insumos inline */}
-              {form.paciente_id && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 12, color: "#92400E" }}>¿Entregaste insumos en esta consulta?</span>
-                    <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)} style={{ background: mostrarInsumos ? "#FDE68A" : "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                      {mostrarInsumos ? "▲ Cerrar" : "🛍️ Cargar insumo"}
-                    </button>
+            </>
+          )}
+
+          {tipoEntrada === "visita" && (
+            <>
+              <Field label="Título / Nombre *"><input style={inputStyle} value={formEntrada.titulo || formEntrada.motivo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value, motivo: e.target.value }))} placeholder="Ej: Reunión con Dr. Pérez..." /></Field>
+              <Field label="Profesional">
+                <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
+                  <option value="">— Sin asignar —</option>
+                  <option>Lic. Cecilia Miatello</option>
+                  <option>Lic. Graciela Valles</option>
+                </select>
+              </Field>
+            </>
+          )}
+
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={formEntrada.notas || ""} onChange={e => setFormEntrada(f => ({ ...f, notas: e.target.value }))} /></Field>
+
+          {/* Acciones adicionales si editando un turno con paciente */}
+          {modalEntrada.editando && formEntrada.paciente_id && tipoEntrada === "turno" && (
+            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8 }}>Acciones rápidas</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <button type="button" onClick={() => setVerHCTurno(formEntrada.paciente_id)}
+                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EEF2FF", color: "#4338CA" }}>📋 Ver HC</button>
+                <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)}
+                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#FEF3C7", color: "#92400E" }}>🛍️ Insumos</button>
+                <button type="button" onClick={async () => {
+                  const pac = pacientes.find(p => p.id === formEntrada.paciente_id);
+                  const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
+                  await db.agregarRecordatorio({ titulo: `${Array.isArray(formEntrada.practicas) && formEntrada.practicas[0] ? formEntrada.practicas[0] : "Consulta"} · ${nombre}`, fecha: formEntrada.fecha, hora: formEntrada.hora || "09:00", tipo: "control", paciente_id: formEntrada.paciente_id, descripcion: "", completado: false });
+                  cerrarModal();
+                  alert("✅ Pasado a recordatorio.");
+                }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EDE9FE", color: "#5B21B6" }}>🔔 A recordatorio</button>
+              </div>
+
+              {mostrarInsumos && (
+                <div style={{ marginTop: 10, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+                    <Field label="Insumo">
+                      <select style={selectStyle} value={insumoActualT.nombre} onChange={e => setInsumoActualT(i => ({ ...i, nombre: e.target.value }))}>
+                        {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActualT.cantidad} onChange={e => setInsumoActualT(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
+                    <Field label="$"><input type="number" style={inputStyle} value={insumoActualT.precio} onChange={e => setInsumoActualT(i => ({ ...i, precio: e.target.value }))} /></Field>
+                    <button type="button" onClick={() => {
+                      const nuevo = { ...insumoActualT, id: uid() };
+                      const nuevos = [...insumoFormT.insumos, nuevo];
+                      const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+                      setInsumoFormT(f => ({ ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total }));
+                      setInsumoActualT({ nombre: "Pilas", cantidad: 1, precio: "" });
+                    }} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
                   </div>
-                  {mostrarInsumos && (
-                    <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "12px", marginTop: 6 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
-                        <Field label="Insumo">
-                          <select style={selectStyle} value={insumoActualT.nombre} onChange={e => setInsumoActualT(i => ({ ...i, nombre: e.target.value }))}>
-                            {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
-                          </select>
-                        </Field>
-                        <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActualT.cantidad} onChange={e => setInsumoActualT(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
-                        <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActualT.precio} onChange={e => setInsumoActualT(i => ({ ...i, precio: e.target.value }))} /></Field>
-                        <button type="button" onClick={() => {
-                          const nuevo = { ...insumoActualT, id: uid() };
-                          const nuevosInsumos = [...insumoFormT.insumos, nuevo];
-                          const nuevoTotal = nuevosInsumos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
-                          setInsumoFormT(f => ({ ...f, insumos: nuevosInsumos, total: nuevoTotal > 0 ? String(nuevoTotal) : f.total }));
-                          setInsumoActualT({ nombre: "Pilas", cantidad: 1, precio: "" });
-                        }} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
-                      </div>
-                      {insumoFormT.insumos.length > 0 && (
-                        <div style={{ marginBottom: 8 }}>
-                          {insumoFormT.insumos.map(i => (
-                            <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 13 }}>
-                              <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
-                              <button type="button" onClick={() => {
-                                const nuevos = insumoFormT.insumos.filter(x => x.id !== i.id);
-                                const nuevoTotal = nuevos.reduce((s, x) => s + (parseFloat(x.precio)||0) * (parseInt(x.cantidad)||1), 0);
-                                setInsumoFormT(f => ({ ...f, insumos: nuevos, total: nuevoTotal > 0 ? String(nuevoTotal) : "" }));
-                              }} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-                        <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoFormT.total} onChange={e => setInsumoFormT(f => ({ ...f, total: e.target.value }))} /></Field>
-                        <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoFormT.seña} onChange={e => setInsumoFormT(f => ({ ...f, seña: e.target.value }))} /></Field>
-                        <Field label="Estado">
-                          <select style={selectStyle} value={insumoFormT.estado} onChange={e => setInsumoFormT(f => ({ ...f, estado: e.target.value }))}>
-                            <option value="pendiente">Pendiente</option>
-                            <option value="pagado">Pagado</option>
-                          </select>
-                        </Field>
-                      </div>
-                      {parseFloat(insumoFormT.total) > 0 && (
-                        <div style={{ background: (parseFloat(insumoFormT.total) - parseFloat(insumoFormT.seña||0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 6, padding: "6px 10px", fontSize: 12, fontWeight: 700, color: (parseFloat(insumoFormT.total) - parseFloat(insumoFormT.seña||0)) > 0 ? "#92400E" : "#065F46", marginBottom: 8 }}>
-                          Saldo: ${((parseFloat(insumoFormT.total)||0) - (parseFloat(insumoFormT.seña)||0)).toLocaleString("es-AR")}
-                        </div>
-                      )}
-                      <button type="button" onClick={async () => {
-                        if (insumoFormT.insumos.length === 0) return alert("Agregá al menos un insumo.");
-                        await db.agregarCompra({ ...insumoFormT, paciente_id: form.paciente_id, total: parseFloat(insumoFormT.total)||0, seña: parseFloat(insumoFormT.seña)||0, fecha: insumoFormT.fecha || form.fecha });
-                        setMostrarInsumos(false);
-                        setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
-                        alert("✅ Insumo guardado correctamente.");
-                      }} style={{ ...btnPrimary, background: "linear-gradient(135deg,#92400E,#D97706)", width: "100%", padding: "9px" }}>
-                        🛍️ Guardar insumo
-                      </button>
+                  {insumoFormT.insumos.map(i => (
+                    <div key={i.id} style={{ display: "flex", justifyContent: "space-between", background: "#fff", borderRadius: 6, padding: "4px 8px", marginBottom: 4, fontSize: 12 }}>
+                      <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
+                      <button type="button" onClick={() => {
+                        const nuevos = insumoFormT.insumos.filter(x => x.id !== i.id);
+                        const total = nuevos.reduce((s, x) => s + (parseFloat(x.precio)||0) * (parseInt(x.cantidad)||1), 0);
+                        setInsumoFormT(f => ({ ...f, insumos: nuevos, total: total > 0 ? String(total) : "" }));
+                      }} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer" }}>×</button>
                     </div>
-                  )}
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
+                    <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoFormT.total} onChange={e => setInsumoFormT(f => ({ ...f, total: e.target.value }))} /></Field>
+                    <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoFormT.seña} onChange={e => setInsumoFormT(f => ({ ...f, seña: e.target.value }))} /></Field>
+                    <Field label="Estado">
+                      <select style={selectStyle} value={insumoFormT.estado} onChange={e => setInsumoFormT(f => ({ ...f, estado: e.target.value }))}>
+                        <option value="pendiente">Pendiente</option>
+                        <option value="pagado">Pagado</option>
+                      </select>
+                    </Field>
+                  </div>
+                  <button type="button" onClick={async () => {
+                    if (insumoFormT.insumos.length === 0) return alert("Agregá insumos.");
+                    await db.agregarCompra({ ...insumoFormT, paciente_id: formEntrada.paciente_id, total: parseFloat(insumoFormT.total)||0, seña: parseFloat(insumoFormT.seña)||0, fecha: formEntrada.fecha });
+                    setMostrarInsumos(false);
+                    setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+                    alert("✅ Insumo guardado.");
+                  }} style={{ ...btnPrimary, width: "100%", marginTop: 8, background: "linear-gradient(135deg,#92400E,#D97706)" }}>
+                    🛍️ Guardar insumo
+                  </button>
                 </div>
               )}
             </div>
           )}
 
-          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6, flexWrap: "wrap" }}>
-            <button onClick={cerrarModal} style={btnSecondary}>Cancelar</button>
-            {form.paciente_id && (
-              <button onClick={() => { cerrarModal(); setVerHCTurno(form.paciente_id); }}
-                style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE", fontWeight: 700 }}>
-                📋 Ver historia clínica
-              </button>
-            )}
-            {modal !== "nuevo" && form.paciente_id && (
-              <button onClick={async () => {
-                const pac = pacientes.find(p => p.id === form.paciente_id);
-                const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
-                await db.agregarRecordatorio({
-                  titulo: `Turno: ${Array.isArray(form.practicas) && form.practicas.length ? form.practicas[0] : (form.motivo || "Consulta")} · ${nombre}`,
-                  fecha: form.fecha,
-                  hora: form.hora || "09:00",
-                  tipo: "control",
-                  paciente_id: form.paciente_id,
-                  descripcion: `Turno pasado a recordatorio. ${Array.isArray(form.practicas) ? form.practicas.join(", ") : ""}`,
-                  completado: false,
-                });
-                cerrarModal();
-                alert("✅ Turno pasado a recordatorio correctamente.");
-              }} style={{ ...btnSecondary, background: "#EDE9FE", color: "#5B21B6", border: "1.5px solid #C4B5FD" }}>
-                🔔 Pasar a recordatorio
-              </button>
-            )}
-            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+            <button type="button" onClick={cerrarModal} style={btnSecondary}>Cancelar</button>
+            <button type="button" onClick={guardarEntrada} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
           </div>
         </Modal>
       )}
     </div>
   );
 }
+
 
 // ─── PACIENTES ────────────────────────────────────────────────────────────────
 function Pacientes({ data, db }) {
