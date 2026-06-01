@@ -485,6 +485,7 @@ function useSupabase() {
       profesional: turno.profesional || "",
       estado: turno.estado || "pendiente",
       notas: turno.notas || "",
+      color_custom: turno.color_custom || null,
     };
   }
 
@@ -3276,10 +3277,67 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
   );
 }
 
+
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
+const PASSWORD_HASH = "ceciygra2025";
+
+function LoginScreen({ onLogin }) {
+  const [pass, setPass] = useState("");
+  const [error, setError] = useState(false);
+  const [mostrar, setMostrar] = useState(false);
+
+  function intentar() {
+    if (pass === PASSWORD_HASH) {
+      sessionStorage.setItem("sonara_auth", "1");
+      onLogin();
+    } else {
+      setError(true);
+      setPass("");
+      setTimeout(() => setError(false), 2000);
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg, #e0f4f4 0%, #f0f9f0 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI', system-ui, sans-serif" }}>
+      <div style={{ background: "#fff", borderRadius: 20, padding: "40px 36px", width: "100%", maxWidth: 380, boxShadow: "0 20px 60px rgba(26,107,107,0.15)", textAlign: "center" }}>
+        <img src="/logo-sonara.png" alt="Sonara Audiología" style={{ height: 70, objectFit: "contain", marginBottom: 24 }} />
+        <div style={{ fontSize: 15, color: "#1a6b6b", fontWeight: 600, marginBottom: 28, opacity: 0.7 }}>Sistema de Gestión</div>
+        <div style={{ marginBottom: 16, textAlign: "left" }}>
+          <label style={{ fontSize: 13, fontWeight: 600, color: "#555", display: "block", marginBottom: 6 }}>Contraseña</label>
+          <div style={{ position: "relative" }}>
+            <input
+              type={mostrar ? "text" : "password"}
+              value={pass}
+              onChange={e => setPass(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && intentar()}
+              placeholder="Ingresá la contraseña"
+              style={{ width: "100%", padding: "12px 44px 12px 14px", borderRadius: 10, border: `2px solid ${error ? "#DC2626" : "#E5E7EB"}`, fontSize: 15, outline: "none", boxSizing: "border-box", background: error ? "#FEF2F2" : "#FAFAFA", transition: "border-color 0.2s" }}
+              autoFocus
+            />
+            <button type="button" onClick={() => setMostrar(!mostrar)}
+              style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", fontSize: 16, color: "#888" }}>
+              {mostrar ? "🙈" : "👁️"}
+            </button>
+          </div>
+          {error && <div style={{ color: "#DC2626", fontSize: 12, marginTop: 6, fontWeight: 600 }}>Contraseña incorrecta</div>}
+        </div>
+        <button onClick={intentar} style={{ width: "100%", background: "linear-gradient(135deg, #1a6b6b, #145555)", color: "#fff", border: "none", borderRadius: 10, padding: "13px", fontSize: 15, fontWeight: 700, cursor: "pointer", transition: "opacity 0.2s" }}
+          onMouseEnter={e => e.currentTarget.style.opacity = "0.9"}
+          onMouseLeave={e => e.currentTarget.style.opacity = "1"}>
+          Ingresar →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [tab, setTab] = useState("dashboard");
   const db = useSupabase();
   const { data, loading, error } = db;
+
+  if (!autenticado) return <LoginScreen onLogin={() => setAutenticado(true)} />;
 
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
