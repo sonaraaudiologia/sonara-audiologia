@@ -1136,7 +1136,7 @@ function Turnos({ data, db, saldoPaciente }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
           {/* Vistas */}
           <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 9, padding: 3 }}>
-            {[["dia","Día"],["semana","Semana"],["todos","Todos"]].map(([v, l]) => (
+            {[["dia","Día"],["semana","Semana"],["todos","Agenda"]].map(([v, l]) => (
               <button key={v} type="button" onClick={() => setVista(v)} style={{ background: vista === v ? "#1a6b6b" : "transparent", color: vista === v ? "#fff" : "#555", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{l}</button>
             ))}
           </div>
@@ -1233,36 +1233,106 @@ function Turnos({ data, db, saldoPaciente }) {
 
       {/* ── Vista TODOS ───────────────────────────────────────────────────────── */}
       {vista === "todos" && (() => {
-        const hoy = today();
-        const todos = data.turnos
-          .filter(t => filtroProfesional === "todas" || t.profesional === filtroProfesional)
-          .sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
-        if (todos.length === 0) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📅</div><div>No hay entradas</div></div>;
+        const SLOT_H_AG = 48;
+        const totalHeight = TOTAL_SLOTS * SLOT_H_AG;
+
+        const PROFS = [
+          { key: "Lic. Cecilia Miatello", label: "Miatello", short: "CM", color: "#1a6b6b", bg: "#e0f4f4" },
+          { key: "Lic. Graciela Valles",  label: "Valles",   short: "GV", color: "#4338CA", bg: "#EEF2FF" },
+        ];
+
+        function entradasProf(profKey) {
+          const turnos = data.turnos
+            .filter(t => t.fecha === filtroFecha)
+            .filter(t => {
+              if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
+              return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
+            });
+          const recs = data.recordatorios
+            .filter(r => r.fecha === filtroFecha && !r.completado)
+            .filter(r => !r.profesional || r.profesional === profKey);
+          return [
+            ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
+            ...recs.map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" })),
+          ];
+        }
+
         return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {todos.map(t => {
-              const cm = colorPorMotivo(t.practicas, t.motivo);
-              const esBloqueo = (t.motivo||"").includes("BLOQUEADO");
-              const pac = pacientes.find(p => p.id === t.paciente_id);
-              return (
-                <div key={t.id} style={{ background: "#fff", border: `1.5px solid ${cm.border}`, borderRadius: 10, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <div style={{ background: cm.bg, border: `1.5px solid ${cm.border}`, borderRadius: 8, padding: "6px 10px", textAlign: "center", minWidth: 70 }}>
-                      <div style={{ fontSize: 12, fontWeight: 800, color: cm.text }}>{t.hora?.slice(0,5)}</div>
-                      <div style={{ fontSize: 10, color: cm.text }}>{formatFecha(t.fecha)}</div>
+          <div>
+            {/* Selector de fecha para agenda */}
+            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+              <button type="button" onClick={() => setFiltroFecha(addDays(filtroFecha, -1))} style={{ ...btnSecondary, padding: "6px 10px" }}>‹</button>
+              <input type="date" value={filtroFecha} onChange={e => setFiltroFecha(e.target.value)} style={{ ...inputStyle, width: "auto" }} />
+              <button type="button" onClick={() => setFiltroFecha(addDays(filtroFecha, 1))} style={{ ...btnSecondary, padding: "6px 10px" }}>›</button>
+              <button type="button" onClick={() => setFiltroFecha(today())} style={{ ...btnSecondary, padding: "6px 10px", fontSize: 12 }}>Hoy</button>
+              <span style={{ fontSize: 13, color: "#888", marginLeft: 4 }}>
+                {["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][new Date(filtroFecha + "T12:00:00").getDay()]} {numDia(filtroFecha)} {mesCorto(filtroFecha)}
+              </span>
+            </div>
+
+            <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+              {/* Header profesionales */}
+              <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 1fr", borderBottom: "2px solid #E5E7EB" }}>
+                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
+                {PROFS.map(prof => {
+                  const ents = entradasProf(prof.key);
+                  const bloqueos = ents.filter(e => e._kind === "bloqueo");
+                  const normales = ents.filter(e => e._kind !== "bloqueo");
+                  return (
+                    <div key={prof.key} style={{ background: bloqueos.length > 0 ? "#FEE2E2" : prof.bg, padding: "10px 14px", borderRight: "1px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: bloqueos.length > 0 ? "#991B1B" : prof.color }}>{prof.label}</div>
+                        <div style={{ fontSize: 11, color: bloqueos.length > 0 ? "#DC2626" : prof.color, opacity: 0.8 }}>
+                          {bloqueos.length > 0 ? "🔒 Agenda bloqueada" : `${normales.length} entrada${normales.length !== 1 ? "s" : ""}`}
+                        </div>
+                      </div>
+                      <button type="button" onClick={() => abrirNueva(filtroFecha, "09:00")}
+                        style={{ background: prof.color, color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Turno</button>
                     </div>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 14 }}>{esBloqueo ? "🔒 BLOQUEADO" : (pac ? `${pac.apellido}, ${pac.nombre}` : "Sin paciente")}</div>
-                      <div style={{ fontSize: 12, color: "#888" }}>{Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas.join(" · ") : t.motivo || ""}{t.profesional ? ` · ${t.profesional}` : ""}</div>
+                  );
+                })}
+              </div>
+
+              {/* Cuerpo dual */}
+              <div style={{ display: "grid", gridTemplateColumns: "44px 1fr 1fr" }}>
+                {/* Columna horas */}
+                <ColumnaHoras slotH={SLOT_H_AG} />
+
+                {/* Columna por profesional */}
+                {PROFS.map(prof => {
+                  const ents = entradasProf(prof.key);
+                  const conCols = asignarCols(ents);
+
+                  return (
+                    <div key={prof.key} style={{ borderRight: "1px solid #EFEFEF", position: "relative", height: totalHeight }}>
+                      {/* Líneas de fondo */}
+                      {HORAS.map((h, i) => {
+                        const esM = i % 2 !== 0;
+                        return (
+                          <div key={h}
+                            onClick={() => { abrirNueva(filtroFecha, h); setFormEntrada(f => ({ ...f, profesional: prof.key })); }}
+                            style={{ position: "absolute", top: i * SLOT_H_AG, left: 0, right: 0, height: SLOT_H_AG,
+                              borderBottom: `1px solid ${esM ? "#F5F5F5" : "#E5E7EB"}`,
+                              background: esM ? "#FAFAFA" : "#fff", zIndex: 1, cursor: "pointer" }}
+                            onMouseEnter={e => e.currentTarget.style.background = prof.bg + "88"}
+                            onMouseLeave={e => e.currentTarget.style.background = esM ? "#FAFAFA" : "#fff"}
+                          />
+                        );
+                      })}
+
+                      {/* Entradas */}
+                      {conCols.map(e => (
+                        <ChipEntrada key={e._kind + e.id} entrada={e} slotH={SLOT_H_AG}
+                          col={e._col || 0} totalCols={e._totalCols || 1}
+                          onEdit={() => abrirEditar(e)}
+                          onDelete={() => eliminarEntrada(e)}
+                        />
+                      ))}
                     </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => abrirEditar({ ...t, _kind: esBloqueo ? "bloqueo" : "turno" })} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12 }}>Editar</button>
-                    <button onClick={() => eliminarEntrada({ ...t, _kind: "turno" })} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                  </div>
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            </div>
           </div>
         );
       })()}
