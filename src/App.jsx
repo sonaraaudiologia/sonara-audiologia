@@ -843,7 +843,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
 
 function Turnos({ data, db, saldoPaciente, usuario }) {
   const { getDisp } = useDisponibilidad();
-  const [vista, setVista] = useState("dia");
+  const [vista, setVista] = useState("semana");
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
@@ -1280,8 +1280,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
                       <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
                       <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 2 }}>
-                        <span style={{ fontSize: 8, fontWeight: 700, color: bCM ? "#991B1B" : "#1a6b6b", background: bCM ? "#FEE2E2" : "#e0f4f4", borderRadius: 4, padding: "1px 4px" }}>{bCM ? "🔒CM" : "CM"}</span>
-                        <span style={{ fontSize: 8, fontWeight: 700, color: bGV ? "#991B1B" : "#4338CA", background: bGV ? "#FEE2E2" : "#EEF2FF", borderRadius: 4, padding: "1px 4px" }}>{bGV ? "🔒GV" : "GV"}</span>
+                        <span style={{ fontSize: 8, fontWeight: 700, opacity: filtroProfesional === "Lic. Graciela Valles" ? 0.4 : 1, color: bCM ? "#991B1B" : "#1a6b6b", background: bCM ? "#FEE2E2" : "#e0f4f4", borderRadius: 4, padding: "1px 4px" }}>{bCM ? "🔒CM" : "CM"}</span>
+                        <span style={{ fontSize: 8, fontWeight: 700, opacity: filtroProfesional === "Lic. Cecilia Miatello" ? 0.4 : 1, color: bGV ? "#991B1B" : "#4338CA", background: bGV ? "#FEE2E2" : "#EEF2FF", borderRadius: 4, padding: "1px 4px" }}>{bGV ? "🔒GV" : "GV"}</span>
                       </div>
                     </div>
                   );
@@ -1299,6 +1299,7 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                     <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "grid", gridTemplateColumns: "1fr 1fr" }}>
                       {PROFS_SEM.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
+                        const dimmed = filtroProfesional !== "todas" && filtroProfesional !== prof.key;
                         const conCols = asignarCols(ents);
                         const totalH = TOTAL_SLOTS * SLOT_H_SEM;
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
@@ -3847,7 +3848,7 @@ export default function App() {
   const [usuarioActual, setUsuarioActual] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem("sonara_usuario") || "null"); } catch { return null; }
   });
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState("turnos");
   const db = useSupabase();
   const { data, loading, error } = db;
 
