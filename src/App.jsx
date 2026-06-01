@@ -842,6 +842,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
 }
 
 function Turnos({ data, db, saldoPaciente, usuario }) {
+  const { getDisp } = useDisponibilidad();
   const [vista, setVista] = useState("dia");
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
@@ -887,6 +888,33 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   })();
 
   // ── Obtener todas las entradas de una fecha (turnos + recordatorios) ─────────
+  // Check if hora is within disponibilidad for a profesional on a date
+  function isDisponible(fecha, hora, profKey) {
+    const d = new Date(fecha + "T12:00:00");
+    const diaSemana = d.getDay() === 0 ? 6 : d.getDay() - 1; // 0=lun
+    const mes = d.getMonth() + 1;
+    const anio = d.getFullYear();
+    const disp = getDisp(profKey, mes, anio);
+    if (!disp || disp.length === 0) return null; // no configurado = neutro
+    const diaConf = disp.find(x => x.dia === DIAS_SEMANA[diaSemana]);
+    if (!diaConf || !diaConf.activo) return false; // día sin atención
+    const horaMin = horaAMin(hora);
+    const desde = horaAMin(diaConf.horaDesde || "08:00");
+    const hasta = horaAMin(diaConf.horaHasta || "18:00");
+    return horaMin >= desde && horaMin < hasta;
+  }
+
+  // Check if a date has any disponibilidad configured
+  function getDispDia(fecha, profKey) {
+    const d = new Date(fecha + "T12:00:00");
+    const diaSemana = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    const mes = d.getMonth() + 1;
+    const anio = d.getFullYear();
+    const disp = getDisp(profKey, mes, anio);
+    if (!disp || disp.length === 0) return null;
+    return disp.find(x => x.dia === DIAS_SEMANA[diaSemana]) || null;
+  }
+
   function entradasDia(fecha) {
     const turnos = data.turnos.filter(t => t.fecha === fecha);
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
@@ -1080,22 +1108,35 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   }
 
   // ── Grilla horaria (reutilizable para día y semana) ──────────────────────────
-  function GrillaHoraria({ fecha, entradas, slotH, width = "100%" }) {
+  function GrillaHoraria({ fecha, entradas, slotH, width = "100%", profKey = null }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     const conCols = asignarCols(entradas);
 
     return (
       <div style={{ position: "relative", height: totalHeight, width }}>
-        {/* Líneas de fondo */}
+        {/* Líneas de fondo con color disponibilidad */}
         {HORAS.map((h, i) => {
           const esM = i % 2 !== 0;
+          // Determine background based on disponibilidad
+          let bgBase = esM ? "#FAFAFA" : "#fff";
+          let bgHover = "#EEF2FF";
+          if (profKey) {
+            const disp = isDisponible(fecha, h, profKey);
+            if (disp === true) {
+              bgBase = esM ? "#f0faf0" : "#e8f7e8"; // verde pastel
+              bgHover = "#d0f0d0";
+            } else if (disp === false) {
+              bgBase = esM ? "#fff5f5" : "#fff0f0"; // rojo pastel
+              bgHover = "#ffe0e0";
+            }
+          }
           return (
             <div key={h} style={{ position: "absolute", top: i * slotH, left: 0, right: 0, height: slotH,
               borderBottom: `1px solid ${esM ? "#F5F5F5" : "#E5E7EB"}`,
-              background: esM ? "#FAFAFA" : "#fff", zIndex: 1 }}
+              background: bgBase, zIndex: 1 }}
               onClick={() => abrirNueva(fecha, h)}
-              onMouseEnter={e => { if (!e.target.closest('[data-entrada]')) e.currentTarget.style.background = "#EEF2FF"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = esM ? "#FAFAFA" : "#fff"; }}
+              onMouseEnter={e => { if (!e.target.closest('[data-entrada]')) e.currentTarget.style.background = bgHover; }}
+              onMouseLeave={e => { e.currentTarget.style.background = bgBase; }}
             />
           );
         })}
@@ -1189,7 +1230,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
           <div style={{ display: "flex" }}>
             <ColumnaHoras slotH={SLOT_H_DIA} />
             <div style={{ flex: 1 }}>
-              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha)} slotH={SLOT_H_DIA} />
+              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha)} slotH={SLOT_H_DIA}
+                profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
             </div>
           </div>
         </div>
