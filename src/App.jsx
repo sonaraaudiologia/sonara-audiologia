@@ -1123,11 +1123,11 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
           if (profKey) {
             const disp = isDisponible(fecha, h, profKey);
             if (disp === true) {
-              bgBase = esM ? "#f0faf0" : "#e8f7e8"; // verde pastel
-              bgHover = "#d0f0d0";
+              bgBase = esM ? "#F0FAF0" : "#E8F7E8"; // verde pastel
+              bgHover = "#D0F0D0";
             } else if (disp === false) {
-              bgBase = esM ? "#fff5f5" : "#fff0f0"; // rojo pastel
-              bgHover = "#ffe0e0";
+              bgBase = esM ? "#F2F2F2" : "#EBEBEB"; // gris sombreado
+              bgHover = "#DCDCDC";
             }
           }
           return (
@@ -1310,15 +1310,27 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
                         return (
                           <div key={prof.key} style={{ position: "relative", height: totalH, borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
-                            {/* Líneas fondo */}
+                            {/* Líneas fondo con disponibilidad */}
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
+                              const disp = isDisponible(fecha, h, prof.key);
+                              let bgBase;
+                              if (tieneBloqueo) {
+                                bgBase = esM ? "#FFF5F5" : "#FFF0F0";
+                              } else if (disp === true) {
+                                bgBase = esM ? "#F0FAF0" : "#E8F7E8"; // verde pastel
+                              } else if (disp === false) {
+                                bgBase = esM ? "#F2F2F2" : "#EBEBEB"; // gris sombreado
+                              } else {
+                                bgBase = esM ? "#FAFAFA" : "#fff"; // sin config = blanco
+                              }
                               return (
                                 <div key={h} onClick={() => { abrirNueva(fecha, h); setTimeout(() => setFormEntrada(f => ({ ...f, profesional: prof.key })), 0); }}
                                   style={{ position: "absolute", top: i * SLOT_H_SEM, left: 0, right: 0, height: SLOT_H_SEM,
-                                    borderBottom: `1px solid ${esM ? "#F9F9F9" : "#F0F0F0"}`, zIndex: 1, cursor: "pointer" }}
-                                  onMouseEnter={e => e.currentTarget.style.background = prof.bg + "66"}
-                                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                                    borderBottom: `1px solid ${esM ? "#F0F0F0" : "#E8E8E8"}`, zIndex: 1, cursor: "pointer",
+                                    background: bgBase }}
+                                  onMouseEnter={e => e.currentTarget.style.background = disp === false ? "#DCDCDC" : disp === true ? "#D0F0D0" : prof.bg + "66"}
+                                  onMouseLeave={e => e.currentTarget.style.background = bgBase}
                                 />
                               );
                             })}
