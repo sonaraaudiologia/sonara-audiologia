@@ -926,7 +926,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   }
 
   function entradasDia(fecha) {
-    const turnos = data.turnos.filter(t => t.fecha === fecha && !ESTADOS_OCULTOS.includes(t.estado));
+    const turnos = data.turnos.filter(t => t.fecha === fecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")));
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     const todas = [
       ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
@@ -995,7 +995,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     try {
       const esNueva = !modalEntrada?.editando;
       const colorFinal = colorEntrada || null;
-      const estadoFinal = tipoEntrada === "bloqueo" ? "cancelado" : (formEntrada.estado || "pendiente");
+      const estadoFinal = tipoEntrada === "bloqueo" ? "bloqueado" : (formEntrada.estado || "pendiente");
       const esOculto = ESTADOS_OCULTOS.includes(estadoFinal);
 
       if (tipoEntrada === "recordatorio") {
@@ -1024,7 +1024,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             : (Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0 ? formEntrada.practicas.join(", ") : formEntrada.titulo || formEntrada.motivo || ""),
           practicas: tipoEntrada === "bloqueo" ? [] : (Array.isArray(formEntrada.practicas) ? [...formEntrada.practicas] : []),
           profesional: formEntrada.profesional || "",
-          estado: tipoEntrada === "bloqueo" ? "cancelado" : (formEntrada.estado || "pendiente"),
+          estado: tipoEntrada === "bloqueo" ? "bloqueado" : (formEntrada.estado || "pendiente"),
           notas: formEntrada.notas || "",
           color_custom: colorFinal,
           creado_por: usuario?.nombre || "",
@@ -1347,7 +1347,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entsProfFecha(profKey, fecha) {
           const turnos = data.turnos
-            .filter(t => t.fecha === fecha && !ESTADOS_OCULTOS.includes(t.estado))
+            .filter(t => t.fecha === fecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -1481,7 +1481,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entradasProf(profKey) {
           const turnos = data.turnos
-            .filter(t => t.fecha === filtroFecha && !ESTADOS_OCULTOS.includes(t.estado))
+            .filter(t => t.fecha === filtroFecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -3671,7 +3671,7 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
             hora_fin: form.horaHasta,
             motivo: `🔒 BLOQUEADO: ${form.motivo}`,
             profesional: prof,
-            estado: "cancelado",
+            estado: "bloqueado",
             notas: `Bloqueo de agenda · Repetición: ${form.repeticion}`,
           }));
         }
