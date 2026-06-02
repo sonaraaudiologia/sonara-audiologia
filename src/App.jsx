@@ -1008,8 +1008,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
           paciente_id: tipoEntrada === "bloqueo" ? null : (formEntrada.paciente_id || null),
           motivo: tipoEntrada === "bloqueo"
             ? `🔒 BLOQUEADO: ${formEntrada.titulo || "Bloqueo"}`
-            : (Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0 ? formEntrada.practicas.join(", ") : formEntrada.motivo || ""),
-          practicas: tipoEntrada === "bloqueo" ? [] : (formEntrada.practicas || []),
+            : (Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0 ? formEntrada.practicas.join(", ") : formEntrada.titulo || formEntrada.motivo || ""),
+          practicas: tipoEntrada === "bloqueo" ? [] : (Array.isArray(formEntrada.practicas) ? [...formEntrada.practicas] : []),
           profesional: formEntrada.profesional || "",
           estado: tipoEntrada === "bloqueo" ? "cancelado" : (formEntrada.estado || "pendiente"),
           notas: formEntrada.notas || "",
@@ -1510,27 +1510,60 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
         const pac = pacientes.find(p => p.id === verHCTurno);
         if (!pac) return null;
         const historia = [...(pac.historia||[])].reverse();
+        const comprasPac = data.compras.filter(c => c.paciente_id === verHCTurno).map(c => ({
+          id: c.id, fecha: c.fecha, _tipo: "compra",
+          descripcion: `Insumos: ${(c.insumos||[]).map(i=>i.nombre).join(", ")} · $${(parseFloat(c.total)||0).toLocaleString("es-AR")}`,
+          tipo: c.estado === "pagado" ? "✅ Insumo pagado" : "🛍️ Insumo pendiente"
+        }));
+        const ventasPac = data.ventas.filter(v => v.paciente_id === verHCTurno).map(v => ({
+          id: v.id, fecha: v.fecha, _tipo: "venta",
+          descripcion: `${[v.marca_der,v.modelo_der].filter(Boolean).join(" ")||v.dispositivo||""} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
+          tipo: `🛒 ${COLORES_VENTA[v.estado]?.label||v.estado}`
+        }));
+        const todo = [...historia.map(e=>({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
+          .filter(e=>e.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+        const colores = { hc:{bg:"#F0FDF4",border:"#BBF7D0"}, compra:{bg:"#FEF3C7",border:"#FDE68A"}, venta:{bg:"#E0F2FE",border:"#BAE6FD"} };
+
         return (
           <Modal title={`HC · ${pac.apellido}, ${pac.nombre}`} onClose={() => setVerHCTurno(null)}>
-            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: 13 }}>
+            {/* Datos del paciente editables */}
+            <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 14px", marginBottom: 14, fontSize: 13 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>Datos del paciente</span>
+                <button type="button" onClick={() => {
+                  cerrarModal();
+                  setVerHCTurno(null);
+                }} style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                  ✏️ Editar ficha completa
+                </button>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                <div>📞 {pac.telefono||"—"}</div>
+                <div style={{ display:"flex", alignItems:"center", gap:4 }}>📞 {pac.telefono||"—"}{pac.telefono && <CopyButton text={pac.telefono} label="tel"/>}</div>
                 <div>🏥 {pac.obraSocial||pac.obra_social||"Particular"}</div>
                 {pac.diagnostico && <div style={{ gridColumn:"span 2" }}>🩺 {pac.diagnostico}</div>}
                 {pac.audifono && <div style={{ gridColumn:"span 2" }}>👂 {pac.audifono}</div>}
+                {(pac.derivadoPor||pac.derivado_por) && <div style={{ gridColumn:"span 2" }}>Derivado: {pac.derivadoPor||pac.derivado_por}</div>}
               </div>
             </div>
-            {historia.length === 0 ? <div style={{ textAlign:"center", color:"#aaa", padding: 20 }}>Sin entradas</div>
-              : <div style={{ display:"flex", flexDirection:"column", gap: 8, maxHeight: 400, overflowY:"auto" }}>
-                {historia.map(ev => (
-                  <div key={ev.id} style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 12px" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
-                      <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+
+            {/* Historial */}
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Historial completo</div>
+            {todo.length === 0
+              ? <div style={{ textAlign:"center", color:"#aaa", padding: 20 }}>Sin entradas</div>
+              : <div style={{ display:"flex", flexDirection:"column", gap: 8, maxHeight: 380, overflowY:"auto" }}>
+                {todo.map(ev => {
+                  const c = colores[ev._tipo] || colores.hc;
+                  return (
+                    <div key={ev._tipo+ev.id} style={{ background: c.bg, border:`1px solid ${c.border}`, borderRadius: 8, padding: "8px 12px" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom: 3 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                        <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 13 }}>{ev.descripcion}</p>
+                      {ev.profesional && <div style={{ fontSize: 11, color:"#888", marginTop:3 }}>{ev.profesional}</div>}
                     </div>
-                    <p style={{ margin: 0, fontSize: 13 }}>{ev.descripcion}</p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             }
             <div style={{ display:"flex", justifyContent:"flex-end", marginTop: 14 }}>
@@ -1671,8 +1704,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
               </div>
               <Field label="Prácticas">
                 <SelectorPracticas
-                  seleccionadas={formEntrada.practicas || []}
-                  onChange={practicas => setFormEntrada(f => ({ ...f, practicas }))}
+                  seleccionadas={Array.isArray(formEntrada.practicas) ? formEntrada.practicas : []}
+                  onChange={practicas => setFormEntrada(f => ({ ...f, practicas: [...practicas] }))}
                 />
               </Field>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -1724,7 +1757,10 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
             <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8 }}>Acciones rápidas</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" onClick={() => setVerHCTurno(formEntrada.paciente_id)}
+                <button type="button" onClick={() => {
+                  cerrarModal();
+                  setVerHCTurno(formEntrada.paciente_id);
+                }}
                   style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EEF2FF", color: "#4338CA" }}>📋 Ver HC</button>
                 <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)}
                   style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#FEF3C7", color: "#92400E" }}>🛍️ Insumos</button>
