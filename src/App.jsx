@@ -1123,9 +1123,20 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   function GrillaHoraria({ fecha, entradas, slotH, width = "100%", profKey = null }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     const conCols = asignarCols(entradas);
+    // Calc where disponibilidad ends to show divider line
+    const finDisp = profKey ? getFinDisponibilidad(fecha, profKey) : null;
+    const finDispTop = finDisp ? (horaAMin(finDisp) - HORA_INICIO * 60) / 30 * slotH : null;
 
     return (
       <div style={{ position: "relative", height: totalHeight, width }}>
+        {/* Línea divisora fin de disponibilidad */}
+        {finDispTop !== null && (
+          <div style={{ position: "absolute", top: finDispTop, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 10, opacity: 0.5 }}>
+            <span style={{ position: "absolute", right: 4, top: -10, fontSize: 9, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 4px", borderRadius: 4 }}>
+              fin {finDisp?.slice(0,5)}
+            </span>
+          </div>
+        )}
         {/* Líneas de fondo con color disponibilidad */}
         {HORAS.map((h, i) => {
           const esM = i % 2 !== 0;
@@ -1167,36 +1178,50 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   // ── Columna de horas ─────────────────────────────────────────────────────────
 
   // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
-  function RecordatoriosPie({ fecha, profKey }) {
-    const recs = data.recordatorios.filter(r => {
-      if (r.fecha !== fecha || r.completado) return false;
-      if (!profKey) return true;
-      return !r.paciente_id || true; // show all recs regardless of prof
-    });
+  function RecordatoriosPie({ fecha, profKeys }) {
+    const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     if (recs.length === 0) return null;
+
+    // Agrupar por profesional (o general)
+    const grupos = profKeys || ["general"];
+
     return (
-      <div style={{ borderTop: "2px dashed #E5E7EB", padding: "8px 6px", background: "#FAFAFA" }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, paddingLeft: 2 }}>
-          🔔 Recordatorios
+      <div style={{ borderTop: "2px dashed #E5E7EB", padding: "8px 8px 10px", background: "#F9FAFB" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, paddingLeft: 2 }}>
+          🔔 Recordatorios del día
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {recs.sort((a,b) => (a.hora||"").localeCompare(b.hora||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", borderRadius: 6, background: "#fff", border: "1px solid #E5E7EB" }}>
-              <input type="checkbox" checked={r.completado} onChange={() => db.actualizarRecordatorio({ ...r, completado: true })}
-                style={{ width: 14, height: 14, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+            <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 8px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+                style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0, marginTop: 2 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {r.hora ? r.hora.slice(0,5) + " · " : ""}{r.titulo}
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", lineHeight: 1.4, wordBreak: "break-word" }}>
+                  {r.hora ? <span style={{ color: "#9CA3AF", marginRight: 4, fontSize: 11 }}>{r.hora.slice(0,5)}</span> : null}{r.titulo}
                 </div>
-                {r.descripcion && <div style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.descripcion}</div>}
+                {r.descripcion && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>{r.descripcion}</div>}
+                {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <div style={{ fontSize: 10, color: "#6B7280", marginTop: 1 }}>👤 {p.apellido}, {p.nombre}</div> : null; })()}
               </div>
               <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
-                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0 }}>×</button>
+                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 14, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
         </div>
       </div>
     );
+  }
+
+  // ── Calcular fin de disponibilidad de una prof para una fecha ─────────────────
+  function getFinDisponibilidad(fecha, profKey) {
+    const d = new Date(fecha + "T12:00:00");
+    const diaSemana = d.getDay() === 0 ? 6 : d.getDay() - 1;
+    const mes = d.getMonth() + 1;
+    const anio = d.getFullYear();
+    const disp = getDisp(profKey, mes, anio);
+    if (!disp || disp.length === 0) return null;
+    const diaConf = disp.find(x => x.dia === DIAS_SEMANA[diaSemana]);
+    if (!diaConf || !diaConf.activo) return null;
+    return diaConf.horaHasta || null; // e.g. "13:00"
   }
 
   function ColumnaHoras({ slotH }) {
@@ -1280,7 +1305,7 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                 profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
             </div>
           </div>
-          <RecordatoriosPie fecha={filtroFecha} profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
+          <RecordatoriosPie fecha={filtroFecha} profKeys={[filtroProfesional !== "todas" ? filtroProfesional : "todas"]} />
         </div>
       )}
 
@@ -1398,9 +1423,9 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                           </div>
                         );
                       })}
-                      {/* Recordatorios al pie de cada día */}
-                      <div style={{ gridColumn: "1 / -1" }}>
-                        <RecordatoriosPie fecha={fecha} profKey={null} />
+                      {/* Recordatorios al pie — se muestran una sola vez por día */}
+                      <div style={{ gridColumn: "1 / -1", borderTop: "2px dashed #E5E7EB" }}>
+                        <RecordatoriosPie fecha={fecha} profKeys={profsFilt.map(p => p.key)} />
                       </div>
                     </div>
                     );
