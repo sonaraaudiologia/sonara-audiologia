@@ -844,6 +844,10 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
 function Turnos({ data, db, saldoPaciente, usuario }) {
   const { getDisp } = useDisponibilidad();
   const [vista, setVista] = useState("semana");
+  const [mostrarNuevoPacEntrada, setMostrarNuevoPacEntrada] = useState(false);
+  const [formNuevoPac, setFormNuevoPac] = useState(FORM_PAC_VACIO);
+  const [busquedaEntrada, setBusquedaEntrada] = useState("");
+  const [savingPac, setSavingPac] = useState(false);
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
@@ -967,6 +971,9 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   function cerrarModal() {
     setModalEntrada(null);
     setMostrarInsumos(false);
+    setMostrarNuevoPacEntrada(false);
+    setBusquedaEntrada("");
+    setFormNuevoPac(FORM_PAC_VACIO);
     setInsumoFormT({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   }
 
@@ -1576,12 +1583,92 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
           {/* Según tipo */}
           {tipoEntrada === "turno" && (
             <>
-              <Field label="Paciente">
-                <select style={selectStyle} value={formEntrada.paciente_id || ""} onChange={e => setFormEntrada(f => ({ ...f, paciente_id: e.target.value }))}>
-                  <option value="">— Sin paciente (visita/reunion) —</option>
-                  {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-                </select>
-              </Field>
+              {/* Selector de paciente con búsqueda y creación */}
+              <div style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700 }}>👤 Paciente</span>
+                  {!mostrarNuevoPacEntrada && (
+                    <button type="button" onClick={() => { setMostrarNuevoPacEntrada(true); setFormEntrada(f => ({ ...f, paciente_id: "" })); }}
+                      style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Crear nuevo</button>
+                  )}
+                </div>
+                {!mostrarNuevoPacEntrada ? (
+                  formEntrada.paciente_id ? (
+                    <div>
+                      {(() => { const p = pacientes.find(x => x.id === formEntrada.paciente_id); return p ? (
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#EEF2FF", borderRadius: 8, padding: "10px 14px" }}>
+                          <div>
+                            <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>{p.apellido}, {p.nombre}</div>
+                            <div style={{ fontSize: 12, color: "#6366F1" }}>{p.telefono || "Sin teléfono"}</div>
+                          </div>
+                          <button type="button" onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: "" })); setBusquedaEntrada(""); }}
+                            style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
+                        </div>
+                      ) : null; })()}
+                    </div>
+                  ) : (
+                    <>
+                      <input style={{ ...inputStyle, marginBottom: 8 }} placeholder="Buscar por nombre o DNI..."
+                        value={busquedaEntrada} onChange={e => setBusquedaEntrada(e.target.value)} />
+                      {busquedaEntrada.length > 1 && (
+                        <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
+                          {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).length === 0
+                            ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado.
+                                <button type="button" onClick={() => setMostrarNuevoPacEntrada(true)}
+                                  style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button>
+                              </div>
+                            : pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).map(p => (
+                              <div key={p.id} onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: p.id })); setBusquedaEntrada(""); }}
+                                style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
+                                onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
+                                onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                                <span style={{ fontWeight: 600 }}>{p.apellido}, {p.nombre}</span>
+                                <span style={{ color: "#888", fontSize: 12, marginLeft: 8 }}>DNI: {p.dni||"—"}</span>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      )}
+                      {busquedaEntrada.length === 0 && (
+                        <div style={{ fontSize: 12, color: "#aaa" }}>
+                          Escribí para buscar · o dejá vacío para visita/reunión sin paciente
+                        </div>
+                      )}
+                    </>
+                  )
+                ) : (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#059669" }}>✦ Nuevo paciente</span>
+                      <button type="button" onClick={() => { setMostrarNuevoPacEntrada(false); setFormNuevoPac(FORM_PAC_VACIO); }}
+                        style={{ background: "none", border: "none", color: "#888", fontSize: 13, cursor: "pointer" }}>← Volver</button>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <Field label="Nombre *"><input style={inputStyle} value={formNuevoPac.nombre} onChange={e => setFormNuevoPac(f => ({ ...f, nombre: e.target.value }))} /></Field>
+                      <Field label="Apellido *"><input style={inputStyle} value={formNuevoPac.apellido} onChange={e => setFormNuevoPac(f => ({ ...f, apellido: e.target.value }))} /></Field>
+                      <Field label="DNI"><input style={inputStyle} value={formNuevoPac.dni} onChange={e => setFormNuevoPac(f => ({ ...f, dni: e.target.value }))} /></Field>
+                      <Field label="Teléfono"><input style={inputStyle} value={formNuevoPac.telefono} onChange={e => setFormNuevoPac(f => ({ ...f, telefono: e.target.value }))} /></Field>
+                      <Field label="Obra social"><input style={inputStyle} value={formNuevoPac.obraSocial} onChange={e => setFormNuevoPac(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
+                      <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formNuevoPac.fechaNac} onChange={e => setFormNuevoPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
+                    </div>
+                    <Field label="Derivado por">
+                      <DerivadoPorSelector value={formNuevoPac.derivadoPor || ""} onChange={v => setFormNuevoPac(f => ({ ...f, derivadoPor: v }))} />
+                    </Field>
+                    <button type="button" disabled={savingPac} onClick={async () => {
+                      if (!formNuevoPac.nombre || !formNuevoPac.apellido) return alert("Nombre y apellido son obligatorios.");
+                      setSavingPac(true);
+                      try {
+                        const np = await db.agregarPaciente({ ...formNuevoPac, historia: [], creado_por: usuario?.nombre || "" });
+                        if (np) { setFormEntrada(f => ({ ...f, paciente_id: np.id })); }
+                        setMostrarNuevoPacEntrada(false);
+                        setFormNuevoPac(FORM_PAC_VACIO);
+                      } finally { setSavingPac(false); }
+                    }} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", width: "100%", marginTop: 8 }}>
+                      {savingPac ? "Creando..." : "✓ Crear y asignar al turno"}
+                    </button>
+                  </div>
+                )}
+              </div>
               <Field label="Prácticas">
                 <SelectorPracticas
                   seleccionadas={formEntrada.practicas || []}
