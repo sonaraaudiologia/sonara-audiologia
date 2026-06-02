@@ -1021,8 +1021,15 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           color_custom: colorFinal,
           creado_por: usuario?.nombre || "",
         };
-        if (esNueva) await db.agregarTurno(turno);
-        else await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+        if (tipoEntrada === "bloqueo" && formEntrada.profesional === "ambas") {
+          // Create two bloqueos, one per professional
+          await db.agregarTurno({ ...turno, profesional: "Lic. Cecilia Miatello" });
+          await db.agregarTurno({ ...turno, profesional: "Lic. Graciela Valles" });
+        } else if (esNueva) {
+          await db.agregarTurno(turno);
+        } else {
+          await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+        }
       }
       cerrarModal();
     } finally { setSaving(false); }
@@ -1284,13 +1291,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           </div>
           {/* Leyenda tipos */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-            {Object.entries(TIPOS_ENTRADA).filter(([k]) => k !== "bloqueo").map(([k, v]) => (
+            {Object.entries(TIPOS_ENTRADA).map(([k, v]) => (
               <div key={k} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: v.color }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: v.bg, border: `1.5px solid ${v.color}` }} />
                 {v.label}
               </div>
             ))}
-            <button type="button" onClick={() => setModalBloqueo(true)} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>🔒 Bloquear</button>
+
           </div>
         </div>
       </div>
@@ -1649,7 +1656,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 8 }}>Tipo de entrada</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {Object.entries(TIPOS_ENTRADA).filter(([k]) => k !== "bloqueo").map(([k, v]) => (
+                {Object.entries(TIPOS_ENTRADA).map(([k, v]) => (
                   <button key={k} type="button" onClick={() => setTipoEntrada(k)} style={{
                     background: tipoEntrada === k ? v.bg : "#F3F4F6",
                     color: tipoEntrada === k ? v.color : "#6B7280",
@@ -1813,6 +1820,25 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   <option value="">— Sin asignar —</option>
                   <option>Lic. Cecilia Miatello</option>
                   <option>Lic. Graciela Valles</option>
+                </select>
+              </Field>
+            </>
+          )}
+
+          {tipoEntrada === "bloqueo" && (
+            <>
+              <div style={{ background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: 10, padding: "10px 14px", marginBottom: 8, fontSize: 13, color: "#991B1B", fontWeight: 600 }}>
+                🔒 Este horario quedará bloqueado — no se podrán asignar turnos
+              </div>
+              <Field label="Motivo (opcional)">
+                <input style={inputStyle} value={formEntrada.titulo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Capacitación, Feriado, Personal..." />
+              </Field>
+              <Field label="Profesional a bloquear *">
+                <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  <option>Lic. Cecilia Miatello</option>
+                  <option>Lic. Graciela Valles</option>
+                  <option value="ambas">Ambas profesionales</option>
                 </select>
               </Field>
             </>
