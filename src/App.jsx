@@ -301,12 +301,14 @@ const btnPrimary = { background: "linear-gradient(135deg, #1a6b6b, #145555)", co
 const btnSecondary = { background: "#F3F4F6", color: "#374151", border: "none", borderRadius: 8, padding: "10px 22px", fontSize: 14, fontWeight: 600, cursor: "pointer" };
 
 const COLORES_ESTADO = {
-  pendiente:  { bg: "#FEF3C7", color: "#92400E", label: "Pendiente" },
-  confirmado: { bg: "#D1FAE5", color: "#065F46", label: "Confirmado" },
-  cancelado:  { bg: "#FEE2E2", color: "#991B1B", label: "Cancelado" },
-  realizado:  { bg: "#E0F2FE", color: "#075985", label: "Realizado" },
-  ausente:    { bg: "#F3F4F6", color: "#4B5563", label: "Ausente" },
+  pendiente:   { bg: "#FEF3C7", color: "#92400E", label: "Pendiente" },
+  confirmado:  { bg: "#D1FAE5", color: "#065F46", label: "Confirmado" },
+  cancelado:   { bg: "#FEE2E2", color: "#991B1B", label: "Cancelado" },
+  suspendido:  { bg: "#FEE2E2", color: "#991B1B", label: "Suspendido" },
+  realizado:   { bg: "#E0F2FE", color: "#075985", label: "Realizado" },
+  ausente:     { bg: "#F3F4F6", color: "#4B5563", label: "Ausente" },
 };
+const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 const COLORES_VENTA = {
   presupuestado:        { bg: "#EDE9FE", color: "#4C1D95",  label: "Presupuestado" },
   aprobado:             { bg: "#DBEAFE", color: "#1E40AF",  label: "Aprobado" },
@@ -437,7 +439,7 @@ function useSupabase() {
       antecedentes: pac.antecedentes || "",
       notas: pac.notas || "",
       derivado_por: pac.derivadoPor || pac.derivado_por || "",
-      audifono: pac.audifono || "",
+      audifono: pac.audifono || pac.audifono_der || "",
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
     };
@@ -451,6 +453,10 @@ function useSupabase() {
       nroAfiliado: row.nro_afiliado || "",
       derivadoPor: row.derivado_por || "",
       audifono: row.audifono || "",
+      audifono_der: row.audifono_der || row.audifono || "",
+      audifono_der_anio: row.audifono_der_anio || "",
+      audifono_izq: row.audifono_izq || "",
+      audifono_izq_anio: row.audifono_izq_anio || "",
       etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
     };
   }
@@ -920,7 +926,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   }
 
   function entradasDia(fecha) {
-    const turnos = data.turnos.filter(t => t.fecha === fecha);
+    const turnos = data.turnos.filter(t => t.fecha === fecha && !ESTADOS_OCULTOS.includes(t.estado));
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     const todas = [
       ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
@@ -989,6 +995,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     try {
       const esNueva = !modalEntrada?.editando;
       const colorFinal = colorEntrada || null;
+      const estadoFinal = tipoEntrada === "bloqueo" ? "cancelado" : (formEntrada.estado || "pendiente");
+      const esOculto = ESTADOS_OCULTOS.includes(estadoFinal);
 
       if (tipoEntrada === "recordatorio") {
         if (!formEntrada.titulo) return alert("Escribí un título.");
@@ -1021,14 +1029,28 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           color_custom: colorFinal,
           creado_por: usuario?.nombre || "",
         };
+
         if (tipoEntrada === "bloqueo" && formEntrada.profesional === "ambas") {
-          // Create two bloqueos, one per professional
           await db.agregarTurno({ ...turno, profesional: "Lic. Cecilia Miatello" });
           await db.agregarTurno({ ...turno, profesional: "Lic. Graciela Valles" });
         } else if (esNueva) {
           await db.agregarTurno(turno);
         } else {
-          await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+          // Si es cancelado/suspendido: registrar en HC y luego eliminar de agenda
+          if (esOculto && formEntrada.paciente_id) {
+            const pac = pacientes.find(p => p.id === formEntrada.paciente_id);
+            const practicasTexto = Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0
+              ? formEntrada.practicas.join(", ") : (formEntrada.motivo || "Consulta");
+            await db.agregarEntradaHC(formEntrada.paciente_id, {
+              fecha: formEntrada.fecha,
+              tipo: estadoFinal === "suspendido" ? "Turno suspendido" : "Turno cancelado",
+              descripcion: `${practicasTexto} · ${formEntrada.hora?.slice(0,5)}${formEntrada.hora_fin ? `–${formEntrada.hora_fin.slice(0,5)}` : ""} · ${estadoFinal === "suspendido" ? "Suspendido" : "Cancelado"}${formEntrada.notas ? `. ${formEntrada.notas}` : ""}`,
+              profesional: formEntrada.profesional || "",
+            });
+            await db.eliminarTurno(modalEntrada.editando.id);
+          } else {
+            await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+          }
         }
       }
       cerrarModal();
@@ -1325,7 +1347,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entsProfFecha(profKey, fecha) {
           const turnos = data.turnos
-            .filter(t => t.fecha === fecha)
+            .filter(t => t.fecha === fecha && !ESTADOS_OCULTOS.includes(t.estado))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -1459,7 +1481,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entradasProf(profKey) {
           const turnos = data.turnos
-            .filter(t => t.fecha === filtroFecha)
+            .filter(t => t.fecha === filtroFecha && !ESTADOS_OCULTOS.includes(t.estado))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -1845,6 +1867,25 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={formEntrada.notas || ""} onChange={e => setFormEntrada(f => ({ ...f, notas: e.target.value }))} /></Field>
 
+          {/* Sección realizado */}
+          {modalEntrada.editando && formEntrada.paciente_id && tipoEntrada === "turno" && formEntrada.estado === "realizado" && (
+            <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#065F46", marginBottom: 10 }}>✅ Registrar en Historia Clínica</div>
+              <Field label="Prácticas realizadas">
+                <SelectorPracticas
+                  seleccionadas={Array.isArray(formEntrada.hcPracticas) ? formEntrada.hcPracticas : (Array.isArray(formEntrada.practicas) ? formEntrada.practicas : [])}
+                  onChange={hcPracticas => setFormEntrada(f => ({ ...f, hcPracticas: [...hcPracticas] }))}
+                />
+              </Field>
+              <Field label="Descripción / evolución">
+                <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70, borderColor: "#BBF7D0" }}
+                  value={formEntrada.hcDescripcion || ""}
+                  onChange={e => setFormEntrada(f => ({ ...f, hcDescripcion: e.target.value }))}
+                  placeholder="Evolución, indicaciones, observaciones..." />
+              </Field>
+            </div>
+          )}
+
           {/* Acciones adicionales si editando un turno con paciente */}
           {modalEntrada.editando && formEntrada.paciente_id && tipoEntrada === "turno" && (
             <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
@@ -1947,7 +1988,9 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
-    derivadoPor: "", audifono: "", etiquetas: []
+    derivadoPor: "", audifono: "",
+    audifono_der: "", audifono_der_anio: "", audifono_izq: "", audifono_izq_anio: "",
+    etiquetas: []
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
@@ -1993,6 +2036,10 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       antecedentes: p.antecedentes || "", notas: p.notas || "",
       derivadoPor: p.derivadoPor || p.derivado_por || "",
       audifono: p.audifono || "",
+      audifono_der: p.audifono_der || p.audifono || "",
+      audifono_der_anio: p.audifono_der_anio || "",
+      audifono_izq: p.audifono_izq || "",
+      audifono_izq_anio: p.audifono_izq_anio || "",
       etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : []
     });
     setModal(p.id);
@@ -2002,9 +2049,13 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
     if (!evForm.descripcion) return alert("Escribí una descripción.");
     setSaving(true);
     try {
-      await db.agregarEntradaHC(verHC, evForm);
+      const practicas = Array.isArray(evForm.practicas) ? evForm.practicas : [];
+      await db.agregarEntradaHC(verHC, {
+        ...evForm,
+        tipo: practicas.length > 0 ? practicas.join(", ") : (evForm.tipo || "Consulta"),
+      });
       setEvModal(false);
-      setEvForm({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+      setEvForm({ fecha: today(), tipo: "consulta", practicas: [], descripcion: "", profesional: "" });
     } finally { setSaving(false); }
   }
 
@@ -2234,7 +2285,19 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Datos clínicos</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Diagnóstico audiológico"><input style={inputStyle} value={form.diagnostico} onChange={e => setForm(f => ({ ...f, diagnostico: e.target.value }))} /></Field>
-            <Field label="Audífono actual (marca/modelo)"><input style={inputStyle} value={form.audifono || ""} onChange={e => setForm(f => ({ ...f, audifono: e.target.value }))} placeholder="Ej: Oticon More 1" /></Field>
+            <div style={{ gridColumn: "span 2" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>👂 Audífonos actuales</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px 1fr 1fr 80px", gap: 8 }}>
+                <div style={{ gridColumn: "span 6", display: "grid", gridTemplateColumns: "auto 1fr 80px auto 1fr 80px", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>🦻 Der:</span>
+                  <input style={inputStyle} value={form.audifono_der || ""} onChange={e => setForm(f => ({ ...f, audifono_der: e.target.value }))} placeholder="Marca / Modelo" />
+                  <input style={inputStyle} value={form.audifono_der_anio || ""} onChange={e => setForm(f => ({ ...f, audifono_der_anio: e.target.value }))} placeholder="Año" />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#555" }}>🦻 Izq:</span>
+                  <input style={inputStyle} value={form.audifono_izq || ""} onChange={e => setForm(f => ({ ...f, audifono_izq: e.target.value }))} placeholder="Marca / Modelo" />
+                  <input style={inputStyle} value={form.audifono_izq_anio || ""} onChange={e => setForm(f => ({ ...f, audifono_izq_anio: e.target.value }))} placeholder="Año" />
+                </div>
+              </div>
+            </div>
           </div>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
@@ -2407,14 +2470,13 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           {evModal && (
             <div style={{ marginTop: 16, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
               <h4 style={{ margin: "0 0 12px" }}>Nueva entrada clínica</h4>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Field label="Fecha"><input type="date" style={inputStyle} value={evForm.fecha} onChange={e => setEvForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-                <Field label="Tipo">
-                  <select style={selectStyle} value={evForm.tipo} onChange={e => setEvForm(f => ({ ...f, tipo: e.target.value }))}>
-                    {PRACTICAS_LISTA.map(p => <option key={p}>{p}</option>)}
-                  </select>
-                </Field>
-              </div>
+              <Field label="Fecha"><input type="date" style={inputStyle} value={evForm.fecha} onChange={e => setEvForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+              <Field label="Prácticas (puede seleccionar varias)">
+                <SelectorPracticas
+                  seleccionadas={Array.isArray(evForm.practicas) ? evForm.practicas : (evForm.tipo ? [evForm.tipo] : [])}
+                  onChange={practicas => setEvForm(f => ({ ...f, practicas, tipo: practicas[0] || "" }))}
+                />
+              </Field>
               <Field label="Descripción *"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70 }} value={evForm.descripcion} onChange={e => setEvForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
               <Field label="Profesional">
                 <select style={selectStyle} value={evForm.profesional} onChange={e => setEvForm(f => ({ ...f, profesional: e.target.value }))}>
