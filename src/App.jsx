@@ -932,6 +932,11 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
     return todas;
   }
 
+  // entradas sin recordatorios (para la grilla)
+  function entradasDiaSinRecs(fecha) {
+    return entradasDia(fecha).filter(e => e._kind !== "recordatorio");
+  }
+
   // ── Color de entrada ──────────────────────────────────────────────────────────
   function getColor(entrada) {
     if (entrada.color_custom) return { color: entrada.color_custom, bg: entrada.color_custom + "22" };
@@ -1160,6 +1165,40 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
   }
 
   // ── Columna de horas ─────────────────────────────────────────────────────────
+
+  // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
+  function RecordatoriosPie({ fecha, profKey }) {
+    const recs = data.recordatorios.filter(r => {
+      if (r.fecha !== fecha || r.completado) return false;
+      if (!profKey) return true;
+      return !r.paciente_id || true; // show all recs regardless of prof
+    });
+    if (recs.length === 0) return null;
+    return (
+      <div style={{ borderTop: "2px dashed #E5E7EB", padding: "8px 6px", background: "#FAFAFA" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, paddingLeft: 2 }}>
+          🔔 Recordatorios
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {recs.sort((a,b) => (a.hora||"").localeCompare(b.hora||"")).map(r => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 6px", borderRadius: 6, background: "#fff", border: "1px solid #E5E7EB" }}>
+              <input type="checkbox" checked={r.completado} onChange={() => db.actualizarRecordatorio({ ...r, completado: true })}
+                style={{ width: 14, height: 14, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {r.hora ? r.hora.slice(0,5) + " · " : ""}{r.titulo}
+                </div>
+                {r.descripcion && <div style={{ fontSize: 10, color: "#9CA3AF", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.descripcion}</div>}
+              </div>
+              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function ColumnaHoras({ slotH }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     return (
@@ -1237,10 +1276,11 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
           <div style={{ display: "flex" }}>
             <ColumnaHoras slotH={SLOT_H_DIA} />
             <div style={{ flex: 1 }}>
-              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha)} slotH={SLOT_H_DIA}
+              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
                 profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
             </div>
           </div>
+          <RecordatoriosPie fecha={filtroFecha} profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
         </div>
       )}
 
@@ -1258,14 +1298,8 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
             });
-          const recs = data.recordatorios
-            .filter(r => r.fecha === fecha && !r.completado)
-            .map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" }));
-          const filtProfRecs = profKey === "Lic. Cecilia Miatello" ? recs : [];
-          return [
-            ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
-            ...filtProfRecs,
-          ];
+          // No incluir recordatorios en la grilla — se muestran al pie
+          return turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" }));
         }
 
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
@@ -1364,6 +1398,10 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                           </div>
                         );
                       })}
+                      {/* Recordatorios al pie de cada día */}
+                      <div style={{ gridColumn: "1 / -1" }}>
+                        <RecordatoriosPie fecha={fecha} profKey={null} />
+                      </div>
                     </div>
                     );
                   })}
