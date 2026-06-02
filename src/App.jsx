@@ -2549,15 +2549,46 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Cheque", "SIOS / OS directo", "Pendiente"];
 
 function Ventas({ data, db, usuario }) {
-  const [modal, setModal] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [modal, setModal] = useState(null); // null | "nuevo" | venta.id
+  const [verDetalle, setVerDetalle] = useState(null); // venta.id abierto en panel
   const [saving, setSaving] = useState(false);
-  const FORM_VENTA_VACIO = { paciente_id: "", fecha: today(), dispositivo: "Audífono", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" };
-  const [form, setForm] = useState(FORM_VENTA_VACIO);
 
-  const ventas = data.ventas.filter(v => !filtroEstado || v.estado === filtroEstado).sort((a, b) => b.fecha.localeCompare(a.fecha));
-  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
-  const totalVendido = data.ventas.filter(v => v.estado === "vendido").reduce((s, v) => s + (parseFloat(v.precio) || 0), 0);
+  const FORM_VACIO = {
+    paciente_id: "", fecha: today(), dispositivo: "Audífono",
+    marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
+    oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
+    saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado",
+    observaciones: "", seguimiento: [], pagos: []
+  };
+  const [form, setForm] = useState(FORM_VACIO);
+
+  // Seguimiento
+  const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
+  // Pago
+  const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
+
+  const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
+
+  const ventas = data.ventas.filter(v => {
+    const matchEstado = !filtroEstado || v.estado === filtroEstado;
+    const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase());
+    return matchEstado && matchBusq;
+  }).sort((a,b) => b.fecha.localeCompare(a.fecha));
+
+  const totalVendido = data.ventas.filter(v => v.estado === "vendido").reduce((s,v) => s + (parseFloat(v.precio)||0), 0);
+  const ventaActual = verDetalle ? data.ventas.find(v => v.id === verDetalle) : null;
+
+  // Calcular saldo real de una venta (precio - pagos registrados)
+  function saldoReal(v) {
+    const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+    const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    return (parseFloat(v.precio)||0) - totalPagado;
+  }
 
   async function guardar() {
     if (!form.paciente_id) return alert("Seleccioná un paciente.");
@@ -2566,7 +2597,7 @@ function Ventas({ data, db, usuario }) {
       const esNueva = modal === "nuevo";
       const ventaAnterior = !esNueva && data.ventas.find(v => v.id === modal);
       const generarRec = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
-      if (esNueva) await db.agregarVenta({ ...form, creado_por: usuario?.nombre || "" });
+      if (esNueva) await db.agregarVenta({ ...form, seguimiento: [], pagos: [] });
       else await db.actualizarVenta({ ...form, id: modal });
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
@@ -2575,72 +2606,241 @@ function Ventas({ data, db, usuario }) {
         await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual. Venta: ${formatFecha(form.fecha)}.`, completado: false });
       }
       setModal(null);
+      if (esNueva) setVerDetalle(null);
     } finally { setSaving(false); }
   }
 
+  async function agregarSeguimiento(ventaId) {
+    if (!segForm.descripcion) return alert("Escribí una descripción.");
+    const v = data.ventas.find(x => x.id === ventaId);
+    if (!v) return;
+    const nuevaSeg = [...(Array.isArray(v.seguimiento) ? v.seguimiento : []), { ...segForm, id: uid(), fecha: segForm.fecha }];
+    await db.actualizarVenta({ ...v, seguimiento: nuevaSeg });
+    setSegForm({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
+  }
+
+  async function agregarPago(ventaId) {
+    if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) return alert("Ingresá un monto válido.");
+    const v = data.ventas.find(x => x.id === ventaId);
+    if (!v) return;
+    const nuevosPagos = [...(Array.isArray(v.pagos) ? v.pagos : []), { ...pagoForm, id: uid() }];
+    const totalPagado = nuevosPagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const saldo = (parseFloat(v.precio)||0) - totalPagado;
+    const nuevoEstado = saldo <= 0 && v.estado === "vendido" ? "vendido" : v.estado;
+    await db.actualizarVenta({ ...v, pagos: nuevosPagos, estado: nuevoEstado });
+    setPagoForm({ fecha: today(), monto: "", descripcion: "" });
+    if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
+  }
+
+  const TIPOS_SEG = ["Llamada", "Email", "WhatsApp", "Visita", "Nota interna", "Reunión"];
+
   return (
-    <div>
-      {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 16 }}>
-        {Object.entries(COLORES_VENTA).map(([k, v]) => (
-          <div key={k} style={{ background: v.bg, border: `1.5px solid ${v.color}22`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", opacity: filtroEstado === k || filtroEstado === "" ? 1 : 0.5 }}
-            onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}>
-            <div style={{ fontSize: 20, fontWeight: 800, color: v.color }}>{data.ventas.filter(x => x.estado === k).length}</div>
-            <div style={{ fontSize: 11, color: v.color, fontWeight: 600 }}>{v.label}</div>
-          </div>
-        ))}
-        <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "10px 14px" }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#166534" }}>${totalVendido.toLocaleString("es-AR")}</div>
-          <div style={{ fontSize: 11, color: "#15803D", fontWeight: 600 }}>Total vendido</div>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-        <button onClick={() => { setForm(FORM_VENTA_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nueva venta</button>
-      </div>
-
-      {ventas.length === 0
-        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🛒</div><div>No hay ventas</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {ventas.map(v => {
-            const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
-            const derInfo = [v.marca_der, v.modelo_der].filter(Boolean).join(" ");
-            const izqInfo = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ");
-            const saldoTotal = (parseFloat(v.precio)||0) - (parseFloat(v.obraSocialCubre || v.obra_social_cubre)||0) - (parseFloat(v.saldoPaciente || v.saldo_paciente)||0);
+    <div style={{ display: "flex", gap: 16, height: "calc(100vh - 160px)", minHeight: 500 }}>
+      {/* ── Panel izquierdo: lista ── */}
+      <div style={{ width: verDetalle ? 340 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+          {[
+            ["presupuestado","Presupuestos"],["aprobado","Aprobados"],["vendido","Vendidos"],["perdido","Perdidos"]
+          ].map(([k,l]) => {
+            const cv = COLORES_VENTA[k];
             return (
-              <div key={v.id} style={{ background: "#fff", border: `1.5px solid ${cv.color}33`, borderRadius: 12, padding: "14px 18px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{pacNombre(v.paciente_id)}</div>
-                      <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>{cv.label}</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, color: "#555" }}>
-                      {derInfo && <span>👂D: {derInfo}</span>}
-                      {izqInfo && <span>👂I: {izqInfo}</span>}
-                      <span style={{ color: "#aaa" }}>{formatFecha(v.fecha)}</span>
-                    </div>
-                    {v.precio && (
-                      <div style={{ fontSize: 13, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, color: "#166534" }}>Total: ${parseFloat(v.precio).toLocaleString("es-AR")}</span>
-                        {(v.obraSocialCubre || v.obra_social_cubre) && <span style={{ color: "#1E40AF" }}>OS: ${parseFloat(v.obraSocialCubre || v.obra_social_cubre).toLocaleString("es-AR")}</span>}
-                        {(v.saldoPaciente || v.saldo_paciente) && <span style={{ color: "#D97706" }}>Pac: ${parseFloat(v.saldoPaciente || v.saldo_paciente).toLocaleString("es-AR")}</span>}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => { setForm({ ...FORM_VENTA_VACIO, ...v, obraSocialCubre: v.obra_social_cubre || v.obraSocialCubre || "", saldoPaciente: v.saldo_paciente || v.saldoPaciente || "" }); setModal(v.id); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
-                    <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarVenta(v.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                  </div>
-                </div>
+              <div key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
+                style={{ background: filtroEstado === k ? cv.bg : "#F8FAFC", border: `1.5px solid ${filtroEstado === k ? cv.color : "#E5E7EB"}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer" }}>
+                <div style={{ fontSize: 18, fontWeight: 800, color: cv.color }}>{data.ventas.filter(v => v.estado === k).length}</div>
+                <div style={{ fontSize: 10, color: cv.color, fontWeight: 600 }}>{l}</div>
               </div>
             );
           })}
-        </div>}
+        </div>
 
+        {/* Buscador + nuevo */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="🔍 Buscar paciente, dispositivo..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
+        </div>
+
+        {/* Filtro estados */}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <button onClick={() => setFiltroEstado("")} style={{ ...btnSecondary, fontSize: 11, padding: "3px 8px", background: !filtroEstado ? "#1a6b6b" : "#F3F4F6", color: !filtroEstado ? "#fff" : "#555" }}>Todos</button>
+          {Object.entries(COLORES_VENTA).map(([k,v]) => (
+            <button key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
+              style={{ ...btnSecondary, fontSize: 11, padding: "3px 8px", background: filtroEstado === k ? v.color : "#F3F4F6", color: filtroEstado === k ? "#fff" : "#555" }}>
+              {v.label} ({data.ventas.filter(x => x.estado === k).length})
+            </button>
+          ))}
+        </div>
+
+        {/* Lista ventas */}
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+          {ventas.length === 0
+            ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 36 }}>🛒</div><div>No hay ventas</div></div>
+            : ventas.map(v => {
+              const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
+              const derInfo = [v.marca_der, v.modelo_der].filter(Boolean).join(" ");
+              const izqInfo = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ");
+              const saldo = saldoReal(v);
+              const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+              const segs = Array.isArray(v.seguimiento) ? v.seguimiento : [];
+              const saldado = saldo <= 0 && parseFloat(v.precio) > 0;
+              const activo = verDetalle === v.id;
+              return (
+                <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
+                  style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, fontSize: 14 }}>{pacNombre(v.paciente_id)}</span>
+                        <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{cv.label}</span>
+                        {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
+                        {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>💰 Debe ${saldo.toLocaleString("es-AR")}</span>}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        {derInfo && <span>👂D: {derInfo}</span>}
+                        {izqInfo && <span>👂I: {izqInfo}</span>}
+                        <span>{formatFecha(v.fecha)}</span>
+                        {parseFloat(v.precio) > 0 && <span style={{ color: "#166534", fontWeight: 600 }}>${parseFloat(v.precio).toLocaleString("es-AR")}</span>}
+                      </div>
+                      {(segs.length > 0 || pagos.length > 0) && (
+                        <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>
+                          {segs.length > 0 && `${segs.length} seguimiento${segs.length > 1 ? "s" : ""}`}
+                          {segs.length > 0 && pagos.length > 0 && " · "}
+                          {pagos.length > 0 && `${pagos.length} pago${pagos.length > 1 ? "s" : ""}`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      </div>
+
+      {/* ── Panel derecho: detalle + CRM ── */}
+      {verDetalle && ventaActual && (
+        <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 20 }}>
+          {/* Header */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 17 }}>{pacNombre(ventaActual.paciente_id)}</div>
+              <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActual.fecha)}</div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={() => { setForm({ ...FORM_VACIO, ...ventaActual, obraSocialCubre: ventaActual.obra_social_cubre || ventaActual.obraSocialCubre || "", saldoPaciente: ventaActual.saldo_paciente || ventaActual.saldoPaciente || "" }); setModal(ventaActual.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 12px" }}>✎ Editar</button>
+              <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActual.id); setVerDetalle(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+              <button onClick={() => setVerDetalle(null)} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
+            </div>
+          </div>
+
+          {/* Estado + precio */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+            {[
+              { label: "Estado", value: COLORES_VENTA[ventaActual.estado]?.label || ventaActual.estado, color: COLORES_VENTA[ventaActual.estado]?.color },
+              { label: "Precio total", value: ventaActual.precio ? `$${parseFloat(ventaActual.precio).toLocaleString("es-AR")}` : "—", color: "#166534" },
+              { label: "Saldo pendiente", value: `$${Math.max(0, saldoReal(ventaActual)).toLocaleString("es-AR")}`, color: saldoReal(ventaActual) <= 0 ? "#065F46" : "#92400E" },
+            ].map(item => (
+              <div key={item.label} style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", fontWeight: 600, marginBottom: 3 }}>{item.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: item.color || "#1a1a2e" }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Dispositivos */}
+          {(ventaActual.marca_der || ventaActual.marca_izq) && (
+            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
+              {ventaActual.marca_der && <div>👂 Der: {[ventaActual.marca_der, ventaActual.modelo_der].filter(Boolean).join(" ")}</div>}
+              {ventaActual.marca_izq && <div>👂 Izq: {[ventaActual.marca_izq, ventaActual.modelo_izq].filter(Boolean).join(" ")}</div>}
+              {ventaActual.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActual.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_os}</div>}
+              {ventaActual.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActual.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_paciente}</div>}
+            </div>
+          )}
+
+          {/* ── COBRANZA ── */}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a6b6b", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+              <span>💰 Cobranza</span>
+              <span style={{ fontSize: 12, color: saldoReal(ventaActual) <= 0 ? "#065F46" : "#92400E", fontWeight: 700 }}>
+                {saldoReal(ventaActual) <= 0 ? "✅ Saldado" : `Saldo: $${Math.max(0, saldoReal(ventaActual)).toLocaleString("es-AR")}`}
+              </span>
+            </div>
+            {/* Pagos registrados */}
+            {(Array.isArray(ventaActual.pagos) ? ventaActual.pagos : []).length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {(ventaActual.pagos||[]).map(p => (
+                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 12 }}>
+                    <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
+                    <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
+                    <span style={{ color: "#555" }}>{p.descripcion || "Pago"}</span>
+                  </div>
+                ))}
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "right", marginTop: 4 }}>
+                  Total pagado: ${(ventaActual.pagos||[]).reduce((s,p) => s + (parseFloat(p.monto)||0), 0).toLocaleString("es-AR")}
+                </div>
+              </div>
+            )}
+            {/* Nuevo pago */}
+            {saldoReal(ventaActual) > 0 && (
+              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", marginBottom: 8 }}>+ Registrar pago</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 8, alignItems: "end" }}>
+                  <Field label="Fecha"><input type="date" style={inputStyle} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                  <Field label="Monto $"><input type="number" style={inputStyle} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0" /></Field>
+                  <Field label="Descripción"><input style={inputStyle} value={pagoForm.descripcion} onChange={e => setPagoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Seña, Cuota 1..." /></Field>
+                  <button onClick={() => agregarPago(ventaActual.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 12px", marginBottom: 14 }}>✓</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── SEGUIMIENTO CRM ── */}
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a6b6b", marginBottom: 10 }}>📋 Seguimiento</div>
+            {/* Historial */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, maxHeight: 220, overflowY: "auto" }}>
+              {(Array.isArray(ventaActual.seguimiento) ? [...ventaActual.seguimiento] : []).reverse().map(s => (
+                <div key={s.id} style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, flexWrap: "wrap", gap: 4 }}>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <span style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{s.tipo}</span>
+                      {s.responsable && <span style={{ fontSize: 10, color: "#aaa" }}>por {s.responsable}</span>}
+                    </div>
+                    <span style={{ fontSize: 10, color: "#aaa" }}>{formatFecha(s.fecha)}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#374151" }}>{s.descripcion}</div>
+                </div>
+              ))}
+              {(!ventaActual.seguimiento || ventaActual.seguimiento.length === 0) && (
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 12 }}>Sin entradas de seguimiento</div>
+              )}
+            </div>
+            {/* Nueva entrada */}
+            <div style={{ background: "#F0F4FF", border: "1px solid #C7D2FE", borderRadius: 8, padding: "10px 12px" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 8 }}>+ Nueva entrada</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e => setSegForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                <Field label="Tipo">
+                  <select style={selectStyle} value={segForm.tipo} onChange={e => setSegForm(f => ({ ...f, tipo: e.target.value }))}>
+                    {TIPOS_SEG.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Nota / Descripción">
+                <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Se llamó al paciente, confirmó que está interesado..." />
+              </Field>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+                <span style={{ fontSize: 11, color: "#888" }}>Por: {usuario?.nombre || "—"}</span>
+                <button onClick={() => agregarSeguimiento(ventaActual.id)} style={{ ...btnPrimary, padding: "7px 16px", fontSize: 12 }}>Agregar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal nuevo/editar ── */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva venta / presupuesto" : "Editar venta"} onClose={() => setModal(null)}>
-          {/* Paciente */}
           <Field label="Paciente *">
             <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
               <option value="">Seleccionar...</option>
@@ -2651,50 +2851,38 @@ function Ventas({ data, db, usuario }) {
             <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
             <Field label="Estado">
               <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-                {Object.entries(COLORES_VENTA).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                {Object.entries(COLORES_VENTA).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </Field>
           </div>
-
-          {form.estado === "vendido" && (() => {
-            const anterior = modal !== "nuevo" && data.ventas.find(v => v.id === modal);
+          {form.estado === "vendido" && modal !== "nuevo" && (() => {
+            const anterior = data.ventas.find(v => v.id === modal);
             if (anterior?.estado === "vendido") return null;
             return (
-              <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 4 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1D4ED8", marginBottom: 4 }}>🔔 Se crearán recordatorios automáticos</div>
-                <div style={{ fontSize: 12, color: "#1E40AF" }}>
-                  <div>📅 Control 3 meses · {form.fecha ? formatFecha(sumarMeses(form.fecha, 3)) : "—"}</div>
-                  <div>📅 Control anual · {form.fecha ? formatFecha(sumarMeses(form.fecha, 12)) : "—"}</div>
-                </div>
+              <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: 4, fontSize: 12 }}>
+                <div style={{ fontWeight: 700, color: "#1D4ED8" }}>🔔 Se crearán recordatorios automáticos de control</div>
               </div>
             );
           })()}
-
-          {/* Oído derecho */}
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído derecho</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca_der || ""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} placeholder="Ej: Oticon" /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={form.modelo_der || ""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} placeholder="Ej: More 1" /></Field>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_der || ""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_der || ""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
           </div>
-
-          {/* Oído izquierdo */}
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído izquierdo</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca_izq || ""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} placeholder="Ej: Oticon" /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq || ""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} placeholder="Ej: More 1" /></Field>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_izq || ""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq || ""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
           </div>
-
-          {/* Precios */}
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💰 Precios</div>
           <Field label="Precio total ($)"><input type="number" style={inputStyle} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} /></Field>
-
           <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 8 }}>Cobertura Obra Social</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={form.obraSocialCubre} onChange={e => setForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
-              <Field label="Condición de pago OS">
+              <Field label="Condición pago OS">
                 <select style={selectStyle} value={form.condicion_pago_os || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
                   <option value="">— Seleccionar —</option>
                   {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
@@ -2702,12 +2890,11 @@ function Ventas({ data, db, usuario }) {
               </Field>
             </div>
           </div>
-
           <div style={{ background: "#FEF9EC", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 8 }}>Saldo Paciente</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <Field label="Monto paciente ($)"><input type="number" style={inputStyle} value={form.saldoPaciente} onChange={e => setForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
-              <Field label="Condición de pago paciente">
+              <Field label="Condición pago paciente">
                 <select style={selectStyle} value={form.condicion_pago_paciente || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
                   <option value="">— Seleccionar —</option>
                   {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
@@ -2715,18 +2902,8 @@ function Ventas({ data, db, usuario }) {
               </Field>
             </div>
           </div>
-
-          {/* Resumen */}
-          {parseFloat(form.precio) > 0 && (
-            <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 8, padding: "10px 14px", marginBottom: 8, fontSize: 13 }}>
-              <span style={{ fontWeight: 700, color: "#166534" }}>
-                Saldo restante: ${Math.max(0, (parseFloat(form.precio)||0) - (parseFloat(form.obraSocialCubre)||0) - (parseFloat(form.saldoPaciente)||0)).toLocaleString("es-AR")}
-              </span>
-            </div>
-          )}
-
-          <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
+          <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
           </div>
@@ -2736,107 +2913,6 @@ function Ventas({ data, db, usuario }) {
   );
 }
 
-// ─── RECORDATORIOS ────────────────────────────────────────────────────────────
-function Recordatorios({ data, db, usuario }) {
-  const [modal, setModal] = useState(null);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ titulo: "", fecha: today(), hora: "09:00", tipo: "seguimiento", paciente_id: "", descripcion: "", completado: false });
-
-  const hoy = today();
-  const recs = [...data.recordatorios].sort((a, b) => {
-    if (a.completado !== b.completado) return a.completado ? 1 : -1;
-    return `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`);
-  });
-  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : null; };
-
-  async function guardar() {
-    if (!form.titulo) return alert("Escribí un título.");
-    setSaving(true);
-    try {
-      if (modal === "nuevo") await db.agregarRecordatorio({ ...form, creado_por: usuario?.nombre || "" });
-      else await db.actualizarRecordatorio({ ...form, id: modal });
-      setModal(null);
-    } finally { setSaving(false); }
-  }
-
-  const TIPO_COLOR = {
-    seguimiento: { bg: "#EDE9FE", c: "#5B21B6", label: "Seguimiento" },
-    llamada:     { bg: "#DBEAFE", c: "#1E40AF", label: "Llamada" },
-    control:     { bg: "#D1FAE5", c: "#065F46", label: "Control" },
-    entrega:     { bg: "#FEF3C7", c: "#92400E", label: "Entrega" },
-    otro:        { bg: "#F3F4F6", c: "#374151", label: "Otro" },
-  };
-
-  const vencidos = recs.filter(r => !r.completado && r.fecha < hoy);
-  const proximos = recs.filter(r => !r.completado && r.fecha >= hoy);
-  const completados = recs.filter(r => r.completado);
-
-  const RSection = ({ title, items, accent }) => items.length === 0 ? null : (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: accent || "#888", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>{title} · {items.length}</div>
-      {items.map(r => {
-        const tc = TIPO_COLOR[r.tipo] || TIPO_COLOR.otro;
-        const pac = pacNombre(r.paciente_id);
-        return (
-          <div key={r.id} style={{ background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 12, padding: "12px 16px", marginBottom: 8, display: "flex", justifyContent: "space-between", gap: 10, opacity: r.completado ? 0.6 : 1 }}>
-            <div style={{ display: "flex", gap: 12 }}>
-              <input type="checkbox" checked={r.completado} onChange={() => db.actualizarRecordatorio({ ...r, completado: !r.completado })} style={{ marginTop: 3, cursor: "pointer", width: 16, height: 16 }} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 14, textDecoration: r.completado ? "line-through" : "none" }}>{r.titulo}</div>
-                {pac && <div style={{ fontSize: 12, color: "#888" }}>👤 {pac}</div>}
-                <div style={{ fontSize: 12, color: "#888" }}>📅 {formatFecha(r.fecha)} {r.hora}</div>
-                {r.descripcion && <div style={{ fontSize: 13, color: "#555", marginTop: 4 }}>{r.descripcion}</div>}
-                <span style={{ background: tc.bg, color: tc.c, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 600, marginTop: 4, display: "inline-block" }}>{tc.label}</span>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-              <button onClick={() => { setForm({ ...r, paciente_id: r.paciente_id || "" }); setModal(r.id); }} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>Editar</button>
-              <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarRecordatorio(r.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        <button onClick={() => { setForm({ titulo: "", fecha: today(), hora: "09:00", tipo: "seguimiento", paciente_id: "", descripcion: "", completado: false }); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo recordatorio</button>
-      </div>
-      <RSection title="Vencidos" items={vencidos} accent="#DC2626" />
-      <RSection title="Próximos" items={proximos} accent="#059669" />
-      <RSection title="Completados" items={completados} accent="#9CA3AF" />
-      {recs.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🔔</div><div>Sin recordatorios</div></div>}
-
-      {modal && (
-        <Modal title={modal === "nuevo" ? "Nuevo recordatorio" : "Editar recordatorio"} onClose={() => setModal(null)}>
-          <Field label="Título *"><input style={inputStyle} value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-            <Field label="Hora"><input type="time" style={inputStyle} value={form.hora} onChange={e => setForm(f => ({ ...f, hora: e.target.value }))} /></Field>
-            <Field label="Tipo">
-              <select style={selectStyle} value={form.tipo} onChange={e => setForm(f => ({ ...f, tipo: e.target.value }))}>
-                {Object.entries(TIPO_COLOR).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Paciente (opcional)">
-              <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-                <option value="">General</option>
-                {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-              </select>
-            </Field>
-          </div>
-          <Field label="Descripción"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-            <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
-            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
-          </div>
-        </Modal>
-      )}
-    </div>
-  );
-}
 
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
 const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
