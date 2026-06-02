@@ -1395,7 +1395,7 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                                   style={{ position: "absolute", top: i * SLOT_H_SEM, left: 0, right: 0, height: SLOT_H_SEM,
                                     borderBottom: `1px solid ${esM ? "#F0F0F0" : "#E8E8E8"}`, zIndex: 1, cursor: "pointer",
                                     background: bgBase }}
-                                  onMouseEnter={e => e.currentTarget.style.background = disp === false ? "#DCDCDC" : disp === true ? "#D0F0D0" : prof.bg + "66"}
+                                  onMouseEnter={e => e.currentTarget.style.background = disp === false ? "#DCDCDC" : "#D0F0D0"}
                                   onMouseLeave={e => e.currentTarget.style.background = bgBase}
                                 />
                               );
@@ -1408,15 +1408,19 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                                 onDelete={() => eliminarEntrada(e)}
                               />
                             ))}
-                            {/* Bloqueo como overlay semitransparente */}
+                            {/* Bloqueo como overlay con botón eliminar */}
                             {tieneBloqueo && (() => {
                               const blq = ents.find(e => e._kind === "bloqueo");
                               const { top, height } = entradaLayout(blq, SLOT_H_SEM);
                               return (
                                 <div style={{ position: "absolute", top, left: 1, right: 1, height, zIndex: 2,
                                   background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,rgba(255,255,255,0.6) 5px,rgba(255,255,255,0.6) 10px)",
-                                  border: "1px solid #FECACA", borderRadius: 5, display: "flex", alignItems: "flex-start", padding: "2px 4px" }}>
+                                  border: "1px solid #FECACA", borderRadius: 5, padding: "2px 4px",
+                                  display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
                                   <span style={{ fontSize: 8, fontWeight: 800, color: "#991B1B" }}>🔒 {prof.short}</span>
+                                  <button type="button"
+                                    onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar bloqueo?")) db.eliminarTurno(blq.id); }}
+                                    style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                                 </div>
                               );
                             })()}
