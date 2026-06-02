@@ -1387,10 +1387,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
                               const disp = isDisponible(fecha, h, prof.key);
+                              // Color solo por disponibilidad — el bloqueo no tiñe el fondo
                               let bgBase;
-                              if (tieneBloqueo) {
-                                bgBase = esM ? "#FFF5F5" : "#FFF0F0";
-                              } else if (disp === true) {
+                              if (disp === true) {
                                 bgBase = esM ? "#F0FAF0" : "#E8F7E8"; // verde pastel
                               } else if (disp === false) {
                                 bgBase = esM ? "#F2F2F2" : "#EBEBEB"; // gris sombreado
