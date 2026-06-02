@@ -841,7 +841,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
   );
 }
 
-function Turnos({ data, db, saldoPaciente, usuario }) {
+function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente }) {
   const { getDisp } = useDisponibilidad();
   const [vista, setVista] = useState("semana");
   const [mostrarNuevoPacEntrada, setMostrarNuevoPacEntrada] = useState(false);
@@ -1600,6 +1600,7 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
                 <button type="button" onClick={() => {
                   cerrarModal();
                   setVerHCTurno(null);
+                  if (onEditarPaciente) onEditarPaciente(pac.id);
                 }} style={{ background: "#EEF2FF", color: "#4338CA", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                   ✏️ Editar ficha completa
                 </button>
@@ -1904,10 +1905,17 @@ function Turnos({ data, db, saldoPaciente, usuario }) {
 
 
 // ─── PACIENTES ────────────────────────────────────────────────────────────────
-function Pacientes({ data, db, usuario }) {
+function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [modal, setModal] = useState(null);
   const [verHC, setVerHC] = useState(null);
   const [verRapido, setVerRapido] = useState(null);
+
+  useEffect(() => {
+    if (pacienteAEditar) {
+      const p = data.pacientes.find(x => x.id === pacienteAEditar);
+      if (p) { editar(p); if (onPacienteEditado) onPacienteEditado(); }
+    }
+  }, [pacienteAEditar]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
   const [saving, setSaving] = useState(false);
@@ -4056,6 +4064,7 @@ export default function App() {
     try { return JSON.parse(sessionStorage.getItem("sonara_usuario") || "null"); } catch { return null; }
   });
   const [tab, setTab] = useState("turnos");
+  const [pacienteAEditar, setPacienteAEditar] = useState(null);
   const db = useSupabase();
   const { data, loading, error } = db;
 
@@ -4123,8 +4132,8 @@ export default function App() {
       </div>
       <div style={{ padding: "12px 10px" }}>
         {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "recordatorios")} />}
-        {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} />}
-        {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} />}
+        {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} />}
+        {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} />}
         {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} />}
         {tab === "compras"       && <Compras data={data} db={db} usuario={usuarioActual} />}
         {tab === "recordatorios" && <Recordatorios data={data} db={db} usuario={usuarioActual} />}
