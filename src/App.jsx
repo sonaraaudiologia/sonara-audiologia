@@ -4243,7 +4243,7 @@ export default function App() {
     { id: "pacientes", label: "Pacientes", icon: "👤" },
     { id: "ventas", label: "Ventas", icon: "🛒" },
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
-    { id: "recordatorios", label: "Recordatorios", icon: "🔔", badge: recVencidos > 0 ? recVencidos : null, badgeColor: "#DC2626" },
+
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
     { id: "profesionales",  label: "Profesionales",  icon: "👩‍⚕️" },
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
@@ -4294,7 +4294,7 @@ export default function App() {
         ))}
       </div>
       <div style={{ padding: "12px 10px" }}>
-        {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "recordatorios")} />}
+        {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "turnos")} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} />}
         {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} />}
