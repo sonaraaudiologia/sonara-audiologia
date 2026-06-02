@@ -4299,7 +4299,7 @@ export default function App() {
         {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} />}
         {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} />}
         {tab === "compras"       && <Compras data={data} db={db} usuario={usuarioActual} />}
-        {tab === "recordatorios" && <Recordatorios data={data} db={db} usuario={usuarioActual} />}
+
         {tab === "estadisticas"  && <Estadisticas data={data} />}
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
