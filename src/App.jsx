@@ -430,7 +430,7 @@ function useSupabase() {
       nombre: pac.nombre || "",
       apellido: pac.apellido || "",
       dni: pac.dni || "",
-      fecha_nac: pac.fechaNac || pac.fecha_nac || null,
+      fecha_nac: (pac.fechaNac || pac.fecha_nac) ? (pac.fechaNac || pac.fecha_nac) : null,
       telefono: pac.telefono || "",
       email: pac.email || "",
       obra_social: pac.obraSocial || pac.obra_social || "",
@@ -440,6 +440,10 @@ function useSupabase() {
       notas: pac.notas || "",
       derivado_por: pac.derivadoPor || pac.derivado_por || "",
       audifono: pac.audifono || pac.audifono_der || "",
+      audifono_der: pac.audifono_der || "",
+      audifono_der_anio: pac.audifono_der_anio || "",
+      audifono_izq: pac.audifono_izq || "",
+      audifono_izq_anio: pac.audifono_izq_anio || "",
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
     };
@@ -746,6 +750,8 @@ const PRACTICAS_LISTA = [
   "Entrega de audífonos",
   "Asesoramiento comercial",
   "Control",
+  "Reparación",
+  "Cambio de spaguetti",
   "Reunión con profesional / Visita",
   "Otro",
 ];
@@ -2077,7 +2083,12 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
 
   function agregarInsumoItem() {
     if (!insumoActual.nombre) return;
-    setInsumoForm(f => ({ ...f, insumos: [...f.insumos, { ...insumoActual, id: uid() }] }));
+    const nuevo = { ...insumoActual, id: uid() };
+    setInsumoForm(f => {
+      const nuevos = [...f.insumos, nuevo];
+      const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+      return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
+    });
     setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
   }
 
@@ -2194,7 +2205,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               {/* Panel expandido con todos los datos */}
               {abierto && (
                 <div style={{ borderTop: "1px solid #F0F0F0", padding: "14px 16px", background: "#FAFBFF" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12, alignItems: "start" }}>
                     {/* Contacto */}
                     <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Contacto</div>
@@ -2210,7 +2221,10 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Cobertura</div>
                       <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
                       {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
-                      {p.fechaNac || p.fecha_nac ? <div style={{ fontSize: 12, color: "#888" }}>Nac: {formatFecha(p.fechaNac || p.fecha_nac)}</div> : null}
+                      {(p.fechaNac || p.fecha_nac) ? (() => {
+                const edad = calcEdad(p.fechaNac || p.fecha_nac);
+                return <div style={{ fontSize: 12, color: "#888" }}>Nac: {formatFecha(p.fechaNac || p.fecha_nac)}{edad !== null ? ` · ${edad} años` : ""}</div>;
+              })() : null}
                     </div>
                     {/* Clínico */}
                     <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
@@ -2339,7 +2353,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
               <div><b>DNI:</b> {pacienteHC.dni || "—"}</div>
-              <div><b>Nacimiento:</b> {formatFecha(pacienteHC.fechaNac)}</div>
+              <div><b>Nacimiento:</b> {formatFecha(pacienteHC.fechaNac || pacienteHC.fecha_nac)}{calcEdad(pacienteHC.fechaNac || pacienteHC.fecha_nac) !== null ? ` (${calcEdad(pacienteHC.fechaNac || pacienteHC.fecha_nac)} años)` : ""}</div>
               <div style={{ display: "flex", alignItems: "center" }}>
                 <b>Teléfono:</b>&nbsp;{pacienteHC.telefono || "—"}
                 {pacienteHC.telefono && <CopyButton text={pacienteHC.telefono} label="teléfono" />}
