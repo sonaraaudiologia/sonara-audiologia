@@ -1998,12 +1998,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [verHC, setVerHC] = useState(null);
   const [verRapido, setVerRapido] = useState(null);
 
-  useEffect(() => {
-    if (pacienteAEditar) {
-      const p = data.pacientes.find(x => x.id === pacienteAEditar);
-      if (p) { editar(p); if (onPacienteEditado) onPacienteEditado(); }
-    }
-  }, [pacienteAEditar]);
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
   const [saving, setSaving] = useState(false);
@@ -2066,6 +2060,13 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
     });
     setModal(p.id);
   }
+
+  useEffect(() => {
+    if (pacienteAEditar) {
+      const p = data.pacientes.find(x => x.id === pacienteAEditar);
+      if (p) { editar(p); if (onPacienteEditado) onPacienteEditado(); }
+    }
+  }, [pacienteAEditar]);
 
   async function agregarEvento() {
     if (!evForm.descripcion) return alert("Escribí una descripción.");
