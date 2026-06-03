@@ -1037,9 +1037,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         } else if (esNueva) {
           await db.agregarTurno(turno);
         } else {
-          // Si es cancelado/suspendido: registrar en HC y luego eliminar de agenda
+          // Siempre actualizar el turno (no eliminar)
+          await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+          // Si es cancelado/suspendido: registrar en HC también
           if (esOculto && formEntrada.paciente_id) {
-            const pac = pacientes.find(p => p.id === formEntrada.paciente_id);
             const practicasTexto = Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0
               ? formEntrada.practicas.join(", ") : (formEntrada.motivo || "Consulta");
             await db.agregarEntradaHC(formEntrada.paciente_id, {
@@ -1048,9 +1049,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               descripcion: `${practicasTexto} · ${formEntrada.hora?.slice(0,5)}${formEntrada.hora_fin ? `–${formEntrada.hora_fin.slice(0,5)}` : ""} · ${estadoFinal === "suspendido" ? "Suspendido" : "Cancelado"}${formEntrada.notas ? `. ${formEntrada.notas}` : ""}`,
               profesional: formEntrada.profesional || "",
             });
-            await db.eliminarTurno(modalEntrada.editando.id);
-          } else {
-            await db.actualizarTurno({ ...turno, id: modalEntrada.editando.id });
+          }
+          // Si es realizado: registrar en HC
+          if (estadoFinal === "realizado" && formEntrada.paciente_id) {
+            const practicasHC = Array.isArray(formEntrada.hcPracticas) && formEntrada.hcPracticas.length > 0
+              ? formEntrada.hcPracticas : (Array.isArray(formEntrada.practicas) ? formEntrada.practicas : []);
+            await db.agregarEntradaHC(formEntrada.paciente_id, {
+              fecha: formEntrada.fecha,
+              tipo: practicasHC.join(", ") || "Consulta",
+              descripcion: formEntrada.hcDescripcion || `${practicasHC.join(", ")} · ${formEntrada.hora?.slice(0,5)}`,
+              profesional: formEntrada.profesional || "",
+            });
           }
         }
       }
@@ -1302,15 +1311,21 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           )}
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-          {/* Filtro profesional */}
-          <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
-            {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
-              <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
-                background: filtroProfesional === v ? "#1a6b6b" : "transparent",
-                color: filtroProfesional === v ? "#fff" : "#555",
-                border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
-              }}>{l}</button>
-            ))}
+          {/* Filtros: profesional + cancelados */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
+              {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
+                <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
+                  background: filtroProfesional === v ? "#1a6b6b" : "transparent",
+                  color: filtroProfesional === v ? "#fff" : "#555",
+                  border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+                }}>{l}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
+              <button type="button" onClick={() => setMostrarCancelados(false)} style={{ background: !mostrarCancelados ? "#1a6b6b" : "transparent", color: !mostrarCancelados ? "#fff" : "#555", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Sin cancelados</button>
+              <button type="button" onClick={() => setMostrarCancelados(true)} style={{ background: mostrarCancelados ? "#1a6b6b" : "transparent", color: mostrarCancelados ? "#fff" : "#555", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Todos</button>
+            </div>
           </div>
           {/* Leyenda tipos */}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
