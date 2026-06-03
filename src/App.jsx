@@ -2,6 +2,19 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+function calcEdad(fechaNac) {
+  if (!fechaNac) return null;
+  try {
+    const hoy = new Date();
+    const nac = new Date(fechaNac + "T12:00:00");
+    if (isNaN(nac.getTime())) return null;
+    let edad = hoy.getFullYear() - nac.getFullYear();
+    const m = hoy.getMonth() - nac.getMonth();
+    if (m < 0 || (m === 0 && hoy.getDate() < nac.getDate())) edad--;
+    return edad >= 0 ? edad : null;
+  } catch(e) { return null; }
+}
+
 function formatFecha(str) {
   if (!str) return "-";
   const [y, m, d] = str.split("-");
@@ -2189,7 +2202,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                   <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {p.dni && <span>DNI: {p.dni}</span>}
                     {(p.obraSocial || p.obra_social) && <span>🏥 {p.obraSocial || p.obra_social}</span>}
-                    {(p.fechaNac || p.fecha_nac) && calcEdad(p.fechaNac || p.fecha_nac) !== null && <span>{calcEdad(p.fechaNac || p.fecha_nac)} años</span>}
+                    {(p.fechaNac || p.fecha_nac) && (p.fechaNac || p.fecha_nac) && <span>{calcEdad(p.fechaNac || p.fecha_nac) ?? ""} años</span>}
                     {proximoTurno && <span style={{ color: "#4338CA" }}>📅 {formatFecha(proximoTurno.fecha)} {proximoTurno.hora?.slice(0,5)}</span>}
                     {saldo > 0 && <span style={{ color: "#D97706", fontWeight: 600 }}>💰 Debe ${saldo.toLocaleString("es-AR")}</span>}
                   </div>
