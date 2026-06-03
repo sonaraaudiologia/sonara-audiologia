@@ -850,6 +850,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
 function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente }) {
   const { getDisp } = useDisponibilidad();
   const [vista, setVista] = useState("semana");
+  const [mostrarCancelados, setMostrarCancelados] = useState(false);
   const [mostrarNuevoPacEntrada, setMostrarNuevoPacEntrada] = useState(false);
   const [formNuevoPac, setFormNuevoPac] = useState(FORM_PAC_VACIO);
   const [busquedaEntrada, setBusquedaEntrada] = useState("");
@@ -926,7 +927,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   }
 
   function entradasDia(fecha) {
-    const turnos = data.turnos.filter(t => t.fecha === fecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")));
+    const turnos = data.turnos.filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")));
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     const todas = [
       ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
@@ -1347,7 +1348,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entsProfFecha(profKey, fecha) {
           const turnos = data.turnos
-            .filter(t => t.fecha === fecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
+            .filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -1481,7 +1482,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entradasProf(profKey) {
           const turnos = data.turnos
-            .filter(t => t.fecha === filtroFecha && (!ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
+            .filter(t => t.fecha === filtroFecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
