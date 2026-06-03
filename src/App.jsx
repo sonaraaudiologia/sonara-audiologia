@@ -1724,19 +1724,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             </div>
           )}
 
-          {/* Color personalizado */}
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 6 }}>Color de la entrada</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              {COLORES_PRESET.map(c => (
-                <button key={c} type="button" onClick={() => setColorEntrada(colorEntrada === c ? "" : c)}
-                  style={{ width: 24, height: 24, borderRadius: "50%", background: c, border: colorEntrada === c ? "3px solid #1a1a2e" : "2px solid #fff", boxShadow: "0 0 0 1.5px #ccc", cursor: "pointer", padding: 0 }} />
-              ))}
-              <span style={{ fontSize: 11, color: "#aaa" }}>{colorEntrada ? "Color personalizado activo" : "Color por defecto según tipo"}</span>
-              {colorEntrada && <button type="button" onClick={() => setColorEntrada("")} style={{ fontSize: 11, background: "none", border: "none", color: "#DC2626", cursor: "pointer" }}>✕ Quitar</button>}
-            </div>
-          </div>
-
           {/* Fecha y hora */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Field label="Fecha *"><input type="date" style={inputStyle} value={formEntrada.fecha || ""} onChange={e => setFormEntrada(f => ({ ...f, fecha: e.target.value }))} /></Field>
@@ -1760,13 +1747,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   formEntrada.paciente_id ? (
                     <div>
                       {(() => { const p = pacientes.find(x => x.id === formEntrada.paciente_id); return p ? (
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#EEF2FF", borderRadius: 8, padding: "10px 14px" }}>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 14, color: "#3730A3" }}>{p.apellido}, {p.nombre}</div>
-                            <div style={{ fontSize: 12, color: "#6366F1" }}>{p.telefono || "Sin teléfono"}</div>
-                          </div>
+                        <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "10px 14px", position: "relative" }}>
                           <button type="button" onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: "" })); setBusquedaEntrada(""); }}
-                            style={{ background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer" }}>×</button>
+                            style={{ position: "absolute", top: 8, right: 10, background: "none", border: "none", color: "#6366F1", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: "#3730A3", marginBottom: 6 }}>{p.apellido}, {p.nombre}</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, fontSize: 12 }}>
+                            <div style={{ color: "#4338CA" }}>📞 {p.telefono || "Sin teléfono"}{p.telefono && <CopyButton text={p.telefono} label="tel" />}</div>
+                            <div style={{ color: "#4338CA" }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
+                            {(p.fechaNac || p.fecha_nac) && calcEdad(p.fechaNac || p.fecha_nac) !== null && (
+                              <div style={{ color: "#6366F1" }}>🎂 {calcEdad(p.fechaNac || p.fecha_nac)} años</div>
+                            )}
+                            {(p.derivadoPor || p.derivado_por) && (
+                              <div style={{ color: "#6366F1" }}>👨‍⚕️ {p.derivadoPor || p.derivado_por}</div>
+                            )}
+                            {p.diagnostico && (
+                              <div style={{ color: "#4338CA", gridColumn: "span 2" }}>🩺 {p.diagnostico}</div>
+                            )}
+                            {(p.audifono_der || p.audifono) && (
+                              <div style={{ color: "#4338CA", gridColumn: "span 2" }}>👂 {p.audifono_der || p.audifono}{p.audifono_der_anio ? ` (${p.audifono_der_anio})` : ""}</div>
+                            )}
+                          </div>
                         </div>
                       ) : null; })()}
                     </div>
@@ -1993,6 +1993,18 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               )}
             </div>
           )}
+
+          {/* Color personalizado — al pie */}
+          <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Color de la entrada</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {COLORES_PRESET.map(c => (
+                <button key={c} type="button" onClick={() => setColorEntrada(colorEntrada === c ? "" : c)}
+                  style={{ width: 22, height: 22, borderRadius: "50%", background: c, border: colorEntrada === c ? "3px solid #1a1a2e" : "2px solid #fff", boxShadow: "0 0 0 1.5px #ccc", cursor: "pointer", padding: 0 }} />
+              ))}
+              {colorEntrada && <button type="button" onClick={() => setColorEntrada("")} style={{ fontSize: 11, background: "none", border: "none", color: "#DC2626", cursor: "pointer" }}>✕ Quitar color</button>}
+            </div>
+          </div>
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button type="button" onClick={cerrarModal} style={btnSecondary}>Cancelar</button>
