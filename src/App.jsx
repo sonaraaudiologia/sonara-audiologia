@@ -2189,6 +2189,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                   <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {p.dni && <span>DNI: {p.dni}</span>}
                     {(p.obraSocial || p.obra_social) && <span>🏥 {p.obraSocial || p.obra_social}</span>}
+                    {(p.fechaNac || p.fecha_nac) && calcEdad(p.fechaNac || p.fecha_nac) !== null && <span>{calcEdad(p.fechaNac || p.fecha_nac)} años</span>}
                     {proximoTurno && <span style={{ color: "#4338CA" }}>📅 {formatFecha(proximoTurno.fecha)} {proximoTurno.hora?.slice(0,5)}</span>}
                     {saldo > 0 && <span style={{ color: "#D97706", fontWeight: 600 }}>💰 Debe ${saldo.toLocaleString("es-AR")}</span>}
                   </div>
@@ -2222,10 +2223,12 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Cobertura</div>
                       <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
                       {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
-                      {(p.fechaNac || p.fecha_nac) ? (() => {
-                const edad = calcEdad(p.fechaNac || p.fecha_nac);
-                return <div style={{ fontSize: 12, color: "#888" }}>Nac: {formatFecha(p.fechaNac || p.fecha_nac)}{edad !== null ? ` · ${edad} años` : ""}</div>;
-              })() : null}
+                      {(p.fechaNac || p.fecha_nac) && (
+                        <div style={{ fontSize: 12, color: "#888" }}>
+                          Nac: {formatFecha(p.fechaNac || p.fecha_nac)}
+                          {calcEdad(p.fechaNac || p.fecha_nac) !== null ? ` · ${calcEdad(p.fechaNac || p.fecha_nac)} años` : ""}
+                        </div>
+                      )}
                     </div>
                     {/* Clínico */}
                     <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
