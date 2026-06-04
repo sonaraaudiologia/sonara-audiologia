@@ -1635,6 +1635,16 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       {/* ── Modal bloqueo ─────────────────────────────────────────────────────── */}
       {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
 
+      {fichaPacienteId && (
+        <FichaPaciente
+          pacienteId={fichaPacienteId}
+          data={data}
+          db={db}
+          usuario={usuario}
+          onClose={() => setFichaPacienteId(null)}
+        />
+      )}
+
       {/* ── HC rápida ─────────────────────────────────────────────────────────── */}
       {verHCTurno && (() => {
         const pac = pacientes.find(p => p.id === verHCTurno);
@@ -1926,11 +1936,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8 }}>Acciones rápidas</div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" onClick={() => {
-                  cerrarModal();
-                  setVerHCTurno(formEntrada.paciente_id);
-                }}
-                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EEF2FF", color: "#4338CA" }}>📋 Ver HC</button>
+                <button type="button" onClick={() => setFichaPacienteId(formEntrada.paciente_id)}
+                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EEF2FF", color: "#4338CA" }}>📋 Ficha paciente</button>
                 <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)}
                   style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#FEF3C7", color: "#92400E" }}>🛍️ Insumos</button>
                 <button type="button" onClick={async () => {
@@ -2018,10 +2025,377 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
 
 // ─── PACIENTES ────────────────────────────────────────────────────────────────
+// ─── FICHA PACIENTE MODAL ─────────────────────────────────────────────────────
+function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
+  const [tab, setTab] = useState("hc");
+  const [saving, setSaving] = useState(false);
+
+  // HC state
+  const [evModal, setEvModal] = useState(false);
+  const [evForm, setEvForm] = useState({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
+
+  // Insumos state
+  const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+
+  // Datos state
+  const [editando, setEditando] = useState(false);
+  const [form, setForm] = useState({});
+
+  const pac = data.pacientes.find(p => p.id === pacienteId);
+  if (!pac) return null;
+
+  // Init form when pac loads
+  if (editando && Object.keys(form).length === 0) {
+    setForm({ ...pac });
+  }
+
+  // Historial unificado
+  const historia = [...(pac.historia || [])].reverse();
+  const comprasPac = data.compras.filter(c => c.paciente_id === pacienteId).map(c => ({
+    id: c.id, fecha: c.fecha, _tipo: "compra",
+    descripcion: `${(c.insumos||[]).map(i => `${i.nombre} x${i.cantidad}`).join(", ")} · $${(parseFloat(c.total)||0).toLocaleString("es-AR")}`,
+    tipo: c.estado === "pagado" ? "✅ Insumo pagado" : "🛍️ Insumo pendiente",
+    notas: c.notas
+  }));
+  const ventasPac = data.ventas.filter(v => v.paciente_id === pacienteId).map(v => ({
+    id: v.id, fecha: v.fecha, _tipo: "venta",
+    descripcion: `${[v.marca_der, v.modelo_der].filter(Boolean).join(" ")||"Dispositivo"} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
+    tipo: `🛒 ${COLORES_VENTA[v.estado]?.label || v.estado}`
+  }));
+  const todaHC = [...historia.map(e => ({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
+    .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+
+  async function agregarEvento() {
+    if (!evForm.descripcion) return alert("Escribí una descripción.");
+    setSaving(true);
+    try {
+      const practicas = Array.isArray(evForm.practicas) ? evForm.practicas : [];
+      await db.agregarEntradaHC(pacienteId, {
+        ...evForm,
+        tipo: practicas.length > 0 ? practicas.join(", ") : (evForm.tipo || "Consulta"),
+      });
+      setEvModal(false);
+      setEvForm({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
+    } finally { setSaving(false); }
+  }
+
+  function agregarInsumoItem() {
+    if (!insumoActual.nombre) return;
+    const nuevo = { ...insumoActual, id: uid() };
+    setInsumoForm(f => {
+      const nuevos = [...f.insumos, nuevo];
+      const total = nuevos.reduce((s,i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
+      return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
+    });
+    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+  }
+
+  async function guardarInsumo() {
+    if (insumoForm.insumos.length === 0) return alert("Agregá al menos un insumo.");
+    setSaving(true);
+    try {
+      await db.agregarCompra({ ...insumoForm, paciente_id: pacienteId, total: parseFloat(insumoForm.total)||0, seña: parseFloat(insumoForm.seña)||0 });
+      setInsumoForm({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+      alert("✅ Insumo guardado.");
+    } finally { setSaving(false); }
+  }
+
+  async function guardarDatos() {
+    setSaving(true);
+    try {
+      await db.actualizarPaciente({ ...pac, ...form });
+      setEditando(false);
+      alert("✅ Datos actualizados.");
+    } finally { setSaving(false); }
+  }
+
+  const coloresHC = { hc:{bg:"#F0FDF4",border:"#BBF7D0"}, compra:{bg:"#FEF3C7",border:"#FDE68A"}, venta:{bg:"#E0F2FE",border:"#BAE6FD"} };
+
+  const TABS_FICHA = [
+    { id: "hc",      label: "📋 Historia clínica",  color: "#065F46" },
+    { id: "insumos", label: "🛍️ Insumos",            color: "#92400E" },
+    { id: "ventas",  label: "🛒 Ventas",              color: "#1E40AF" },
+    { id: "datos",   label: "👤 Datos del paciente",  color: "#4338CA" },
+  ];
+
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 680, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
+        {/* Header */}
+        <div style={{ padding: "18px 22px 14px", borderBottom: "2px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 18, color: "#1a1a2e" }}>{pac.apellido}, {pac.nombre}</div>
+            <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
+              {pac.dni && <span>DNI: {pac.dni}</span>}
+              {(pac.fechaNac || pac.fecha_nac) && calcEdad(pac.fechaNac || pac.fecha_nac) !== null && <span>🎂 {calcEdad(pac.fechaNac || pac.fecha_nac)} años</span>}
+              {(pac.obraSocial || pac.obra_social) && <span>🏥 {pac.obraSocial || pac.obra_social}</span>}
+              {pac.telefono && <span>📞 {pac.telefono}</span>}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: "#F3F4F6", border: "none", borderRadius: 8, width: 34, height: 34, fontSize: 18, cursor: "pointer", color: "#555", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", padding: "0 16px", overflowX: "auto" }}>
+          {TABS_FICHA.map(t => (
+            <button key={t.id} type="button" onClick={() => setTab(t.id)} style={{
+              background: "none", border: "none", borderBottom: tab === t.id ? `3px solid ${t.color}` : "3px solid transparent",
+              color: tab === t.id ? t.color : "#888", fontWeight: tab === t.id ? 700 : 400,
+              padding: "10px 14px", fontSize: 13, cursor: "pointer", whiteSpace: "nowrap"
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+
+          {/* ── HISTORIA CLÍNICA ── */}
+          {tab === "hc" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <button onClick={() => setEvModal(!evModal)} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>
+                  {evModal ? "▲ Cerrar" : "+ Nueva evolución"}
+                </button>
+              </div>
+              {evModal && (
+                <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                  <Field label="Fecha"><input type="date" style={inputStyle} value={evForm.fecha} onChange={e => setEvForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                  <Field label="Prácticas">
+                    <SelectorPracticas seleccionadas={evForm.practicas || []} onChange={practicas => setEvForm(f => ({ ...f, practicas }))} />
+                  </Field>
+                  <Field label="Descripción / evolución *">
+                    <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 80 }} value={evForm.descripcion} onChange={e => setEvForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Evolución, indicaciones, observaciones..." />
+                  </Field>
+                  <Field label="Profesional">
+                    <select style={selectStyle} value={evForm.profesional} onChange={e => setEvForm(f => ({ ...f, profesional: e.target.value }))}>
+                      <option value="">— Sin asignar —</option>
+                      <option>Lic. Cecilia Miatello</option>
+                      <option>Lic. Graciela Valles</option>
+                    </select>
+                  </Field>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <button onClick={() => setEvModal(false)} style={btnSecondary}>Cancelar</button>
+                    <button onClick={agregarEvento} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar evolución"}</button>
+                  </div>
+                </div>
+              )}
+              {todaHC.length === 0
+                ? <div style={{ textAlign: "center", color: "#aaa", padding: 30 }}>Sin entradas en la historia clínica</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {todaHC.map(ev => {
+                    const c = coloresHC[ev._tipo] || coloresHC.hc;
+                    return (
+                      <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                          <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                        </div>
+                        <div style={{ fontSize: 13, color: "#374151" }}>{ev.descripcion}</div>
+                        {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              }
+            </div>
+          )}
+
+          {/* ── INSUMOS ── */}
+          {tab === "insumos" && (
+            <div>
+              <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 10, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 12 }}>🛍️ Cargar nuevo insumo</div>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
+                  <Field label="Insumo">
+                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                      {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Cant."><input type="number" min="1" style={inputStyle} value={insumoActual.cantidad} onChange={e => setInsumoActual(i => ({ ...i, cantidad: parseInt(e.target.value)||1 }))} /></Field>
+                  <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} /></Field>
+                  <button type="button" onClick={agregarInsumoItem} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
+                </div>
+                {insumoForm.insumos.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    {insumoForm.insumos.map(i => (
+                      <div key={i.id} style={{ display: "flex", justifyContent: "space-between", background: "#fff", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 13 }}>
+                        <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
+                        <button type="button" onClick={() => setInsumoForm(f => {
+                          const nuevos = f.insumos.filter(x => x.id !== i.id);
+                          const total = nuevos.reduce((s,x) => s + (parseFloat(x.precio)||0) * (parseInt(x.cantidad)||1), 0);
+                          return { ...f, insumos: nuevos, total: total > 0 ? String(total) : "" };
+                        })} style={{ background: "none", border: "none", color: "#DC2626", cursor: "pointer", fontSize: 16 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+                  <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoForm.total} onChange={e => setInsumoForm(f => ({ ...f, total: e.target.value }))} /></Field>
+                  <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoForm.seña} onChange={e => setInsumoForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+                  <Field label="Estado">
+                    <select style={selectStyle} value={insumoForm.estado} onChange={e => setInsumoForm(f => ({ ...f, estado: e.target.value }))}>
+                      <option value="pendiente">Pendiente</option>
+                      <option value="pagado">Pagado</option>
+                    </select>
+                  </Field>
+                </div>
+                <button onClick={guardarInsumo} disabled={saving} style={{ ...btnPrimary, width: "100%", marginTop: 10, background: "linear-gradient(135deg,#92400E,#D97706)" }}>
+                  {saving ? "Guardando..." : "🛍️ Guardar insumo"}
+                </button>
+              </div>
+              {/* Historial insumos */}
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Historial de insumos</div>
+              {comprasPac.length === 0
+                ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin insumos registrados</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {data.compras.filter(c => c.paciente_id === pacienteId).sort((a,b) => b.fecha.localeCompare(a.fecha)).map(c => (
+                    <div key={c.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>{c.estado === "pagado" ? "✅ Pagado" : "🛍️ Pendiente"}</span>
+                        <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(c.fecha)}</span>
+                      </div>
+                      <div style={{ fontSize: 13 }}>{(c.insumos||[]).map(i => `${i.nombre} x${i.cantidad}`).join(", ")}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginTop: 4 }}>
+                        Total: ${(parseFloat(c.total)||0).toLocaleString("es-AR")}
+                        {parseFloat(c.seña) > 0 && ` · Señado: $${parseFloat(c.seña).toLocaleString("es-AR")}`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              }
+            </div>
+          )}
+
+          {/* ── VENTAS ── */}
+          {tab === "ventas" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <button onClick={() => window.alert("Usá la solapa Ventas para cargar un nuevo presupuesto para este paciente.")} style={btnPrimary}>+ Nueva venta</button>
+              </div>
+              {ventasPac.length === 0
+                ? <div style={{ textAlign: "center", color: "#aaa", padding: 30 }}>Sin ventas registradas</div>
+                : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {data.ventas.filter(v => v.paciente_id === pacienteId).sort((a,b) => b.fecha.localeCompare(a.fecha)).map(v => {
+                    const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
+                    const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+                    const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+                    const saldo = (parseFloat(v.precio)||0) - totalPagado;
+                    return (
+                      <div key={v.id} style={{ background: cv.bg, border: `1.5px solid ${cv.color}33`, borderRadius: 10, padding: "12px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div>
+                            <span style={{ background: cv.color, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>{cv.label}</span>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{formatFecha(v.fecha)}</div>
+                          </div>
+                          {v.precio && <div style={{ fontWeight: 700, color: cv.color }}>${parseFloat(v.precio).toLocaleString("es-AR")}</div>}
+                        </div>
+                        {(v.marca_der || v.marca_izq) && (
+                          <div style={{ fontSize: 13, marginTop: 6 }}>
+                            {v.marca_der && <div>👂 Der: {[v.marca_der, v.modelo_der].filter(Boolean).join(" ")}</div>}
+                            {v.marca_izq && <div>👂 Izq: {[v.marca_izq, v.modelo_izq].filter(Boolean).join(" ")}</div>}
+                          </div>
+                        )}
+                        {saldo > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginTop: 4 }}>💰 Saldo: ${saldo.toLocaleString("es-AR")}</div>}
+                        {pagos.length > 0 && <div style={{ fontSize: 11, color: "#888" }}>{pagos.length} pago{pagos.length > 1 ? "s" : ""} registrado{pagos.length > 1 ? "s" : ""}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              }
+            </div>
+          )}
+
+          {/* ── DATOS DEL PACIENTE ── */}
+          {tab === "datos" && (
+            <div>
+              {!editando ? (
+                <div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                    <button onClick={() => { setForm({ ...pac }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {[
+                      ["Nombre", pac.nombre], ["Apellido", pac.apellido],
+                      ["DNI", pac.dni], ["Teléfono", pac.telefono],
+                      ["Email", pac.email], ["Obra social", pac.obraSocial || pac.obra_social],
+                      ["Nro. afiliado", pac.nroAfiliado || pac.nro_afiliado],
+                      ["Fecha nac.", pac.fechaNac || pac.fecha_nac ? `${formatFecha(pac.fechaNac || pac.fecha_nac)} (${calcEdad(pac.fechaNac || pac.fecha_nac)} años)` : "—"],
+                      ["Derivado por", pac.derivadoPor || pac.derivado_por],
+                      ["Diagnóstico", pac.diagnostico],
+                    ].map(([label, val]) => val ? (
+                      <div key={label} style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
+                        <div style={{ fontSize: 13, color: "#1a1a2e" }}>{val}</div>
+                      </div>
+                    ) : null)}
+                  </div>
+                  {/* Audífonos */}
+                  {(pac.audifono_der || pac.audifono_izq || pac.audifono) && (
+                    <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "10px 14px", marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>👂 Audífonos actuales</div>
+                      {(pac.audifono_der || pac.audifono) && <div style={{ fontSize: 13 }}>Der: {pac.audifono_der || pac.audifono}{pac.audifono_der_anio ? ` (${pac.audifono_der_anio})` : ""}</div>}
+                      {pac.audifono_izq && <div style={{ fontSize: 13 }}>Izq: {pac.audifono_izq}{pac.audifono_izq_anio ? ` (${pac.audifono_izq_anio})` : ""}</div>}
+                    </div>
+                  )}
+                  {pac.antecedentes && (
+                    <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 14px", marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Antecedentes</div>
+                      <div style={{ fontSize: 13 }}>{pac.antecedentes}</div>
+                    </div>
+                  )}
+                  {pac.notas && (
+                    <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 14px", marginTop: 12 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 4, textTransform: "uppercase" }}>Notas</div>
+                      <div style={{ fontSize: 13 }}>{pac.notas}</div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <Field label="Nombre"><input style={inputStyle} value={form.nombre||""} onChange={e => setForm(f => ({...f, nombre: e.target.value}))} /></Field>
+                    <Field label="Apellido"><input style={inputStyle} value={form.apellido||""} onChange={e => setForm(f => ({...f, apellido: e.target.value}))} /></Field>
+                    <Field label="DNI"><input style={inputStyle} value={form.dni||""} onChange={e => setForm(f => ({...f, dni: e.target.value}))} /></Field>
+                    <Field label="Teléfono"><input style={inputStyle} value={form.telefono||""} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} /></Field>
+                    <Field label="Email"><input style={inputStyle} value={form.email||""} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></Field>
+                    <Field label="Fecha nac."><input type="date" style={inputStyle} value={form.fechaNac||form.fecha_nac||""} onChange={e => setForm(f => ({...f, fechaNac: e.target.value}))} /></Field>
+                    <Field label="Obra social"><input style={inputStyle} value={form.obraSocial||form.obra_social||""} onChange={e => setForm(f => ({...f, obraSocial: e.target.value}))} /></Field>
+                    <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado||form.nro_afiliado||""} onChange={e => setForm(f => ({...f, nroAfiliado: e.target.value}))} /></Field>
+                  </div>
+                  <Field label="Derivado por"><DerivadoPorSelector value={form.derivadoPor||form.derivado_por||""} onChange={v => setForm(f => ({...f, derivadoPor: v}))} /></Field>
+                  <Field label="Diagnóstico"><input style={inputStyle} value={form.diagnostico||""} onChange={e => setForm(f => ({...f, diagnostico: e.target.value}))} /></Field>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", margin: "12px 0 8px" }}>👂 Audífonos</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 80px auto 1fr 80px", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>Der:</span>
+                    <input style={inputStyle} value={form.audifono_der||""} onChange={e => setForm(f => ({...f, audifono_der: e.target.value}))} placeholder="Marca/Modelo" />
+                    <input style={inputStyle} value={form.audifono_der_anio||""} onChange={e => setForm(f => ({...f, audifono_der_anio: e.target.value}))} placeholder="Año" />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>Izq:</span>
+                    <input style={inputStyle} value={form.audifono_izq||""} onChange={e => setForm(f => ({...f, audifono_izq: e.target.value}))} placeholder="Marca/Modelo" />
+                    <input style={inputStyle} value={form.audifono_izq_anio||""} onChange={e => setForm(f => ({...f, audifono_izq_anio: e.target.value}))} placeholder="Año" />
+                  </div>
+                  <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes||""} onChange={e => setForm(f => ({...f, antecedentes: e.target.value}))} /></Field>
+                  <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas||""} onChange={e => setForm(f => ({...f, notas: e.target.value}))} /></Field>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12 }}>
+                    <button onClick={() => setEditando(false)} style={btnSecondary}>Cancelar</button>
+                    <button onClick={guardarDatos} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [modal, setModal] = useState(null);
   const [verHC, setVerHC] = useState(null);
   const [verRapido, setVerRapido] = useState(null);
+  const [fichaAbierta, setFichaAbierta] = useState(null);
 
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
@@ -2295,7 +2669,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
 
                   {/* Botones */}
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => setVerHC(p.id)} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12, flex: 1 }}>📋 Historia clínica</button>
+                    <button onClick={() => setFichaAbierta(p.id)} style={{ ...btnPrimary, padding: "7px 12px", fontSize: 12, flex: 1 }}>📋 Ficha paciente</button>
                     <button onClick={() => editar(p)} style={{ ...btnSecondary, padding: "7px 12px", fontSize: 12 }}>✏️ Editar</button>
                     <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarPaciente(p.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "7px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
                   </div>
@@ -2377,6 +2751,16 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       )}
 
       {/* Historia clínica */}
+      {fichaAbierta && (
+        <FichaPaciente
+          pacienteId={fichaAbierta}
+          data={data}
+          db={db}
+          usuario={usuario}
+          onClose={() => setFichaAbierta(null)}
+        />
+      )}
+
       {verHC && pacienteHC && (
         <Modal title={`Historia clínica · ${pacienteHC.apellido}, ${pacienteHC.nombre}`} onClose={() => setVerHC(null)}>
           <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
