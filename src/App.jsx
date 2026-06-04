@@ -333,6 +333,10 @@ const COLORES_VENTA = {
   perdido:              { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
 };
 
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
+
+const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Cheque", "SIOS / OS directo", "Pendiente"];
+
 function Badge({ estado, tipo = "turno" }) {
   const mapa = tipo === "venta" ? COLORES_VENTA : COLORES_ESTADO;
   const c = mapa[estado] || { bg: "#F3F4F6", color: "#374151", label: estado };
@@ -2984,7 +2988,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
 }
 
 // ─── VENTAS ───────────────────────────────────────────────────────────────────
-const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Cheque", "SIOS / OS directo", "Pendiente"];
 
 function Ventas({ data, db, usuario }) {
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -3353,7 +3356,6 @@ function Ventas({ data, db, usuario }) {
 
 
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
 function Compras({ data, db, usuario }) {
   const [modal, setModal] = useState(null);
