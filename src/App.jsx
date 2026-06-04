@@ -1080,7 +1080,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           creado_por: usuario?.nombre || "",
         };
 
-        if (tipoEntrada === "bloqueo" && formEntrada.profesional === "ambas") {
+        if ((tipoEntrada === "bloqueo" || tipoEntrada === "visita") && formEntrada.profesional === "ambas") {
           await db.agregarTurno({ ...turno, profesional: "Lic. Cecilia Miatello" });
           await db.agregarTurno({ ...turno, profesional: "Lic. Graciela Valles" });
         } else if (esNueva) {
@@ -1916,6 +1916,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   <option value="">— Sin asignar —</option>
                   <option>Lic. Cecilia Miatello</option>
                   <option>Lic. Graciela Valles</option>
+                  <option value="ambas">Ambas profesionales</option>
                 </select>
               </Field>
             </>
