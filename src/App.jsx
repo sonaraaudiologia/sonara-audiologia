@@ -414,6 +414,33 @@ function useSupabase() {
   const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const undoStack = React.useRef([]); // { tipo, tabla, item, descripcion }
+
+  function pushUndo(accion) {
+    undoStack.current = [accion, ...undoStack.current.slice(0, 9)]; // keep last 10
+    window.__sonaraUndo = undoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+  }
+
+  async function deshacerUltima() {
+    const accion = undoStack.current[0];
+    if (!accion) return;
+    undoStack.current = undoStack.current.slice(1);
+    window.__sonaraUndo = undoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+
+    if (accion.tipo === "eliminar") {
+      const { id, ...resto } = accion.item;
+      await supabase.from(accion.tabla).insert({ ...accion.item });
+      // Reload that table
+      const { data: rows } = await supabase.from(accion.tabla).select("*");
+      if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
+    } else if (accion.tipo === "actualizar") {
+      await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
+      setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
+    }
+    alert(`✅ Deshecho: ${accion.descripcion}`);
+  }
 
   useEffect(() => {
     cargarTodo();
@@ -520,9 +547,13 @@ function useSupabase() {
   }, []);
 
   const eliminarPaciente = useCallback(async (id) => {
+    const item = data.pacientes.find(p => p.id === id);
     const { error } = await supabase.from("pacientes").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
+      if (item) pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
+    }
+  }, [data.pacientes]);
 
   function toDBTurno(turno) {
     return {
@@ -555,9 +586,13 @@ function useSupabase() {
   }, []);
 
   const eliminarTurno = useCallback(async (id) => {
+    const item = data.turnos.find(t => t.id === id);
     const { error } = await supabase.from("turnos").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
+      if (item) pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
+    }
+  }, [data.turnos]);
 
   function toDBVenta(v) {
     return {
@@ -613,9 +648,13 @@ function useSupabase() {
   }, []);
 
   const eliminarVenta = useCallback(async (id) => {
+    const item = data.ventas.find(v => v.id === id);
     const { error } = await supabase.from("ventas").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
+      if (item) pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
+    }
+  }, [data.ventas]);
 
   function toDBRec(rec) {
     return {
@@ -654,8 +693,12 @@ function useSupabase() {
   }, []);
 
   const actualizarCompra = useCallback(async (compra) => {
-    const { error } = await supabase.from("compras").update(compra).eq("id", compra.id);
-    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? compra : c) }));
+    const total = parseFloat(compra.total) || 0;
+    const seña = parseFloat(compra.seña) || 0;
+    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
+    const updated = { ...compra, estado: estadoAuto };
+    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
   }, []);
 
   const eliminarCompra = useCallback(async (id) => {
@@ -673,7 +716,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente,
-    agregarTurno, actualizarTurno, eliminarTurno,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -2017,7 +2060,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   ))}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
                     <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoFormT.total} onChange={e => setInsumoFormT(f => ({ ...f, total: e.target.value }))} /></Field>
-                    <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoFormT.seña} onChange={e => setInsumoFormT(f => ({ ...f, seña: e.target.value }))} /></Field>
+                    <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoFormT.seña} onChange={e => {
+                      const seña = e.target.value;
+                      const total = parseFloat(insumoFormT.total) || 0;
+                      const estado = total > 0 && parseFloat(seña) >= total ? "pagado" : "pendiente";
+                      setInsumoFormT(f => ({ ...f, seña, estado }));
+                    }} /></Field>
                     <Field label="Estado">
                       <select style={selectStyle} value={insumoFormT.estado} onChange={e => setInsumoFormT(f => ({ ...f, estado: e.target.value }))}>
                         <option value="pendiente">Pendiente</option>
@@ -2265,7 +2313,12 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                 )}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
                   <Field label="Total ($)"><input type="number" style={inputStyle} value={insumoForm.total} onChange={e => setInsumoForm(f => ({ ...f, total: e.target.value }))} /></Field>
-                  <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoForm.seña} onChange={e => setInsumoForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+                  <Field label="Seña ($)"><input type="number" style={inputStyle} value={insumoForm.seña} onChange={e => {
+                    const seña = e.target.value;
+                    const total = parseFloat(insumoForm.total) || 0;
+                    const estado = total > 0 && parseFloat(seña) >= total ? "pagado" : "pendiente";
+                    setInsumoForm(f => ({ ...f, seña, estado }));
+                  }} /></Field>
                   <Field label="Estado">
                     <select style={selectStyle} value={insumoForm.estado} onChange={e => setInsumoForm(f => ({ ...f, estado: e.target.value }))}>
                       <option value="pendiente">Pendiente</option>
@@ -4706,6 +4759,7 @@ function AppInner() {
   const { data, loading, error } = db;
 
   if (!autenticado || !usuarioActual) return <LoginScreen onLogin={u => { setAutenticado(true); setUsuarioActual(u); }} />;
+  // expose db for UndoButton
 
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
@@ -4779,6 +4833,31 @@ function AppInner() {
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
       </div>
     </div>
+  );
+}
+
+
+// ─── UNDO BUTTON ──────────────────────────────────────────────────────────────
+function UndoButton({ db }) {
+  const [ultimo, setUltimo] = React.useState(null);
+
+  React.useEffect(() => {
+    function update() {
+      const stack = window.__sonaraUndo || [];
+      setUltimo(stack[0] || null);
+    }
+    window.addEventListener("sonara-undo-update", update);
+    update();
+    return () => window.removeEventListener("sonara-undo-update", update);
+  }, []);
+
+  if (!ultimo) return null;
+
+  return (
+    <button onClick={() => db.deshacerUltima()}
+      style={{ position: "fixed", bottom: 20, right: 20, background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(0,0,0,0.3)", zIndex: 9999, display: "flex", alignItems: "center", gap: 8 }}>
+      ↩ Deshacer: {ultimo.descripcion}
+    </button>
   );
 }
 
