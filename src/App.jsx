@@ -1,7 +1,32 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error("App crash:", error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, fontFamily: "monospace", background: "#FEF2F2", minHeight: "100vh" }}>
+          <h2 style={{ color: "#DC2626" }}>Error en la aplicación</h2>
+          <pre style={{ background: "#fff", padding: 20, borderRadius: 8, overflow: "auto", fontSize: 12, color: "#991B1B" }}>
+            {this.state.error.toString()}
+            {" | "}
+            {this.state.error.stack}
+            {this.state.error.stack}
+          </pre>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 16, padding: "8px 20px", background: "#DC2626", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer" }}>
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function calcEdad(fechaNac) {
   if (!fechaNac) return null;
   try {
@@ -4661,7 +4686,7 @@ function Disponibilidad({ usuario }) {
 }
 
 
-export default function App() {
+function AppInner() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem("sonara_usuario") || "null"); } catch { return null; }
@@ -4746,4 +4771,8 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+export default function App() {
+  return <ErrorBoundary><AppInner /></ErrorBoundary>;
 }
