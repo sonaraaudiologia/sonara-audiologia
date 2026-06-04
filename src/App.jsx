@@ -1961,22 +1961,29 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             </div>
           )}
 
-          {/* Acciones adicionales si editando un turno con paciente */}
+          {/* Botón ficha paciente destacado */}
+          {formEntrada.paciente_id && tipoEntrada === "turno" && (
+            <div style={{ marginBottom: 8 }}>
+              <button type="button" onClick={() => { cerrarModal(); setFichaPacienteId(formEntrada.paciente_id); }}
+                style={{ width: "100%", background: "linear-gradient(135deg, #1a6b6b, #145555)", color: "#fff", border: "none", borderRadius: 10, padding: "12px", fontSize: 14, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                <span style={{ fontSize: 18 }}>📋</span>
+                <span>Abrir ficha completa del paciente</span>
+                <span style={{ fontSize: 12, opacity: 0.8 }}>HC · Insumos · Ventas · Datos</span>
+              </button>
+            </div>
+          )}
+
+          {/* Acciones rápidas secundarias */}
           {modalEntrada.editando && formEntrada.paciente_id && tipoEntrada === "turno" && (
-            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8 }}>Acciones rápidas</div>
+            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button type="button" onClick={() => setFichaPacienteId(formEntrada.paciente_id)}
-                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EEF2FF", color: "#4338CA" }}>📋 Ficha paciente</button>
-                <button type="button" onClick={() => setMostrarInsumos(!mostrarInsumos)}
-                  style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#FEF3C7", color: "#92400E" }}>🛍️ Insumos</button>
                 <button type="button" onClick={async () => {
                   const pac = pacientes.find(p => p.id === formEntrada.paciente_id);
                   const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
                   await db.agregarRecordatorio({ titulo: `${Array.isArray(formEntrada.practicas) && formEntrada.practicas[0] ? formEntrada.practicas[0] : "Consulta"} · ${nombre}`, fecha: formEntrada.fecha, hora: formEntrada.hora || "09:00", tipo: "control", paciente_id: formEntrada.paciente_id, descripcion: "", completado: false });
                   cerrarModal();
                   alert("✅ Pasado a recordatorio.");
-                }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EDE9FE", color: "#5B21B6" }}>🔔 A recordatorio</button>
+                }} style={{ ...btnSecondary, padding: "5px 10px", fontSize: 12, background: "#EDE9FE", color: "#5B21B6" }}>🔔 Pasar a recordatorio</button>
               </div>
 
               {mostrarInsumos && (
