@@ -919,6 +919,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
   // HC desde agenda
   const [verHCTurno, setVerHCTurno] = useState(null);
+  const [fichaPacienteId, setFichaPacienteId] = useState(null);
 
   // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
