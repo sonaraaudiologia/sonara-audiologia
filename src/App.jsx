@@ -2045,11 +2045,6 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   const pac = data.pacientes.find(p => p.id === pacienteId);
   if (!pac) return null;
 
-  // Init form when pac loads
-  if (editando && Object.keys(form).length === 0) {
-    setForm({ ...pac });
-  }
-
   // Historial unificado
   const historia = [...(pac.historia || [])].reverse();
   const comprasPac = data.compras.filter(c => c.paciente_id === pacienteId).map(c => ({
@@ -2312,7 +2307,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ ...pac }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
