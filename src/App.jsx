@@ -3984,7 +3984,7 @@ function useProfesionalesExternos() {
   return { profesionales, loading, agregar, actualizar, eliminar, agregarSeguimiento };
 }
 
-const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", notas: "" };
+const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", alias_cbu: "", notas: "" };
 const TIPOS_SEGUIMIENTO_PROF = ["Visita", "Llamada", "Email", "Derivación recibida", "Derivación enviada", "Reunión", "Otro"];
 const ESPECIALIDADES = ["Médico clínico", "Fonoaudiólogo/a", "Otorrinolaringólogo/a", "Neurólogo/a", "Pediatra", "Geriatra", "Psicólogo/a", "Kinesiólogo/a", "Otro"];
 
@@ -4008,7 +4008,7 @@ function Profesionales({ data }) {
   }
 
   function abrirEditar(p) {
-    setForm({ nombre: p.nombre, especialidad: p.especialidad || "", institucion: p.institucion || "", telefono: p.telefono || "", email: p.email || "", localidad: p.localidad || "", notas: p.notas || "" });
+    setForm({ nombre: p.nombre, especialidad: p.especialidad || "", institucion: p.institucion || "", telefono: p.telefono || "", email: p.email || "", localidad: p.localidad || "", alias_cbu: p.alias_cbu || "", notas: p.notas || "" });
     setModal(p.id);
   }
 
