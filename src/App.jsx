@@ -4124,6 +4124,9 @@ function Profesionales({ data }) {
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
             <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
           </div>
+          <Field label="Alias / CBU (para transferencias)">
+            <input style={inputStyle} value={form.alias_cbu || ""} onChange={e => setForm(f => ({ ...f, alias_cbu: e.target.value }))} placeholder="Ej: alias.banco o CBU 0000000..." />
+          </Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} placeholder="Observaciones, vínculo, frecuencia de contacto..." /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
