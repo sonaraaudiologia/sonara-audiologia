@@ -3992,6 +3992,7 @@ function Profesionales({ data }) {
   const { profesionales, loading: loadingProf, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
   const [modal, setModal] = useState(null); // null | "nuevo" | id
   const [verSeg, setVerSeg] = useState(null); // id del prof
+  const [verDerivados, setVerDerivados] = useState(null); // id del prof
   const [busqueda, setBusqueda] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_PROF_VACIO);
@@ -4034,6 +4035,9 @@ function Profesionales({ data }) {
   const derivacionesPorProf = (profNombre) =>
     data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").toLowerCase().includes(profNombre.toLowerCase())).length;
 
+  const pacientesPorProf = (profNombre) =>
+    data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").toLowerCase().includes(profNombre.toLowerCase()));
+
   const TIPO_COLOR_SEG = {
     "Visita": { bg: "#EEF2FF", c: "#4338CA" },
     "Llamada": { bg: "#DBEAFE", c: "#1E40AF" },
@@ -4075,8 +4079,29 @@ function Profesionales({ data }) {
                 </div>
 
                 {derivaciones > 0 && (
-                  <div style={{ background: "#D1FAE5", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 8, display: "inline-block" }}>
-                    👥 {derivaciones} paciente{derivaciones !== 1 ? "s" : ""} derivado{derivaciones !== 1 ? "s" : ""}
+                  <div onClick={() => setVerDerivados(verDerivados === p.id ? null : p.id)}
+                    style={{ background: "#D1FAE5", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 8, display: "inline-block", cursor: "pointer" }}>
+                    👥 {derivaciones} paciente{derivaciones !== 1 ? "s" : ""} derivado{derivaciones !== 1 ? "s" : ""} {verDerivados === p.id ? "▲" : "▼"}
+                  </div>
+                )}
+                {verDerivados === p.id && (
+                  <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Pacientes derivados</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {pacientesPorProf(p.nombre).map(pac => (
+                        <div key={pac.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 6, padding: "5px 8px", fontSize: 12 }}>
+                          <div>
+                            <div style={{ fontWeight: 600, color: "#1a1a2e" }}>{pac.apellido}, {pac.nombre}</div>
+                            <div style={{ color: "#888", fontSize: 11 }}>{pac.obraSocial || pac.obra_social || "Particular"}</div>
+                          </div>
+                          {pac.telefono && (
+                            <div style={{ color: "#1a6b6b", fontSize: 11, display: "flex", alignItems: "center", gap: 2 }}>
+                              📞 {pac.telefono}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
