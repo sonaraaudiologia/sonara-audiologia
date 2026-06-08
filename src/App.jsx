@@ -1579,6 +1579,25 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                                 onDelete={() => eliminarEntrada(e)}
                               />
                             ))}
+                            {/* Líneas verde inicio/fin disponibilidad */}
+                            {(() => {
+                              const conf = getDispEfectiva(fecha, prof.key);
+                              if (!conf) return null;
+                              const topI = conf.horaDesde ? (horaAMin(conf.horaDesde) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
+                              const topF = conf.horaHasta ? (horaAMin(conf.horaHasta) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
+                              return (<>
+                                {topI !== null && topI > 0 && (
+                                  <div style={{ position: "absolute", top: topI, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
+                                    <span style={{ position: "absolute", left: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{conf.horaDesde?.slice(0,5)}</span>
+                                  </div>
+                                )}
+                                {topF !== null && (
+                                  <div style={{ position: "absolute", top: topF, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
+                                    <span style={{ position: "absolute", right: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{conf.horaHasta?.slice(0,5)}</span>
+                                  </div>
+                                )}
+                              </>);
+                            })()}
                             {/* Bloqueo como overlay con botón eliminar */}
                             {tieneBloqueo && (() => {
                               const blq = ents.find(e => e._kind === "bloqueo");
