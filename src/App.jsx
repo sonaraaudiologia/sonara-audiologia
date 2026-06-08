@@ -628,6 +628,8 @@ function useSupabase() {
       condicion_pago_paciente: v.condicion_pago_paciente || "",
       estado: v.estado || "presupuestado",
       observaciones: v.observaciones || "",
+      pagos: Array.isArray(v.pagos) ? v.pagos : [],
+      seguimiento: Array.isArray(v.seguimiento) ? v.seguimiento : [],
     };
   }
 
@@ -638,6 +640,8 @@ function useSupabase() {
       saldoPaciente: row.saldo_paciente || "",
       marca_der: row.marca_der || "",
       modelo_der: row.modelo_der || "",
+      pagos: Array.isArray(row.pagos) ? row.pagos : [],
+      seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
       marca_izq: row.marca_izq || "",
       modelo_izq: row.modelo_izq || "",
       condicion_pago_os: row.condicion_pago_os || "",
