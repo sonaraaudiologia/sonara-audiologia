@@ -1434,9 +1434,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       {/* ── Vista DÍA ─────────────────────────────────────────────────────────── */}
       {vista === "dia" && (
-        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff", maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
           <div style={{ display: "flex" }}>
-            <ColumnaHoras slotH={SLOT_H_DIA} />
+            <div style={{ position: "sticky", left: 0, zIndex: 10, background: "#F8FAFC", flexShrink: 0 }}>
+              <ColumnaHoras slotH={SLOT_H_DIA} />
+            </div>
             <div style={{ flex: 1 }}>
               <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
                 profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
@@ -1467,10 +1469,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
 
         return (
-          <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: 800, border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-              {/* Header días — con sub-header CM / GV */}
-              <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB" }}>
+          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+            <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 220px)" }}>
+            <div style={{ minWidth: 800 }}>
+              {/* Header días sticky */}
+              <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", gridRow: "span 2" }} />
                 {diasSemana.map(fecha => {
                   const hoy = fecha === today();
@@ -1571,9 +1574,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     );
                   })}
                 </div>
+                </div>
               </div>
             </div>
-          </div>
+            </div>
         );
       })()}
 
@@ -1616,9 +1620,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </span>
             </div>
 
-            <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-              {/* Header profesionales */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB" }}>
+            <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff", maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
+              {/* Header profesionales sticky */}
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
                 {PROFS.filter(p => filtroProfesional === "todas" || p.key === filtroProfesional).map(prof => {
                   const ents = entradasProf(prof.key);
