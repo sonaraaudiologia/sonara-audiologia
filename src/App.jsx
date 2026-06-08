@@ -1240,11 +1240,20 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     const esRec = entrada._kind === "recordatorio";
     const pac = !esRec && !esBloqueo ? pacientes.find(p => p.id === entrada.paciente_id) : null;
 
+    const esVisita = !pac && !esBloqueo && !esRec && (
+      (entrada.motivo||"").toLowerCase().includes("visita") ||
+      (entrada.motivo||"").toLowerCase().includes("reunión") ||
+      (entrada.motivo||"").toLowerCase().includes("reunion") ||
+      (Array.isArray(entrada.practicas) && entrada.practicas.join(" ").toLowerCase().includes("visita"))
+    );
+
     const displayName = esRec
       ? entrada.titulo
       : esBloqueo
       ? (entrada.profesional || "Bloqueado")
-      : (pac ? `${pac.apellido} ${pac.nombre}` : "Sin paciente");
+      : esVisita
+      ? (entrada.motivo || entrada.titulo || "Visita / Reunión")
+      : (pac ? `${pac.apellido} ${pac.nombre}` : entrada.motivo || "Sin paciente");
 
     const displaySub = esRec ? "🔔 Recordatorio" : esBloqueo
       ? (entrada.motivo||"").replace("🔒 BLOQUEADO: ","")
