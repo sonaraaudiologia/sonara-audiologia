@@ -5362,6 +5362,7 @@ function AppInner() {
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
       </div>
+      <UndoButton db={db} />
     </div>
   );
 }
