@@ -1557,9 +1557,25 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                                   border: "1px solid #FECACA", borderRadius: 5, padding: "2px 4px",
                                   display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
                                   <span style={{ fontSize: 8, fontWeight: 800, color: "#991B1B" }}>🔒 {prof.short}</span>
-                                  <button type="button"
-                                    onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar bloqueo?")) db.eliminarTurno(blq.id); }}
-                                    style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                  <div style={{ display: "flex", gap: 2 }}>
+                                    {blq.notas && blq.notas.startsWith("serie:") && (
+                                      <button type="button"
+                                        onClick={async e => {
+                                          e.stopPropagation();
+                                          const serieId = blq.notas;
+                                          if (window.confirm("¿Eliminar TODOS los bloqueos de esta serie?")) {
+                                            const serie = data.turnos.filter(t => t.notas === serieId && t.estado === "bloqueado");
+                                            await Promise.all(serie.map(t => db.eliminarTurno(t.id)));
+                                          }
+                                        }}
+                                        style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "1px 4px", fontSize: 8, cursor: "pointer", color: "#991B1B", lineHeight: 1, whiteSpace: "nowrap" }}>
+                                        Serie
+                                      </button>
+                                    )}
+                                    <button type="button"
+                                      onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este bloqueo?")) db.eliminarTurno(blq.id); }}
+                                      style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                  </div>
                                 </div>
                               );
                             })()}
@@ -1974,6 +1990,31 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               <div style={{ background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: 10, padding: "10px 14px", marginBottom: 8, fontSize: 13, color: "#991B1B", fontWeight: 600 }}>
                 🔒 Este horario quedará bloqueado — no se podrán asignar turnos
               </div>
+              {modalEntrada?.editando?.notas?.startsWith("serie:") && (
+                <div style={{ background: "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: 8, padding: "8px 12px", marginBottom: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginBottom: 6 }}>Este bloqueo es parte de una serie repetida</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" onClick={async () => {
+                      if (window.confirm("¿Eliminar TODOS los bloqueos de esta serie?")) {
+                        const serieId = modalEntrada.editando.notas;
+                        const serie = data.turnos.filter(t => t.notas === serieId && t.estado === "bloqueado");
+                        await Promise.all(serie.map(t => db.eliminarTurno(t.id)));
+                        cerrarModal();
+                      }
+                    }} style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      🗑️ Eliminar toda la serie ({data.turnos.filter(t => t.notas === modalEntrada.editando.notas && t.estado === "bloqueado").length} bloqueos)
+                    </button>
+                    <button type="button" onClick={async () => {
+                      if (window.confirm("¿Eliminar solo este bloqueo?")) {
+                        await db.eliminarTurno(modalEntrada.editando.id);
+                        cerrarModal();
+                      }
+                    }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 12px" }}>
+                      Eliminar solo este día
+                    </button>
+                  </div>
+                </div>
+              )}
               <Field label="Motivo (opcional)">
                 <input style={inputStyle} value={formEntrada.titulo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Capacitación, Feriado, Personal..." />
               </Field>
@@ -4297,6 +4338,7 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
         : ["Lic. Graciela Valles"];
 
       const fechas = generarFechas();
+      const serieId = form.repeticion !== "ninguna" ? `serie-${Date.now()}` : null;
       const promises = [];
       for (const fecha of fechas) {
         for (const prof of profs) {
@@ -4307,7 +4349,7 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
             motivo: `🔒 BLOQUEADO: ${form.motivo}`,
             profesional: prof,
             estado: "bloqueado",
-            notas: `Bloqueo de agenda · Repetición: ${form.repeticion}`,
+            notas: serieId ? `serie:${serieId}` : `Bloqueo de agenda`,
           }));
         }
       }
