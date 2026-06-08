@@ -1449,12 +1449,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       {/* ── Vista DÍA ─────────────────────────────────────────────────────────── */}
       {vista === "dia" && (
-        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff", maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
-          <div style={{ display: "flex" }}>
-            <div style={{ position: "sticky", left: 0, zIndex: 10, background: "#F8FAFC", flexShrink: 0 }}>
+        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ display: "flex", minWidth: 320 }}>
+            <div style={{ position: "sticky", left: 0, zIndex: 10, background: "#F8FAFC", flexShrink: 0, borderRight: "1.5px solid #E5E7EB" }}>
               <ColumnaHoras slotH={SLOT_H_DIA} />
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
               <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
                 profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
             </div>
@@ -1484,9 +1484,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
 
         return (
-          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-            <div style={{ overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 220px)" }}>
-            <div style={{ minWidth: 800 }}>
+          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ minWidth: 600 }}>
               {/* Header días sticky */}
               <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", gridRow: "span 2" }} />
@@ -1608,7 +1607,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
               </div>
             </div>
-            </div>
         );
       })()}
 
@@ -1651,9 +1649,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </span>
             </div>
 
-            <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden", background: "#fff", maxHeight: "calc(100vh - 220px)", overflowY: "auto" }}>
+            <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
               {/* Header profesionales sticky */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff", minWidth: 320 }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
                 {PROFS.filter(p => filtroProfesional === "todas" || p.key === filtroProfesional).map(prof => {
                   const ents = entradasProf(prof.key);
@@ -1677,7 +1675,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </div>
 
               {/* Cuerpo dual */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, minWidth: 320 }}>
                 {/* Columna horas */}
                 <ColumnaHoras slotH={SLOT_H_AG} />
 
