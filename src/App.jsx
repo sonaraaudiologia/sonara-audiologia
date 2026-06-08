@@ -1008,17 +1008,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // ── Obtener todas las entradas de una fecha (turnos + recordatorios) ─────────
   // Check if hora is within disponibilidad for a profesional on a date
   function isDisponible(fecha, hora, profKey) {
-    const d = new Date(fecha + "T12:00:00");
-    const diaSemana = d.getDay() === 0 ? 6 : d.getDay() - 1; // 0=lun
-    const mes = d.getMonth() + 1;
-    const anio = d.getFullYear();
-    const disp = getDisp(profKey, mes, anio);
-    if (!disp || disp.length === 0) return null; // no configurado = neutro
-    const diaConf = disp.find(x => x.dia === DIAS_SEMANA[diaSemana]);
-    if (!diaConf || !diaConf.activo) return false; // día sin atención
+    const conf = getDispEfectiva(fecha, profKey);
+    if (conf === null && getDisp(profKey, new Date(fecha+"T12:00:00").getMonth()+1, new Date(fecha+"T12:00:00").getFullYear())?.length === 0) return null;
+    if (!conf) return false;
     const horaMin = horaAMin(hora);
-    const desde = horaAMin(diaConf.horaDesde || "08:00");
-    const hasta = horaAMin(diaConf.horaHasta || "18:00");
+    const desde = horaAMin(conf.horaDesde || "08:00");
+    const hasta = horaAMin(conf.horaHasta || "18:00");
     return horaMin >= desde && horaMin < hasta;
   }
 
@@ -1269,15 +1264,25 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function GrillaHoraria({ fecha, entradas, slotH, width = "100%", profKey = null }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     const conCols = asignarCols(entradas);
-    // Calc where disponibilidad ends to show divider line
+    // Calc where disponibilidad starts and ends
     const finDisp = profKey ? getFinDisponibilidad(fecha, profKey) : null;
+    const inicioDisp = profKey ? getInicioDisponibilidad(fecha, profKey) : null;
     const finDispTop = finDisp ? (horaAMin(finDisp) - HORA_INICIO * 60) / 30 * slotH : null;
+    const inicioDispTop = inicioDisp ? (horaAMin(inicioDisp) - HORA_INICIO * 60) / 30 * slotH : null;
 
     return (
       <div style={{ position: "relative", height: totalHeight, width }}>
-        {/* Línea divisora fin de disponibilidad */}
+        {/* Línea inicio de disponibilidad */}
+        {inicioDispTop !== null && inicioDispTop > 0 && (
+          <div style={{ position: "absolute", top: inicioDispTop, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 10, opacity: 0.6 }}>
+            <span style={{ position: "absolute", left: 4, top: -10, fontSize: 9, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 4px", borderRadius: 4 }}>
+              inicio {inicioDisp?.slice(0,5)}
+            </span>
+          </div>
+        )}
+        {/* Línea fin de disponibilidad */}
         {finDispTop !== null && (
-          <div style={{ position: "absolute", top: finDispTop, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 10, opacity: 0.5 }}>
+          <div style={{ position: "absolute", top: finDispTop, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 10, opacity: 0.6 }}>
             <span style={{ position: "absolute", right: 4, top: -10, fontSize: 9, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 4px", borderRadius: 4 }}>
               fin {finDisp?.slice(0,5)}
             </span>
@@ -1357,17 +1362,30 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     );
   }
 
-  // ── Calcular fin de disponibilidad de una prof para una fecha ─────────────────
-  function getFinDisponibilidad(fecha, profKey) {
+  // ── Calcular fin e inicio de disponibilidad para una fecha ──────────────────
+  function getDispEfectiva(fecha, profKey) {
     const d = new Date(fecha + "T12:00:00");
     const diaSemana = d.getDay() === 0 ? 6 : d.getDay() - 1;
     const mes = d.getMonth() + 1;
     const anio = d.getFullYear();
     const disp = getDisp(profKey, mes, anio);
     if (!disp || disp.length === 0) return null;
+    // Check date-specific exception first
+    const excepcion = disp.find(x => x.fecha === fecha);
+    if (excepcion) return excepcion.activo ? excepcion : null;
     const diaConf = disp.find(x => x.dia === DIAS_SEMANA[diaSemana]);
     if (!diaConf || !diaConf.activo) return null;
-    return diaConf.horaHasta || null; // e.g. "13:00"
+    return diaConf;
+  }
+
+  function getFinDisponibilidad(fecha, profKey) {
+    const conf = getDispEfectiva(fecha, profKey);
+    return conf ? (conf.horaHasta || null) : null;
+  }
+
+  function getInicioDisponibilidad(fecha, profKey) {
+    const conf = getDispEfectiva(fecha, profKey);
+    return conf ? (conf.horaDesde || null) : null;
   }
 
   function ColumnaHoras({ slotH }) {
