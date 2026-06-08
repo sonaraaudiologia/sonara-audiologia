@@ -1069,12 +1069,37 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     setMostrarInsumos(false);
   }
 
-  function abrirEditar(entrada) {
+  function detectarTipoEntrada(entrada) {
     const kind = entrada._kind || "turno";
-    setTipoEntrada(kind === "recordatorio" ? "recordatorio" : kind === "bloqueo" ? "bloqueo" : "turno");
+    if (kind === "recordatorio") return "recordatorio";
+    if (kind === "bloqueo") return "bloqueo";
+    // Detectar visita: sin paciente y motivo incluye visita/reunión, o titulo tiene visita
+    const motivo = (entrada.motivo || "").toLowerCase();
+    const titulo = (entrada.titulo || "").toLowerCase();
+    const practicas = Array.isArray(entrada.practicas) ? entrada.practicas.join(" ").toLowerCase() : "";
+    if (!entrada.paciente_id && (
+      motivo.includes("visita") || motivo.includes("reunión") || motivo.includes("reunion") ||
+      titulo.includes("visita") || titulo.includes("reunión") ||
+      practicas.includes("visita") || practicas.includes("reunión")
+    )) return "visita";
+    // También si tiene color_custom y sin paciente puede ser visita
+    if (!entrada.paciente_id && entrada.color_custom && kind === "turno") return "visita";
+    return "turno";
+  }
+
+  function abrirEditar(entrada) {
+    const tipo = detectarTipoEntrada(entrada);
+    setTipoEntrada(tipo);
     setColorEntrada(entrada.color_custom || "");
-    if (kind === "recordatorio") {
+    if (tipo === "recordatorio") {
       setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5) });
+    } else if (tipo === "visita") {
+      setFormEntrada({
+        ...entrada,
+        titulo: entrada.titulo || entrada.motivo || (Array.isArray(entrada.practicas) && entrada.practicas[0]) || "",
+        motivo: entrada.motivo || "",
+        practicas: Array.isArray(entrada.practicas) ? entrada.practicas : [],
+      });
     } else {
       setFormEntrada({ ...entrada, practicas: Array.isArray(entrada.practicas) ? entrada.practicas : (entrada.motivo ? [entrada.motivo] : []) });
     }
