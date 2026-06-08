@@ -4573,6 +4573,8 @@ function Disponibilidad({ usuario }) {
   const [profSelec, setProfSelec] = useState("Lic. Cecilia Miatello");
   const { guardar, getDisp } = useDisponibilidad();
   const [saving, setSaving] = useState(false);
+  const [diaSeleccionado, setDiaSeleccionado] = useState(null); // { fecha, d, dispDia }
+  const [excepcionForm, setExcepcionForm] = useState({ activo: true, horaDesde: "08:00", horaHasta: "18:00" });
 
   const PROFS_DISP = [
     { key: "Lic. Cecilia Miatello", label: "Cecilia Miatello", color: "#1a6b6b", bg: "#e0f4f4" },
@@ -4621,19 +4623,20 @@ function Disponibilidad({ usuario }) {
   // Generar días del mes para vista previa
   function getDiasDelMes() {
     const dias = [];
-    const primerDia = new Date(anioActual, mesActual - 1, 1);
     const ultimoDia = new Date(anioActual, mesActual, 0);
-    const feriados = getFeriadosArgentina(anioActual);
+    const feriadosAnio = getFeriadosArgentina(anioActual);
 
     for (let d = 1; d <= ultimoDia.getDate(); d++) {
       const fecha = new Date(anioActual, mesActual - 1, d);
-      const diaSemana = fecha.getDay(); // 0=dom, 1=lun...
-      const diasSemanaIdx = diaSemana === 0 ? 6 : diaSemana - 1; // 0=lun...5=sab
+      const diaSemana = fecha.getDay();
+      const diasSemanaIdx = diaSemana === 0 ? 6 : diaSemana - 1;
       const fechaStr = `${anioActual}-${String(mesActual).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
-      const esFeriado = feriados.includes(fechaStr);
+      const esFeriado = feriadosAnio.includes(fechaStr);
       const esDomingo = diaSemana === 0;
-      const dispDia = getDiaDispLocal(DIAS_SEMANA[diasSemanaIdx]);
-      dias.push({ d, fecha: fechaStr, diaSemana, diasSemanaIdx, esFeriado, esDomingo, dispDia });
+      // Check for date-specific exception first
+      const excepcion = (dispActual || []).find(x => x.fecha === fechaStr);
+      const dispDia = excepcion || getDiaDispLocal(DIAS_SEMANA[diasSemanaIdx]);
+      dias.push({ d, fecha: fechaStr, diaSemana, diasSemanaIdx, esFeriado, esDomingo, dispDia, tieneExcepcion: !!excepcion });
     }
     return dias;
   }
@@ -4739,21 +4742,99 @@ function Disponibilidad({ usuario }) {
               <div key={"empty"+i} />
             ))}
             {diasMes.map(({ d, fecha, esFeriado, esDomingo, diasSemanaIdx, dispDia }) => {
-              const disponible = !esFeriado && !esDomingo && dispDia?.activo;
+              const tieneExcepcion = (dispActual || []).find(x => x.fecha === fecha);
+              const dispEfectiva = tieneExcepcion || dispDia;
+              const disponible = !esFeriado && !esDomingo && dispEfectiva?.activo;
+              const seleccionado = diaSeleccionado?.fecha === fecha;
               return (
-                <div key={d} style={{
+                <div key={d} onClick={() => {
+                  if (esFeriado || esDomingo) return;
+                  if (seleccionado) { setDiaSeleccionado(null); return; }
+                  setDiaSeleccionado({ fecha, d, dispDia: dispEfectiva });
+                  setExcepcionForm({
+                    activo: dispEfectiva?.activo ?? true,
+                    horaDesde: dispEfectiva?.horaDesde || "08:00",
+                    horaHasta: dispEfectiva?.horaHasta || "18:00"
+                  });
+                }} style={{
                   textAlign: "center", padding: "5px 2px", borderRadius: 6, fontSize: 11, fontWeight: disponible ? 700 : 400,
-                  background: esFeriado ? "#FEE2E2" : esDomingo ? "#F9FAFB" : disponible ? prof?.bg : "#F3F4F6",
-                  color: esFeriado ? "#991B1B" : esDomingo ? "#ddd" : disponible ? prof?.color : "#aaa",
-                  border: esFeriado ? "1px solid #FECACA" : disponible ? `1px solid ${prof?.color}33` : "1px solid transparent",
+                  background: seleccionado ? prof?.color : esFeriado ? "#FEE2E2" : esDomingo ? "#F9FAFB" : disponible ? prof?.bg : "#F3F4F6",
+                  color: seleccionado ? "#fff" : esFeriado ? "#991B1B" : esDomingo ? "#ddd" : disponible ? prof?.color : "#aaa",
+                  border: seleccionado ? `2px solid ${prof?.color}` : esFeriado ? "1px solid #FECACA" : disponible ? `1px solid ${prof?.color}33` : "1px solid transparent",
+                  cursor: esFeriado || esDomingo ? "default" : "pointer",
                   position: "relative",
                 }}>
                   {d}
-                  {esFeriado && <div style={{ fontSize: 7, color: "#DC2626", lineHeight: 1 }}>fer.</div>}
-                  {disponible && <div style={{ fontSize: 7, color: prof?.color, lineHeight: 1 }}>{dispDia.horaDesde?.slice(0,5)}</div>}
+                  {tieneExcepcion && !esFeriado && !esDomingo && (
+                    <div style={{ position: "absolute", top: 1, right: 2, width: 5, height: 5, borderRadius: "50%", background: "#F59E0B" }} title="Excepción individual" />
+                  )}
+                  {esFeriado && <div style={{ fontSize: 7, color: seleccionado ? "#fff" : "#DC2626", lineHeight: 1 }}>fer.</div>}
+                  {!esFeriado && !esDomingo && <div style={{ fontSize: 7, color: seleccionado ? "rgba(255,255,255,0.8)" : prof?.color, lineHeight: 1 }}>{disponible ? (dispEfectiva?.horaDesde?.slice(0,5) || "") : "—"}</div>}
                 </div>
               );
             })}
+          </div>
+
+          {/* Panel excepción día seleccionado */}
+          {diaSeleccionado && (
+            <div style={{ marginTop: 14, background: "#FFFBEB", border: "1.5px solid #FCD34D", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>
+                  ✏️ Excepción para el {diaSeleccionado.d} de {MESES[mesActual-1]}
+                </div>
+                <button onClick={() => setDiaSeleccionado(null)} style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#aaa" }}>×</button>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <input type="checkbox" checked={excepcionForm.activo} onChange={e => setExcepcionForm(f => ({ ...f, activo: e.target.checked }))}
+                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: prof?.color }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: excepcionForm.activo ? prof?.color : "#888" }}>
+                  {excepcionForm.activo ? "Disponible este día" : "Sin atención este día"}
+                </span>
+              </div>
+              {excepcionForm.activo && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Desde</label>
+                    <input type="time" value={excepcionForm.horaDesde} onChange={e => setExcepcionForm(f => ({ ...f, horaDesde: e.target.value }))} style={{ ...inputStyle, fontSize: 13 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Hasta</label>
+                    <input type="time" value={excepcionForm.horaHasta} onChange={e => setExcepcionForm(f => ({ ...f, horaHasta: e.target.value }))} style={{ ...inputStyle, fontSize: 13 }} />
+                  </div>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={async () => {
+                  // Save exception as a date-specific entry
+                  const nuevaExcepcion = { fecha: diaSeleccionado.fecha, ...excepcionForm };
+                  const sinEstaFecha = (dispActual || []).filter(x => x.fecha !== diaSeleccionado.fecha);
+                  const nuevaDisp = [...sinEstaFecha, nuevaExcepcion];
+                  setLocalDisp(nuevaDisp);
+                  await guardar(profSelec, mesActual, anioActual, nuevaDisp);
+                  setDiaSeleccionado(null);
+                  alert(`✅ Excepción guardada para el ${diaSeleccionado.d}/${mesActual}`);
+                }} style={{ ...btnPrimary, flex: 1, background: "linear-gradient(135deg,#92400E,#D97706)" }}>
+                  Guardar excepción
+                </button>
+                {(dispActual || []).find(x => x.fecha === diaSeleccionado.fecha) && (
+                  <button onClick={async () => {
+                    const sinEstaFecha = (dispActual || []).filter(x => x.fecha !== diaSeleccionado.fecha);
+                    setLocalDisp(sinEstaFecha);
+                    await guardar(profSelec, mesActual, anioActual, sinEstaFecha);
+                    setDiaSeleccionado(null);
+                    alert("✅ Excepción eliminada, vuelve al horario semanal.");
+                  }} style={{ ...btnSecondary, fontSize: 12 }}>
+                    Quitar excepción
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Leyenda excepciones */}
+          <div style={{ marginTop: 10, fontSize: 11, color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#F59E0B" }} />
+            Punto naranja = excepción individual guardada para ese día
           </div>
 
           {/* Feriados del mes */}
