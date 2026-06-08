@@ -5289,6 +5289,253 @@ function FechasEspeciales({ usuario }) {
 }
 
 
+// ─── STOCK ────────────────────────────────────────────────────────────────────
+function useStock() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-stock-" + Math.random().toString(36).slice(2,6))
+      .on("postgres_changes", { event: "*", schema: "public", table: "stock" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+  async function cargar() {
+    const { data } = await supabase.from("stock").select("*").order("created_at", { ascending: false });
+    if (data) setItems(data);
+    setLoading(false);
+  }
+  async function agregar(item) {
+    const { data: row } = await supabase.from("stock").insert(item).select().single();
+    if (row) setItems(s => [row, ...s]);
+    return row;
+  }
+  async function actualizar(item) {
+    await supabase.from("stock").update(item).eq("id", item.id);
+    setItems(s => s.map(x => x.id === item.id ? item : x));
+  }
+  async function eliminar(id) {
+    await supabase.from("stock").delete().eq("id", id);
+    setItems(s => s.filter(x => x.id !== id));
+  }
+  return { items, loading, agregar, actualizar, eliminar };
+}
+
+const ESTADOS_STOCK = {
+  disponible:  { label: "Disponible",   bg: "#D1FAE5", color: "#065F46" },
+  reservado:   { label: "Reservado",    bg: "#FEF3C7", color: "#92400E" },
+  vendido:     { label: "Vendido",      bg: "#DBEAFE", color: "#1E40AF" },
+  devuelto:    { label: "Devuelto",     bg: "#EDE9FE", color: "#5B21B6" },
+  reparacion:  { label: "En reparación",bg: "#FEE2E2", color: "#991B1B" },
+};
+
+function Stock({ data, usuario }) {
+  const { items, loading, agregar, actualizar, eliminar } = useStock();
+  const [modal, setModal] = useState(null);
+  const [filtroEstado, setFiltroEstado] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [verDetalle, setVerDetalle] = useState(null);
+
+  const FORM_VACIO = {
+    marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
+    estado: "disponible", precio_costo: "", fecha_ingreso: today(),
+    venta_id: "", paciente_id: "", notas: ""
+  };
+  const [form, setForm] = useState(FORM_VACIO);
+
+  const lista = items.filter(i => {
+    const matchEstado = !filtroEstado || i.estado === filtroEstado;
+    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
+    return matchEstado && matchBusq;
+  });
+
+  const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
+
+  async function guardar() {
+    if (!form.marca || !form.modelo) return alert("Completá marca y modelo.");
+    setSaving(true);
+    try {
+      const payload = { ...form, precio_costo: parseFloat(form.precio_costo) || null, creado_por: usuario?.nombre || "" };
+      if (modal === "nuevo") await agregar(payload);
+      else await actualizar({ ...payload, id: modal });
+      setModal(null);
+      setForm(FORM_VACIO);
+    } finally { setSaving(false); }
+  }
+
+  function abrirEditar(item) {
+    setForm({ ...FORM_VACIO, ...item, precio_costo: item.precio_costo || "" });
+    setModal(item.id);
+  }
+
+  const itemDetalle = verDetalle ? items.find(i => i.id === verDetalle) : null;
+  const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : null; };
+
+  if (loading) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>⏳ Cargando...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📦 Stock de audífonos</div>
+        <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Agregar</button>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 16 }}>
+        {Object.entries(ESTADOS_STOCK).map(([k, v]) => (
+          <div key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
+            style={{ background: filtroEstado === k ? v.bg : "#F8FAFC", border: `1.5px solid ${filtroEstado === k ? v.color : "#E5E7EB"}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "center" }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: v.color }}>{stats[k] || 0}</div>
+            <div style={{ fontSize: 10, color: v.color, fontWeight: 600 }}>{v.label}</div>
+          </div>
+        ))}
+        <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46" }}>{items.length}</div>
+          <div style={{ fontSize: 10, color: "#065F46", fontWeight: 600 }}>Total</div>
+        </div>
+      </div>
+
+      {/* Buscador + filtros */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <input style={{ ...inputStyle, flex: 1, minWidth: 200 }} placeholder="🔍 Buscar marca, modelo, serie..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+      </div>
+
+      {/* Lista */}
+      {lista.length === 0
+        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📦</div><div>Sin resultados</div></div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {lista.map(item => {
+            const est = ESTADOS_STOCK[item.estado] || ESTADOS_STOCK.disponible;
+            const pac = item.paciente_id ? pacNombre(item.paciente_id) : null;
+            const activo = verDetalle === item.id;
+            return (
+              <div key={item.id}>
+                <div onClick={() => setVerDetalle(activo ? null : item.id)}
+                  style={{ background: "#fff", border: `1.5px solid ${activo ? "#1a6b6b" : "#E5E7EB"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1, minWidth: 0 }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, background: est.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>👂</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>{item.marca} {item.modelo}</div>
+                      <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {item.numero_serie && <span>Serie: <b>{item.numero_serie}</b></span>}
+                        {item.oido !== "bilateral" && <span>👂 {item.oido}</span>}
+                        {item.color && <span>🎨 {item.color}</span>}
+                        {item.fecha_ingreso && <span>📅 {formatFecha(item.fecha_ingreso)}</span>}
+                      </div>
+                      {pac && <div style={{ fontSize: 12, color: "#4338CA", marginTop: 2 }}>👤 {pac}</div>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                    <span style={{ background: est.bg, color: est.color, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>{est.label}</span>
+                    {item.precio_costo && <span style={{ fontSize: 12, color: "#666" }}>${parseFloat(item.precio_costo).toLocaleString("es-AR")}</span>}
+                    <button onClick={e => { e.stopPropagation(); abrirEditar(item); }} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
+                    <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) eliminar(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                  </div>
+                </div>
+
+                {/* Panel detalle expandido */}
+                {activo && itemDetalle && (
+                  <div style={{ background: "#F8FAFC", border: "1.5px solid #1a6b6b", borderTop: "none", borderRadius: "0 0 12px 12px", padding: "14px 16px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+                      {[
+                        ["Marca", item.marca], ["Modelo", item.modelo],
+                        ["N° de serie", item.numero_serie || "—"],
+                        ["Oído", item.oido], ["Color", item.color || "—"],
+                        ["Estado", est.label],
+                        ["Precio costo", item.precio_costo ? `$${parseFloat(item.precio_costo).toLocaleString("es-AR")}` : "—"],
+                        ["Fecha ingreso", item.fecha_ingreso ? formatFecha(item.fecha_ingreso) : "—"],
+                        ["Cargado por", item.creado_por || "—"],
+                      ].map(([label, val]) => (
+                        <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px 12px" }}>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
+                          <div style={{ fontSize: 13, color: "#1a1a2e", fontWeight: 600 }}>{val}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {/* Paciente asignado */}
+                    {item.paciente_id && (
+                      <div style={{ marginTop: 10, background: "#EEF2FF", borderRadius: 8, padding: "8px 12px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 3 }}>PACIENTE ASIGNADO</div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3730A3" }}>👤 {pacNombre(item.paciente_id)}</div>
+                      </div>
+                    )}
+                    {item.notas && (
+                      <div style={{ marginTop: 8, background: "#fff", borderRadius: 8, padding: "8px 12px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 2 }}>NOTAS</div>
+                        <div style={{ fontSize: 13 }}>{item.notas}</div>
+                      </div>
+                    )}
+                    {/* Cambio rápido de estado */}
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Cambiar estado rápido:</div>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {Object.entries(ESTADOS_STOCK).map(([k, v]) => (
+                          <button key={k} type="button"
+                            onClick={() => actualizar({ ...item, estado: k })}
+                            style={{ background: item.estado === k ? v.color : v.bg, color: item.estado === k ? "#fff" : v.color, border: `1.5px solid ${v.color}`, borderRadius: 8, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                            {v.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Asignar a paciente */}
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
+                      <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""} onChange={async e => { await actualizar({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado }); }}>
+                        <option value="">— Sin asignar —</option>
+                        {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      }
+
+      {/* Modal agregar/editar */}
+      {modal && (
+        <Modal title={modal === "nuevo" ? "Nuevo audífono en stock" : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Marca *"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+            <Field label="Modelo *"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
+            <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} placeholder="Número de serie" /></Field>
+            <Field label="Color"><input style={inputStyle} value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Ej: Beige, Negro..." /></Field>
+            <Field label="Oído">
+              <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
+                <option value="bilateral">Bilateral</option>
+                <option value="derecho">Derecho</option>
+                <option value="izquierdo">Izquierdo</option>
+              </select>
+            </Field>
+            <Field label="Estado">
+              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
+                {Object.entries(ESTADOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Precio costo ($)"><input type="number" style={inputStyle} value={form.precio_costo} onChange={e => setForm(f => ({ ...f, precio_costo: e.target.value }))} /></Field>
+            <Field label="Fecha ingreso"><input type="date" style={inputStyle} value={form.fecha_ingreso} onChange={e => setForm(f => ({ ...f, fecha_ingreso: e.target.value }))} /></Field>
+          </div>
+          <Field label="Asignar a paciente">
+            <select style={selectStyle} value={form.paciente_id || ""} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value || null }))}>
+              <option value="">— Sin asignar —</option>
+              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+            </select>
+          </Field>
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+            <button onClick={() => { setModal(null); setForm(FORM_VACIO); }} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
 function AppInner() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -5317,6 +5564,7 @@ function AppInner() {
     { id: "profesionales",  label: "Profesionales",  icon: "👩‍⚕️" },
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
     { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
+    { id: "stock",          label: "Stock",          icon: "📦" },
   ];
 
   if (loading) return (
@@ -5374,6 +5622,7 @@ function AppInner() {
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
+        {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
       </div>
       <UndoButton db={db} />
     </div>
