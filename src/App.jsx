@@ -5356,19 +5356,30 @@ function UndoButton({ db }) {
     return () => window.removeEventListener("sonara-undo-update", update);
   }, []);
 
-  if (!ultimo) return null;
-
   return (
     <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-      <button onClick={() => db.deshacerUltima()}
-        style={{ background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s" }}
-        onMouseEnter={e => e.currentTarget.style.background = "#1a6b6b"}
-        onMouseLeave={e => e.currentTarget.style.background = "#1a1a2e"}>
+      <button
+        onClick={() => ultimo && db.deshacerUltima()}
+        disabled={!ultimo}
+        style={{
+          background: ultimo ? "#1a1a2e" : "#E5E7EB",
+          color: ultimo ? "#fff" : "#9CA3AF",
+          border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+          cursor: ultimo ? "pointer" : "not-allowed",
+          boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
+          display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
+        }}
+        onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
+        onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
+        title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
+      >
         ↩ Deshacer
       </button>
-      <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
-        {ultimo.descripcion}
-      </div>
+      {ultimo && (
+        <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
+          {ultimo.descripcion}
+        </div>
+      )}
     </div>
   );
 }
