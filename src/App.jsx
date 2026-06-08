@@ -4989,7 +4989,8 @@ function useFechasEspeciales() {
 }
 
 const MESES_NOMBRES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const DIAS_FESTIVOS_PROFESION = [
+// Días predeterminados — solo se usan para inicializar si no hay datos
+const DIAS_FESTIVOS_DEFAULT = [
   { nombre: "Día del Médico / Médica", dia: 3, mes: 12 },
   { nombre: "Día de la Fonoaudiología", dia: 1, mes: 3 },
   { nombre: "Día del Audiólogo", dia: 1, mes: 3 },
@@ -5025,16 +5026,20 @@ function FechasEspeciales({ usuario }) {
     .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || f.nombre.toLowerCase().includes(busqueda.toLowerCase())))
     .sort((a, b) => diasHastaCumple(a.fecha_dia, a.fecha_mes) - diasHastaCumple(b.fecha_dia, b.fecha_mes));
 
-  const diasFestivos = [
-    ...DIAS_FESTIVOS_PROFESION,
-    ...fechas.filter(f => f.tipo === "festivo"),
-  ].sort((a, b) => {
-    const ma = a.mes || a.fecha_mes;
-    const mb = b.mes || b.fecha_mes;
-    const da = a.dia || a.fecha_dia;
-    const db = b.dia || b.fecha_dia;
-    return ma !== mb ? ma - mb : da - db;
-  });
+  // Solo festivos de Supabase (todos editables)
+  const diasFestivos = fechas
+    .filter(f => f.tipo === "festivo")
+    .sort((a, b) => a.fecha_mes !== b.fecha_mes ? a.fecha_mes - b.fecha_mes : a.fecha_dia - b.fecha_dia);
+
+  // Helper to seed default festivos if none exist
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (!seeded && fechas.length === 0) return; // wait for load
+    if (!seeded && diasFestivos.length === 0 && fechas !== null) {
+      setSeeded(true);
+      // Offer to seed defaults
+    }
+  }, [fechas, seeded]);
 
   async function guardar() {
     if (!form.nombre || !form.fecha_dia || !form.fecha_mes) return alert("Completá nombre y fecha.");
@@ -5159,15 +5164,27 @@ function FechasEspeciales({ usuario }) {
             </div>
           )}
 
+          {diasFestivos.length === 0 && (
+            <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}>
+              <div style={{ fontSize: 36 }}>🏥</div>
+              <div style={{ marginBottom: 12 }}>No hay días especiales cargados</div>
+              <button onClick={async () => {
+                for (const f of DIAS_FESTIVOS_DEFAULT) {
+                  await agregar({ tipo: "festivo", nombre: f.nombre, fecha_dia: f.dia, fecha_mes: f.mes, anio: null, descripcion: "", categoria: "profesion", creado_por: usuario?.nombre || "" });
+                }
+              }} style={{ ...btnSecondary, fontSize: 13, background: "#e0f4f4", color: "#1a6b6b" }}>
+                + Cargar días predeterminados de la profesión
+              </button>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {diasFestivos.map((f, i) => {
-              const dia = f.dia || f.fecha_dia;
-              const mes = f.mes || f.fecha_mes;
+            {diasFestivos.map((f) => {
+              const dia = f.fecha_dia;
+              const mes = f.fecha_mes;
               const hoyEs = esHoy(dia, mes);
               const proximo = esPróximo(dia, mes);
-              const esCustom = !!f.id;
               return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: hoyEs ? "#D1FAE5" : proximo ? "#EFF6FF" : "#F8FAFC", border: `1.5px solid ${hoyEs ? "#34D399" : proximo ? "#BFDBFE" : "#E5E7EB"}`, borderRadius: 10, padding: "10px 14px" }}>
+                <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, background: hoyEs ? "#D1FAE5" : proximo ? "#EFF6FF" : "#F8FAFC", border: `1.5px solid ${hoyEs ? "#34D399" : proximo ? "#BFDBFE" : "#E5E7EB"}`, borderRadius: 10, padding: "10px 14px" }}>
                   <div style={{ width: 36, height: 36, borderRadius: "50%", background: hoyEs ? "#34D399" : "#e0f4f4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
                     🏥
                   </div>
@@ -5180,12 +5197,10 @@ function FechasEspeciales({ usuario }) {
                       </div>
                     )}
                   </div>
-                  {esCustom && (
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => abrirEditar(f)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
-                      <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(f.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                    </div>
-                  )}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => abrirEditar(f)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
+                    <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(f.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                  </div>
                 </div>
               );
             })}
