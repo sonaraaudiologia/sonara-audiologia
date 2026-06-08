@@ -429,17 +429,27 @@ function useSupabase() {
     window.__sonaraUndo = undoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
 
-    if (accion.tipo === "eliminar") {
-      const { id, ...resto } = accion.item;
-      await supabase.from(accion.tabla).insert({ ...accion.item });
-      // Reload that table
-      const { data: rows } = await supabase.from(accion.tabla).select("*");
-      if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
-    } else if (accion.tipo === "actualizar") {
-      await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-      setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
+    try {
+      if (accion.tipo === "eliminar") {
+        // Restore deleted item
+        await supabase.from(accion.tabla).insert({ ...accion.item });
+        const { data: rows } = await supabase.from(accion.tabla).select("*");
+        if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
+
+      } else if (accion.tipo === "crear") {
+        // Delete the created item
+        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
+
+      } else if (accion.tipo === "actualizar") {
+        // Restore previous version
+        await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
+      }
+      alert(`↩ Deshecho: ${accion.descripcion}`);
+    } catch(e) {
+      alert("Error al deshacer: " + e.message);
     }
-    alert(`✅ Deshecho: ${accion.descripcion}`);
   }
 
   useEffect(() => {
@@ -576,14 +586,19 @@ function useSupabase() {
     const payload = toDBTurno(turno);
     const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
     if (error) { console.error("Error turno:", error); return; }
-    if (!error) setData(d => ({ ...d, turnos: [...d.turnos, row] }));
+    setData(d => ({ ...d, turnos: [...d.turnos, row] }));
+    if (row) pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
   }, []);
 
   const actualizarTurno = useCallback(async (turno) => {
+    const itemAnterior = data.turnos.find(t => t.id === turno.id);
     const payload = { ...toDBTurno(turno), id: turno.id };
     const { error } = await supabase.from("turnos").update(payload).eq("id", turno.id);
-    if (!error) setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "turnos", item: payload, itemAnterior, descripcion: `Turno ${turno.fecha} ${turno.hora?.slice(0,5)} editado` });
+    }
+  }, [data.turnos]);
 
   const eliminarTurno = useCallback(async (id) => {
     const item = data.turnos.find(t => t.id === id);
@@ -5009,10 +5024,17 @@ function UndoButton({ db }) {
   if (!ultimo) return null;
 
   return (
-    <button onClick={() => db.deshacerUltima()}
-      style={{ position: "fixed", bottom: 20, right: 20, background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(0,0,0,0.3)", zIndex: 9999, display: "flex", alignItems: "center", gap: 8 }}>
-      ↩ Deshacer: {ultimo.descripcion}
-    </button>
+    <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+      <button onClick={() => db.deshacerUltima()}
+        style={{ background: "#1a1a2e", color: "#fff", border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 20px rgba(0,0,0,0.3)", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s" }}
+        onMouseEnter={e => e.currentTarget.style.background = "#1a6b6b"}
+        onMouseLeave={e => e.currentTarget.style.background = "#1a1a2e"}>
+        ↩ Deshacer
+      </button>
+      <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
+        {ultimo.descripcion}
+      </div>
+    </div>
   );
 }
 
