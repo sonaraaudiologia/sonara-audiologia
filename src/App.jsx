@@ -5339,7 +5339,7 @@ function Stock({ data, usuario }) {
 
   const FORM_VACIO = {
     marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
-    estado: "disponible", precio_costo: "", fecha_ingreso: today(),
+    estado: "disponible", fecha_ingreso: today(),
     venta_id: "", paciente_id: "", notas: ""
   };
   const [form, setForm] = useState(FORM_VACIO);
@@ -5356,7 +5356,7 @@ function Stock({ data, usuario }) {
     if (!form.marca || !form.modelo) return alert("Completá marca y modelo.");
     setSaving(true);
     try {
-      const payload = { ...form, precio_costo: parseFloat(form.precio_costo) || null, creado_por: usuario?.nombre || "" };
+      const payload = { ...form, precio_costo: null, creado_por: usuario?.nombre || "" };
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
       setModal(null);
@@ -5428,7 +5428,7 @@ function Stock({ data, usuario }) {
                   </div>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                     <span style={{ background: est.bg, color: est.color, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>{est.label}</span>
-                    {item.precio_costo && <span style={{ fontSize: 12, color: "#666" }}>${parseFloat(item.precio_costo).toLocaleString("es-AR")}</span>}
+
                     <button onClick={e => { e.stopPropagation(); abrirEditar(item); }} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
                     <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) eliminar(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
                   </div>
@@ -5443,7 +5443,7 @@ function Stock({ data, usuario }) {
                         ["N° de serie", item.numero_serie || "—"],
                         ["Oído", item.oido], ["Color", item.color || "—"],
                         ["Estado", est.label],
-                        ["Precio costo", item.precio_costo ? `$${parseFloat(item.precio_costo).toLocaleString("es-AR")}` : "—"],
+
                         ["Fecha ingreso", item.fecha_ingreso ? formatFecha(item.fecha_ingreso) : "—"],
                         ["Cargado por", item.creado_por || "—"],
                       ].map(([label, val]) => (
@@ -5515,7 +5515,7 @@ function Stock({ data, usuario }) {
                 {Object.entries(ESTADOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </Field>
-            <Field label="Precio costo ($)"><input type="number" style={inputStyle} value={form.precio_costo} onChange={e => setForm(f => ({ ...f, precio_costo: e.target.value }))} /></Field>
+
             <Field label="Fecha ingreso"><input type="date" style={inputStyle} value={form.fecha_ingreso} onChange={e => setForm(f => ({ ...f, fecha_ingreso: e.target.value }))} /></Field>
           </div>
           <Field label="Asignar a paciente">
