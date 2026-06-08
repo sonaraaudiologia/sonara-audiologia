@@ -1501,12 +1501,16 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
 
+        const numProfs = filtroProfesional === "todas" ? 2 : 1;
+        const minColW = 90;
+        const totalGridW = 44 + diasSemana.length * numProfs * minColW;
+
         return (
-          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
-            <div style={{ minWidth: 600 }}>
-              {/* Header días sticky */}
+          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflow: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ minWidth: totalGridW }}>
+              {/* Header días sticky top */}
               <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
-                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", gridRow: "span 2" }} />
+                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
                 {diasSemana.map(fecha => {
                   const hoy = fecha === today();
                   const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
@@ -1532,8 +1536,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
               {/* Cuerpo: cada día dividido en 2 sub-columnas */}
               <div style={{ display: "flex" }}>
-                {/* Columna horas */}
-                <ColumnaHoras slotH={SLOT_H_SEM} />
+                {/* Columna horas sticky left */}
+                <div style={{ position: "sticky", left: 0, zIndex: 15, flexShrink: 0, background: "#F8FAFC" }}>
+                  <ColumnaHoras slotH={SLOT_H_SEM} />
+                </div>
 
                 {/* 6 días */}
                 <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
