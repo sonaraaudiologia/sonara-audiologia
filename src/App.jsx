@@ -4916,6 +4916,283 @@ function Disponibilidad({ usuario }) {
 }
 
 
+// ─── FECHAS ESPECIALES ────────────────────────────────────────────────────────
+function useFechasEspeciales() {
+  const [fechas, setFechas] = useState([]);
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-fechas-" + Math.random().toString(36).slice(2,6))
+      .on("postgres_changes", { event: "*", schema: "public", table: "fechas_especiales" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+  async function cargar() {
+    const { data } = await supabase.from("fechas_especiales").select("*").order("fecha_mes").order("fecha_dia");
+    if (data) setFechas(data);
+  }
+  async function agregar(fe) {
+    const { data: row } = await supabase.from("fechas_especiales").insert(fe).select().single();
+    if (row) setFechas(f => [...f, row]);
+  }
+  async function actualizar(fe) {
+    await supabase.from("fechas_especiales").update(fe).eq("id", fe.id);
+    setFechas(f => f.map(x => x.id === fe.id ? fe : x));
+  }
+  async function eliminar(id) {
+    await supabase.from("fechas_especiales").delete().eq("id", id);
+    setFechas(f => f.filter(x => x.id !== id));
+  }
+  return { fechas, agregar, actualizar, eliminar };
+}
+
+const MESES_NOMBRES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const DIAS_FESTIVOS_PROFESION = [
+  { nombre: "Día del Médico / Médica", dia: 3, mes: 12 },
+  { nombre: "Día de la Fonoaudiología", dia: 1, mes: 3 },
+  { nombre: "Día del Audiólogo", dia: 1, mes: 3 },
+  { nombre: "Día Internacional de la Audición", dia: 3, mes: 3 },
+  { nombre: "Día Mundial de la Salud", dia: 7, mes: 4 },
+];
+
+function FechasEspeciales({ usuario }) {
+  const { fechas, agregar, actualizar, eliminar } = useFechasEspeciales();
+  const [tab, setTab] = useState("cumpleanos");
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ tipo: "cumpleaños", nombre: "", fecha_dia: "", fecha_mes: "", anio: "", descripcion: "", categoria: "profesional" });
+  const [editId, setEditId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+
+  const hoy = new Date();
+  const diaHoy = hoy.getDate();
+  const mesHoy = hoy.getMonth() + 1;
+
+  function diasHastaCumple(dia, mes) {
+    const anioActual = hoy.getFullYear();
+    let cumple = new Date(anioActual, mes - 1, dia);
+    if (cumple < hoy) cumple = new Date(anioActual + 1, mes - 1, dia);
+    const diff = Math.ceil((cumple - hoy) / (1000 * 60 * 60 * 24));
+    return diff;
+  }
+
+  function esHoy(dia, mes) { return dia === diaHoy && mes === mesHoy; }
+  function esPróximo(dia, mes) { const d = diasHastaCumple(dia, mes); return d <= 7 && d > 0; }
+
+  const cumpleanos = fechas
+    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || f.nombre.toLowerCase().includes(busqueda.toLowerCase())))
+    .sort((a, b) => diasHastaCumple(a.fecha_dia, a.fecha_mes) - diasHastaCumple(b.fecha_dia, b.fecha_mes));
+
+  const diasFestivos = [
+    ...DIAS_FESTIVOS_PROFESION,
+    ...fechas.filter(f => f.tipo === "festivo"),
+  ].sort((a, b) => {
+    const ma = a.mes || a.fecha_mes;
+    const mb = b.mes || b.fecha_mes;
+    const da = a.dia || a.fecha_dia;
+    const db = b.dia || b.fecha_dia;
+    return ma !== mb ? ma - mb : da - db;
+  });
+
+  async function guardar() {
+    if (!form.nombre || !form.fecha_dia || !form.fecha_mes) return alert("Completá nombre y fecha.");
+    setSaving(true);
+    try {
+      const payload = { ...form, fecha_dia: parseInt(form.fecha_dia), fecha_mes: parseInt(form.fecha_mes), anio: form.anio ? parseInt(form.anio) : null, creado_por: usuario?.nombre || "" };
+      if (editId) { await actualizar({ ...payload, id: editId }); setEditId(null); }
+      else await agregar(payload);
+      setModal(false);
+      setForm({ tipo: "cumpleaños", nombre: "", fecha_dia: "", fecha_mes: "", anio: "", descripcion: "", categoria: "profesional" });
+    } finally { setSaving(false); }
+  }
+
+  function abrirEditar(fe) {
+    setForm({ tipo: fe.tipo, nombre: fe.nombre, fecha_dia: fe.fecha_dia, fecha_mes: fe.fecha_mes, anio: fe.anio || "", descripcion: fe.descripcion || "", categoria: fe.categoria || "profesional" });
+    setEditId(fe.id);
+    setModal(true);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>🎂 Fechas especiales</div>
+        <button onClick={() => { setForm({ tipo: tab === "cumpleanos" ? "cumpleaños" : "festivo", nombre: "", fecha_dia: "", fecha_mes: "", anio: "", descripcion: "", categoria: "profesional" }); setEditId(null); setModal(true); }} style={btnPrimary}>+ Agregar</button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 10, padding: 4, marginBottom: 16, width: "fit-content" }}>
+        {[["cumpleanos","🎂 Cumpleaños"],["festivos","🏥 Días especiales"]].map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)} style={{ background: tab === id ? "#1a6b6b" : "transparent", color: tab === id ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "7px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{label}</button>
+        ))}
+      </div>
+
+      {/* ── CUMPLEAÑOS ── */}
+      {tab === "cumpleanos" && (
+        <div>
+          {/* Alertas hoy */}
+          {cumpleanos.filter(f => esHoy(f.fecha_dia, f.fecha_mes)).length > 0 && (
+            <div style={{ background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", border: "2px solid #FCD34D", borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#92400E", marginBottom: 8 }}>🎉 ¡Hoy es el cumpleaños de!</div>
+              {cumpleanos.filter(f => esHoy(f.fecha_dia, f.fecha_mes)).map(f => (
+                <div key={f.id} style={{ fontWeight: 700, fontSize: 16, color: "#92400E" }}>🎂 {f.nombre}</div>
+              ))}
+            </div>
+          )}
+
+          {/* Próximos 7 días */}
+          {cumpleanos.filter(f => esPróximo(f.fecha_dia, f.fecha_mes)).length > 0 && (
+            <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6 }}>📅 Próximos 7 días</div>
+              {cumpleanos.filter(f => esPróximo(f.fecha_dia, f.fecha_mes)).map(f => (
+                <div key={f.id} style={{ fontSize: 13, color: "#1E40AF", marginBottom: 3 }}>
+                  {f.nombre} — {f.fecha_dia}/{f.fecha_mes} (en {diasHastaCumple(f.fecha_dia, f.fecha_mes)} días)
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input style={{ ...inputStyle, maxWidth: 300, marginBottom: 14 }} placeholder="🔍 Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+
+          {/* Lista por mes */}
+          {MESES_NOMBRES.map((mes, mi) => {
+            const delMes = cumpleanos.filter(f => f.fecha_mes === mi + 1);
+            if (delMes.length === 0) return null;
+            return (
+              <div key={mes} style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, borderBottom: "1px solid #E5E7EB", paddingBottom: 4 }}>{mes}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {delMes.sort((a,b) => a.fecha_dia - b.fecha_dia).map(f => {
+                    const hoyEs = esHoy(f.fecha_dia, f.fecha_mes);
+                    const proximo = esPróximo(f.fecha_dia, f.fecha_mes);
+                    const dias = diasHastaCumple(f.fecha_dia, f.fecha_mes);
+                    const edad = f.anio ? hoy.getFullYear() - f.anio + (mesHoy > f.fecha_mes || (mesHoy === f.fecha_mes && diaHoy >= f.fecha_dia) ? 0 : -1) : null;
+                    return (
+                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 12, background: hoyEs ? "#FEF3C7" : proximo ? "#EFF6FF" : "#F8FAFC", border: `1.5px solid ${hoyEs ? "#FCD34D" : proximo ? "#BFDBFE" : "#E5E7EB"}`, borderRadius: 10, padding: "10px 14px" }}>
+                        <div style={{ width: 40, height: 40, borderRadius: "50%", background: hoyEs ? "#FCD34D" : "#e0f4f4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>
+                          {hoyEs ? "🎉" : "🎂"}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>{f.nombre}</div>
+                          <div style={{ fontSize: 12, color: "#888" }}>
+                            {f.fecha_dia} de {MESES_NOMBRES[f.fecha_mes - 1]}
+                            {edad !== null && ` · cumple ${edad + 1} años`}
+                            {f.descripcion && ` · ${f.descripcion}`}
+                          </div>
+                          <div style={{ fontSize: 11, color: hoyEs ? "#92400E" : proximo ? "#1D4ED8" : "#aaa", fontWeight: 600, marginTop: 2 }}>
+                            {hoyEs ? "¡Hoy!" : proximo ? `En ${dias} días` : `En ${dias} días`}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => abrirEditar(f)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
+                          <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(f.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+
+          {cumpleanos.length === 0 && (
+            <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>
+              <div style={{ fontSize: 40 }}>🎂</div>
+              <div>No hay cumpleaños cargados</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>Agregá los cumpleaños de tus profesionales derivantes</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── DÍAS FESTIVOS ── */}
+      {tab === "festivos" && (
+        <div>
+          {/* Hoy */}
+          {diasFestivos.filter(f => esHoy(f.dia || f.fecha_dia, f.mes || f.fecha_mes)).length > 0 && (
+            <div style={{ background: "linear-gradient(135deg, #D1FAE5, #A7F3D0)", border: "2px solid #34D399", borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#065F46", marginBottom: 4 }}>🏥 ¡Hoy se celebra!</div>
+              {diasFestivos.filter(f => esHoy(f.dia || f.fecha_dia, f.mes || f.fecha_mes)).map((f, i) => (
+                <div key={i} style={{ fontWeight: 700, fontSize: 15, color: "#065F46" }}>{f.nombre}</div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {diasFestivos.map((f, i) => {
+              const dia = f.dia || f.fecha_dia;
+              const mes = f.mes || f.fecha_mes;
+              const hoyEs = esHoy(dia, mes);
+              const proximo = esPróximo(dia, mes);
+              const esCustom = !!f.id;
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, background: hoyEs ? "#D1FAE5" : proximo ? "#EFF6FF" : "#F8FAFC", border: `1.5px solid ${hoyEs ? "#34D399" : proximo ? "#BFDBFE" : "#E5E7EB"}`, borderRadius: 10, padding: "10px 14px" }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: hoyEs ? "#34D399" : "#e0f4f4", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>
+                    🏥
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>{f.nombre}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{dia} de {MESES_NOMBRES[mes - 1]}{f.descripcion ? ` · ${f.descripcion}` : ""}</div>
+                    {(hoyEs || proximo) && (
+                      <div style={{ fontSize: 11, color: hoyEs ? "#065F46" : "#1D4ED8", fontWeight: 600, marginTop: 2 }}>
+                        {hoyEs ? "¡Hoy!" : `En ${diasHastaCumple(dia, mes)} días`}
+                      </div>
+                    )}
+                  </div>
+                  {esCustom && (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => abrirEditar(f)} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
+                      <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(f.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modal agregar/editar */}
+      {modal && (
+        <Modal title={editId ? "Editar fecha" : "Nueva fecha especial"} onClose={() => { setModal(false); setEditId(null); }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["cumpleaños","🎂 Cumpleaños"],["festivo","🏥 Día especial"]].map(([v,l]) => (
+              <button key={v} type="button" onClick={() => setForm(f => ({ ...f, tipo: v }))}
+                style={{ flex: 1, background: form.tipo === v ? "#1a6b6b" : "#F3F4F6", color: form.tipo === v ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
+          <Field label="Nombre *"><input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder={form.tipo === "cumpleaños" ? "Ej: Dr. García" : "Ej: Día del Fonoaudiólogo"} /></Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <Field label="Día *"><input type="number" min="1" max="31" style={inputStyle} value={form.fecha_dia} onChange={e => setForm(f => ({ ...f, fecha_dia: e.target.value }))} /></Field>
+            <Field label="Mes *">
+              <select style={selectStyle} value={form.fecha_mes} onChange={e => setForm(f => ({ ...f, fecha_mes: e.target.value }))}>
+                <option value="">— Mes —</option>
+                {MESES_NOMBRES.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
+              </select>
+            </Field>
+            {form.tipo === "cumpleaños" && (
+              <Field label="Año nac."><input type="number" min="1920" max="2010" style={inputStyle} value={form.anio} onChange={e => setForm(f => ({ ...f, anio: e.target.value }))} placeholder="Opcional" /></Field>
+            )}
+          </div>
+          {form.tipo === "cumpleaños" && (
+            <Field label="Categoría">
+              <select style={selectStyle} value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>
+                <option value="profesional">Profesional derivante</option>
+                <option value="paciente">Paciente</option>
+                <option value="otro">Otro</option>
+              </select>
+            </Field>
+          )}
+          <Field label="Descripción / Nota"><input style={inputStyle} value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Opcional" /></Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+            <button onClick={() => { setModal(false); setEditId(null); }} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
 function AppInner() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -4943,6 +5220,7 @@ function AppInner() {
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
     { id: "profesionales",  label: "Profesionales",  icon: "👩‍⚕️" },
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
+    { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
   ];
 
   if (loading) return (
@@ -4999,6 +5277,7 @@ function AppInner() {
         {tab === "estadisticas"  && <Estadisticas data={data} />}
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
+        {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
       </div>
     </div>
   );
