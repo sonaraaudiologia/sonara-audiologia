@@ -1019,10 +1019,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   }
 
   function entradasDia(fecha) {
-    const turnos = data.turnos.filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")));
+    const turnos = data.turnos.filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado"));
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     const todas = [
-      ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
+      ...turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" })),
       ...recs.map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" })),
     ];
     if (filtroProfesional !== "todas") {
@@ -1457,13 +1457,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entsProfFecha(profKey, fecha) {
           const turnos = data.turnos
-            .filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
+            .filter(t => t.fecha === fecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado"))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
             });
           // No incluir recordatorios en la grilla — se muestran al pie
-          return turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" }));
+          return turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" }));
         }
 
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
@@ -1593,7 +1593,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         function entradasProf(profKey) {
           const turnos = data.turnos
-            .filter(t => t.fecha === filtroFecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO")))
+            .filter(t => t.fecha === filtroFecha && (mostrarCancelados || !ESTADOS_OCULTOS.includes(t.estado) || (t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado"))
             .filter(t => {
               if ((t.motivo||"").includes("BLOQUEADO")) return t.profesional === profKey;
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
@@ -1602,7 +1602,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             .filter(r => r.fecha === filtroFecha && !r.completado)
             .filter(r => !r.profesional || r.profesional === profKey);
           return [
-            ...turnos.map(t => ({ ...t, _kind: (t.motivo||"").includes("BLOQUEADO") ? "bloqueo" : "turno" })),
+            ...turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" })),
             ...recs.map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" })),
           ];
         }
