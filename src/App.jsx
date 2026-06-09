@@ -5816,7 +5816,7 @@ function AppInner() {
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
     { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
     { id: "stock",          label: "Stock",          icon: "📦" },
-    { id: "auditoria",      label: "Auditoría",      icon: "🔍" },
+    ...(usuarioActual?.rol === "profesional" ? [{ id: "auditoria", label: "Auditoría", icon: "🔍" }] : []),
   ];
 
   if (loading) return (
@@ -5875,7 +5875,7 @@ function AppInner() {
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
         {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
-        {tab === "auditoria"      && <Auditoria db={db} />}
+        {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
       </div>
       <UndoButton db={db} />
     </div>
