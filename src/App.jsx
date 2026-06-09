@@ -4290,11 +4290,87 @@ function Profesionales({ data }) {
     "Otro": { bg: "#F3F4F6", c: "#374151" },
   };
 
+  // Stats globales
+  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").trim() !== "").length;
+  const hoy = new Date();
+  const mesActivo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,"0")}`;
+  const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  // Visitas del mes = entradas de seguimiento tipo Visita o Reunión en el mes actual
+  const visitasMes = profesionales.reduce((acc, p) => {
+    const segs = (p.seguimiento || []).filter(s =>
+      (s.tipo === "Visita" || s.tipo === "Reunión") &&
+      s.fecha && s.fecha.startsWith(mesActivo)
+    );
+    return acc + segs.length;
+  }, 0);
+
+  const [objetivoVisitas, setObjetivoVisitas] = useState(4);
+  const [editandoObjetivoV, setEditandoObjetivoV] = useState(false);
+  const [nuevoObjetivoV, setNuevoObjetivoV] = useState(4);
+
+  // Load objetivo from supabase auditoria
+  useEffect(() => {
+    supabase.from("auditoria").select("datos_nuevos")
+      .eq("tabla", "objetivo_visitas").order("created_at", { ascending: false }).limit(1)
+      .then(({ data: rows }) => {
+        if (rows && rows[0]?.datos_nuevos?.objetivo) setObjetivoVisitas(rows[0].datos_nuevos.objetivo);
+      });
+  }, []);
+
+  const pctVisitas = Math.min(100, Math.round((visitasMes / objetivoVisitas) * 100));
+  const colorV = pctVisitas >= 100 ? "#065F46" : pctVisitas >= 60 ? "#1a6b6b" : pctVisitas >= 30 ? "#92400E" : "#991B1B";
+  const bgV = pctVisitas >= 100 ? "#D1FAE5" : pctVisitas >= 60 ? "#e0f4f4" : pctVisitas >= 30 ? "#FEF3C7" : "#FEE2E2";
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>🏥 Profesionales externos</div>
         <button onClick={abrirNuevo} style={btnPrimary}>+ Nuevo profesional</button>
+      </div>
+
+      {/* Stats resumen */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
+        <div style={{ background: "#EEF2FF", border: "1.5px solid #C7D2FE", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#4338CA" }}>{profesionales.length}</div>
+          <div style={{ fontSize: 12, color: "#4338CA", fontWeight: 600 }}>🏥 Profesionales externos</div>
+        </div>
+        <div style={{ background: "#D1FAE5", border: "1.5px solid #A7F3D0", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: "#065F46" }}>{totalDerivaciones}</div>
+          <div style={{ fontSize: 12, color: "#065F46", fontWeight: 600 }}>👥 Total derivaciones</div>
+        </div>
+        <div style={{ background: bgV, border: `1.5px solid ${colorV}44`, borderRadius: 12, padding: "12px 14px", position: "relative" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: colorV }}>🤝 Visitas {MESES_N[hoy.getMonth()]}</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: colorV }}>{visitasMes} / {objetivoVisitas}</div>
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: colorV }}>{pctVisitas}%</div>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.5)", borderRadius: 20, height: 8, overflow: "hidden", marginBottom: 4 }}>
+            <div style={{ height: "100%", width: `${pctVisitas}%`, background: colorV, borderRadius: 20, transition: "width 0.4s" }} />
+          </div>
+          {pctVisitas >= 100
+            ? <div style={{ fontSize: 10, color: colorV, fontWeight: 700 }}>🎉 ¡Objetivo alcanzado!</div>
+            : <div style={{ fontSize: 10, color: "#666" }}>Faltan {objetivoVisitas - visitasMes} visitas</div>
+          }
+          {/* Botón cambiar objetivo */}
+          {editandoObjetivoV ? (
+            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6 }}>
+              <input type="number" min="1" max="50" value={nuevoObjetivoV} onChange={e => setNuevoObjetivoV(parseInt(e.target.value)||1)}
+                style={{ ...inputStyle, width: 50, padding: "3px 6px", fontSize: 12 }} />
+              <button onClick={async () => {
+                setObjetivoVisitas(nuevoObjetivoV);
+                await supabase.from("auditoria").insert({ usuario: window.__sonaraUsuario || "Sistema", accion: "CONFIG", tabla: "objetivo_visitas", descripcion: `Objetivo visitas actualizado a ${nuevoObjetivoV}`, datos_nuevos: { objetivo: nuevoObjetivoV } });
+                setEditandoObjetivoV(false);
+              }} style={{ ...btnPrimary, padding: "3px 8px", fontSize: 11 }}>✓</button>
+              <button onClick={() => setEditandoObjetivoV(false)} style={{ ...btnSecondary, padding: "3px 6px", fontSize: 11 }}>✕</button>
+            </div>
+          ) : (
+            <button onClick={() => { setNuevoObjetivoV(objetivoVisitas); setEditandoObjetivoV(true); }}
+              style={{ background: "rgba(255,255,255,0.7)", border: "none", borderRadius: 5, padding: "2px 7px", fontSize: 10, cursor: "pointer", color: "#555", marginTop: 4 }}>✎ Cambiar objetivo</button>
+          )}
+        </div>
       </div>
 
       <input style={{ ...inputStyle, maxWidth: 320, marginBottom: 16 }} placeholder="Buscar por nombre, especialidad..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
