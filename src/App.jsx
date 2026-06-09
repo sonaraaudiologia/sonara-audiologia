@@ -561,7 +561,10 @@ function useSupabase() {
     const { error } = await supabase.from("pacientes").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
-      if (item) pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "pacientes", `Paciente ${item.apellido}, ${item.nombre} — DNI: ${item.dni || "—"}`, item, null);
+      }
     }
   }, [data.pacientes]);
 
@@ -587,7 +590,10 @@ function useSupabase() {
     const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
     if (error) { console.error("Error turno:", error); return; }
     setData(d => ({ ...d, turnos: [...d.turnos, row] }));
-    if (row) pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
+    if (row) {
+      pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "turnos", `Turno del ${row.fecha} ${row.hora?.slice(0,5)} — ${row.motivo || "Sin motivo"}`, null, row);
+    }
   }, []);
 
   const actualizarTurno = useCallback(async (turno) => {
@@ -600,12 +606,15 @@ function useSupabase() {
     }
   }, [data.turnos]);
 
-  const eliminarTurno = useCallback(async (id) => {
+  const eliminarTurno = useCallback(async (id, usuario) => {
     const item = data.turnos.find(t => t.id === id);
     const { error } = await supabase.from("turnos").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
-      if (item) pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "turnos", `Turno del ${item.fecha} ${item.hora?.slice(0,5)} — ${item.motivo || "Sin motivo"}`, item, null);
+      }
     }
   }, [data.turnos]);
 
@@ -671,7 +680,10 @@ function useSupabase() {
     const { error } = await supabase.from("ventas").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
-      if (item) pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "ventas", `Venta ${item.fecha} — ${item.marca_der || item.dispositivo || ""} $${item.precio || 0}`, item, null);
+      }
     }
   }, [data.ventas]);
 
@@ -735,7 +747,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima, logAuditoria,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -5312,7 +5324,7 @@ function useStock() {
   }
   async function actualizar(item) {
     await supabase.from("stock").update(item).eq("id", item.id);
-    setItems(s => s.map(x => x.id === item.id ? item : x));
+    setItems(s => s.map(x => x.id === item.id ? { ...x, ...item } : x));
   }
   async function eliminar(id) {
     await supabase.from("stock").delete().eq("id", id);
@@ -5322,12 +5334,84 @@ function useStock() {
 }
 
 const ESTADOS_STOCK = {
-  disponible:  { label: "Disponible",   bg: "#D1FAE5", color: "#065F46" },
-  reservado:   { label: "Reservado",    bg: "#FEF3C7", color: "#92400E" },
-  vendido:     { label: "Vendido",      bg: "#DBEAFE", color: "#1E40AF" },
-  devuelto:    { label: "Devuelto",     bg: "#EDE9FE", color: "#5B21B6" },
-  reparacion:  { label: "En reparación",bg: "#FEE2E2", color: "#991B1B" },
+  disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
+  reservado:   { label: "Reservado",     bg: "#FEF3C7", color: "#92400E" },
+  vendido:     { label: "Vendido",       bg: "#DBEAFE", color: "#1E40AF" },
+  devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
+  reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
 };
+
+function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
+  const [abierto, setAbierto] = useState(false);
+  const est = ESTADOS_STOCK[item.estado] || ESTADOS_STOCK.disponible;
+  const pac = item.paciente_id ? pacientes.find(p => p.id === item.paciente_id) : null;
+  const pacNombre = pac ? `${pac.apellido}, ${pac.nombre}` : null;
+
+  return (
+    <div style={{ borderBottom: "1px solid #F3F4F6" }}>
+      <div onClick={() => setAbierto(a => !a)}
+        style={{ background: "#fff", padding: "10px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: "#555", display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {item.numero_serie && <span>Serie: <b>{item.numero_serie}</b></span>}
+            {item.oido && item.oido !== "bilateral" && <span>👂 {item.oido}</span>}
+            {item.color && <span>🎨 {item.color}</span>}
+            {item.fecha_ingreso && <span>📅 {formatFecha(item.fecha_ingreso)}</span>}
+          </div>
+          {pacNombre && <div style={{ fontSize: 12, color: "#4338CA", marginTop: 2 }}>👤 {pacNombre}</div>}
+          {item.notas && <div style={{ fontSize: 11, color: "#aaa", marginTop: 1 }}>{item.notas}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <span style={{ background: est.bg, color: est.color, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{est.label}</span>
+          <button onClick={e => { e.stopPropagation(); onEdit(item); }} style={{ ...btnSecondary, padding: "3px 8px", fontSize: 11 }}>✎</button>
+          <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) onDelete(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>✕</button>
+        </div>
+      </div>
+      {abierto && (
+        <div style={{ background: "#F8FAFC", borderTop: "1px solid #E5E7EB", padding: "12px 16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginBottom: 10 }}>
+            {[
+              ["Modelo", item.modelo], ["Marca", item.marca || "—"],
+              ["N° de serie", item.numero_serie || "—"],
+              ["Oído", item.oido], ["Color", item.color || "—"],
+              ["Fecha ingreso", item.fecha_ingreso ? formatFecha(item.fecha_ingreso) : "—"],
+            ].map(([label, val]) => val && val !== "—" ? (
+              <div key={label} style={{ background: "#fff", borderRadius: 6, padding: "6px 10px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase" }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{val}</div>
+              </div>
+            ) : null)}
+          </div>
+          {pacNombre && (
+            <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#4338CA", marginBottom: 2 }}>PACIENTE ASIGNADO</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#3730A3" }}>👤 {pacNombre}</div>
+            </div>
+          )}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Cambiar estado:</div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {Object.entries(ESTADOS_STOCK).map(([k, v]) => (
+                <button key={k} type="button" onClick={() => onUpdate({ ...item, estado: k })}
+                  style={{ background: item.estado === k ? v.color : v.bg, color: item.estado === k ? "#fff" : v.color, border: `1.5px solid ${v.color}`, borderRadius: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
+            <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""}
+              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado })}>
+              <option value="">— Sin asignar —</option>
+              {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Stock({ data, usuario }) {
   const { items, loading, agregar, actualizar, eliminar } = useStock();
@@ -5335,12 +5419,10 @@ function Stock({ data, usuario }) {
   const [filtroEstado, setFiltroEstado] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [saving, setSaving] = useState(false);
-  const [verDetalle, setVerDetalle] = useState(null);
 
   const FORM_VACIO = {
     marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
-    estado: "disponible", fecha_ingreso: today(),
-    venta_id: "", paciente_id: "", notas: ""
+    estado: "disponible", fecha_ingreso: today(), paciente_id: "", notas: ""
   };
   const [form, setForm] = useState(FORM_VACIO);
 
@@ -5350,13 +5432,21 @@ function Stock({ data, usuario }) {
     return matchEstado && matchBusq;
   });
 
+  // Group by modelo
+  const grupos = {};
+  lista.forEach(item => {
+    const key = `${item.marca ? item.marca + " " : ""}${item.modelo}`.trim() || "Sin modelo";
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(item);
+  });
+
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
   async function guardar() {
-    if (!form.marca || !form.modelo) return alert("Completá marca y modelo.");
+    if (!form.marca && !form.modelo) return alert("Completá al menos el modelo.");
     setSaving(true);
     try {
-      const payload = { ...form, precio_costo: null, creado_por: usuario?.nombre || "" };
+      const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
       setModal(null);
@@ -5365,12 +5455,9 @@ function Stock({ data, usuario }) {
   }
 
   function abrirEditar(item) {
-    setForm({ ...FORM_VACIO, ...item, precio_costo: item.precio_costo || "" });
+    setForm({ ...FORM_VACIO, ...item });
     setModal(item.id);
   }
-
-  const itemDetalle = verDetalle ? items.find(i => i.id === verDetalle) : null;
-  const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : null; };
 
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>⏳ Cargando...</div>;
 
@@ -5382,7 +5469,7 @@ function Stock({ data, usuario }) {
       </div>
 
       {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 8, marginBottom: 16 }}>
         {Object.entries(ESTADOS_STOCK).map(([k, v]) => (
           <div key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
             style={{ background: filtroEstado === k ? v.bg : "#F8FAFC", border: `1.5px solid ${filtroEstado === k ? v.color : "#E5E7EB"}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer", textAlign: "center" }}>
@@ -5396,113 +5483,48 @@ function Stock({ data, usuario }) {
         </div>
       </div>
 
-      {/* Buscador + filtros */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
-        <input style={{ ...inputStyle, flex: 1, minWidth: 200 }} placeholder="🔍 Buscar marca, modelo, serie..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
-      </div>
+      {/* Buscador */}
+      <input style={{ ...inputStyle, maxWidth: 400, marginBottom: 14 }} placeholder="🔍 Buscar marca, modelo, serie..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
 
-      {/* Lista */}
+      {/* Lista agrupada por modelo */}
       {lista.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📦</div><div>Sin resultados</div></div>
-        : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {lista.map(item => {
-            const est = ESTADOS_STOCK[item.estado] || ESTADOS_STOCK.disponible;
-            const pac = item.paciente_id ? pacNombre(item.paciente_id) : null;
-            const activo = verDetalle === item.id;
-            return (
-              <div key={item.id}>
-                <div onClick={() => setVerDetalle(activo ? null : item.id)}
-                  style={{ background: "#fff", border: `1.5px solid ${activo ? "#1a6b6b" : "#E5E7EB"}`, borderRadius: 12, padding: "12px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                  <div style={{ display: "flex", gap: 14, alignItems: "center", flex: 1, minWidth: 0 }}>
-                    <div style={{ width: 42, height: 42, borderRadius: 10, background: est.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>👂</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{item.marca} {item.modelo}</div>
-                      <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        {item.numero_serie && <span>Serie: <b>{item.numero_serie}</b></span>}
-                        {item.oido !== "bilateral" && <span>👂 {item.oido}</span>}
-                        {item.color && <span>🎨 {item.color}</span>}
-                        {item.fecha_ingreso && <span>📅 {formatFecha(item.fecha_ingreso)}</span>}
-                      </div>
-                      {pac && <div style={{ fontSize: 12, color: "#4338CA", marginTop: 2 }}>👤 {pac}</div>}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                    <span style={{ background: est.bg, color: est.color, borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700 }}>{est.label}</span>
-
-                    <button onClick={e => { e.stopPropagation(); abrirEditar(item); }} style={{ ...btnSecondary, padding: "4px 10px", fontSize: 12 }}>✎</button>
-                    <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) eliminar(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {Object.entries(grupos).map(([modelo, modeloItems]) => (
+            <div key={modelo} style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
+              <div style={{ background: "#F8FAFC", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #E5E7EB" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>👂</span>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{modelo}</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>{modeloItems.length} unidad{modeloItems.length !== 1 ? "es" : ""}</div>
                   </div>
                 </div>
-
-                {/* Panel detalle expandido */}
-                {activo && itemDetalle && (
-                  <div style={{ background: "#F8FAFC", border: "1.5px solid #1a6b6b", borderTop: "none", borderRadius: "0 0 12px 12px", padding: "14px 16px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
-                      {[
-                        ["Marca", item.marca], ["Modelo", item.modelo],
-                        ["N° de serie", item.numero_serie || "—"],
-                        ["Oído", item.oido], ["Color", item.color || "—"],
-                        ["Estado", est.label],
-
-                        ["Fecha ingreso", item.fecha_ingreso ? formatFecha(item.fecha_ingreso) : "—"],
-                        ["Cargado por", item.creado_por || "—"],
-                      ].map(([label, val]) => (
-                        <div key={label} style={{ background: "#fff", borderRadius: 8, padding: "8px 12px" }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
-                          <div style={{ fontSize: 13, color: "#1a1a2e", fontWeight: 600 }}>{val}</div>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Paciente asignado */}
-                    {item.paciente_id && (
-                      <div style={{ marginTop: 10, background: "#EEF2FF", borderRadius: 8, padding: "8px 12px" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 3 }}>PACIENTE ASIGNADO</div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: "#3730A3" }}>👤 {pacNombre(item.paciente_id)}</div>
-                      </div>
-                    )}
-                    {item.notas && (
-                      <div style={{ marginTop: 8, background: "#fff", borderRadius: 8, padding: "8px 12px" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 2 }}>NOTAS</div>
-                        <div style={{ fontSize: 13 }}>{item.notas}</div>
-                      </div>
-                    )}
-                    {/* Cambio rápido de estado */}
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Cambiar estado rápido:</div>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {Object.entries(ESTADOS_STOCK).map(([k, v]) => (
-                          <button key={k} type="button"
-                            onClick={() => actualizar({ ...item, estado: k })}
-                            style={{ background: item.estado === k ? v.color : v.bg, color: item.estado === k ? "#fff" : v.color, border: `1.5px solid ${v.color}`, borderRadius: 8, padding: "4px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                            {v.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Asignar a paciente */}
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
-                      <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""} onChange={async e => { await actualizar({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado }); }}>
-                        <option value="">— Sin asignar —</option>
-                        {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                  {Object.entries(ESTADOS_STOCK).map(([k, v]) => {
+                    const c = modeloItems.filter(i => i.estado === k).length;
+                    if (!c) return null;
+                    return <span key={k} style={{ background: v.bg, color: v.color, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>{c} {v.label}</span>;
+                  })}
+                </div>
               </div>
-            );
-          })}
+              {modeloItems.map(item => (
+                <StockItem key={item.id} item={item} pacientes={data.pacientes}
+                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizar} />
+              ))}
+            </div>
+          ))}
         </div>
       }
 
-      {/* Modal agregar/editar */}
+      {/* Modal */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nuevo audífono en stock" : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Marca *"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+            <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
             <Field label="Modelo *"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
-            <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} placeholder="Número de serie" /></Field>
-            <Field label="Color"><input style={inputStyle} value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Ej: Beige, Negro..." /></Field>
+            <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} /></Field>
+            <Field label="Color"><input style={inputStyle} value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Ej: Beige..." /></Field>
             <Field label="Oído">
               <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
                 <option value="bilateral">Bilateral</option>
@@ -5515,7 +5537,6 @@ function Stock({ data, usuario }) {
                 {Object.entries(ESTADOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
               </select>
             </Field>
-
             <Field label="Fecha ingreso"><input type="date" style={inputStyle} value={form.fecha_ingreso} onChange={e => setForm(f => ({ ...f, fecha_ingreso: e.target.value }))} /></Field>
           </div>
           <Field label="Asignar a paciente">
@@ -5524,7 +5545,7 @@ function Stock({ data, usuario }) {
               {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
             </select>
           </Field>
-          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button onClick={() => { setModal(null); setForm(FORM_VACIO); }} style={btnSecondary}>Cancelar</button>
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
@@ -5536,6 +5557,144 @@ function Stock({ data, usuario }) {
 }
 
 
+
+
+// ─── AUDITORIA ────────────────────────────────────────────────────────────────
+function Auditoria({ db }) {
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtroUsuario, setFiltroUsuario] = useState("");
+  const [filtroAccion, setFiltroAccion] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [verDatos, setVerDatos] = useState(null);
+
+  useEffect(() => {
+    cargar();
+  }, []);
+
+  async function cargar() {
+    setLoading(true);
+    const { data } = await supabase.from("auditoria")
+      .select("*").order("created_at", { ascending: false }).limit(500);
+    if (data) setLogs(data);
+    setLoading(false);
+  }
+
+  const usuarios = [...new Set(logs.map(l => l.usuario))].filter(Boolean);
+  const acciones = ["CREAR", "EDITAR", "ELIMINAR"];
+
+  const lista = logs.filter(l => {
+    const mu = !filtroUsuario || l.usuario === filtroUsuario;
+    const ma = !filtroAccion || l.accion === filtroAccion;
+    const mb = !busqueda || l.descripcion.toLowerCase().includes(busqueda.toLowerCase()) || l.usuario.toLowerCase().includes(busqueda.toLowerCase());
+    return mu && ma && mb;
+  });
+
+  const colores = {
+    CREAR:   { bg: "#D1FAE5", color: "#065F46", icon: "➕" },
+    EDITAR:  { bg: "#DBEAFE", color: "#1E40AF", icon: "✏️" },
+    ELIMINAR:{ bg: "#FEE2E2", color: "#991B1B", icon: "🗑️" },
+  };
+
+  function formatDateTime(dt) {
+    if (!dt) return "—";
+    const d = new Date(dt);
+    return `${d.toLocaleDateString("es-AR")} ${d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>🔍 Auditoría de acciones</div>
+        <button onClick={cargar} style={{ ...btnSecondary, fontSize: 12 }}>↺ Actualizar</button>
+      </div>
+
+      {/* Filtros */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <input style={{ ...inputStyle, minWidth: 200, flex: 1 }} placeholder="🔍 Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+        <select style={{ ...selectStyle, minWidth: 150 }} value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)}>
+          <option value="">Todos los usuarios</option>
+          {usuarios.map(u => <option key={u} value={u}>{u}</option>)}
+        </select>
+        <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
+          <button onClick={() => setFiltroAccion("")} style={{ background: !filtroAccion ? "#1a6b6b" : "transparent", color: !filtroAccion ? "#fff" : "#555", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Todas</button>
+          {acciones.map(a => (
+            <button key={a} onClick={() => setFiltroAccion(filtroAccion === a ? "" : a)}
+              style={{ background: filtroAccion === a ? colores[a]?.color : "transparent", color: filtroAccion === a ? "#fff" : "#555", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+              {colores[a]?.icon} {a}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats rápidas */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+        {acciones.map(a => {
+          const c = colores[a];
+          const n = logs.filter(l => l.accion === a).length;
+          return (
+            <div key={a} style={{ background: c.bg, border: `1.5px solid ${c.color}33`, borderRadius: 10, padding: "8px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: c.color }}>{n}</div>
+              <div style={{ fontSize: 11, color: c.color, fontWeight: 600 }}>{c.icon} {a}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {loading
+        ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}>⏳ Cargando...</div>
+        : lista.length === 0
+        ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}>Sin registros</div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {lista.map(log => {
+            const c = colores[log.accion] || { bg: "#F3F4F6", color: "#374151", icon: "•" };
+            return (
+              <div key={log.id} style={{ background: "#fff", border: `1.5px solid ${c.color}22`, borderRadius: 10, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: c.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>{c.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, flexWrap: "wrap" }}>
+                    <div>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: c.color }}>{log.accion}</span>
+                      <span style={{ fontSize: 12, color: "#888", marginLeft: 8 }}>en {log.tabla}</span>
+                    </div>
+                    <span style={{ fontSize: 11, color: "#aaa", whiteSpace: "nowrap" }}>{formatDateTime(log.created_at)}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#374151", marginTop: 2 }}>{log.descripcion}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
+                    <span style={{ fontSize: 11, background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 8px", fontWeight: 700 }}>👤 {log.usuario}</span>
+                    {(log.datos_anteriores || log.datos_nuevos) && (
+                      <button onClick={() => setVerDatos(verDatos === log.id ? null : log.id)}
+                        style={{ background: "none", border: "none", color: "#1a6b6b", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                        {verDatos === log.id ? "▲ Ocultar datos" : "▼ Ver datos"}
+                      </button>
+                    )}
+                  </div>
+                  {verDatos === log.id && (
+                    <div style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      {log.datos_anteriores && (
+                        <div style={{ background: "#FEF2F2", borderRadius: 6, padding: "6px 8px", fontSize: 10 }}>
+                          <div style={{ fontWeight: 700, color: "#991B1B", marginBottom: 4 }}>Antes</div>
+                          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#7F1D1D" }}>{JSON.stringify(log.datos_anteriores, null, 2).slice(0, 400)}</pre>
+                        </div>
+                      )}
+                      {log.datos_nuevos && (
+                        <div style={{ background: "#F0FDF4", borderRadius: 6, padding: "6px 8px", fontSize: 10 }}>
+                          <div style={{ fontWeight: 700, color: "#065F46", marginBottom: 4 }}>Después</div>
+                          <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", color: "#064E3B" }}>{JSON.stringify(log.datos_nuevos, null, 2).slice(0, 400)}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+    </div>
+  );
+}
+
 function AppInner() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -5546,8 +5705,9 @@ function AppInner() {
   const db = useSupabase();
   const { data, loading, error } = db;
 
-  if (!autenticado || !usuarioActual) return <LoginScreen onLogin={u => { setAutenticado(true); setUsuarioActual(u); }} />;
+  if (!autenticado || !usuarioActual) return <LoginScreen onLogin={u => { setAutenticado(true); setUsuarioActual(u); window.__sonaraUsuario = u?.nombre || u?.usuario || ""; }} />;
   // expose db for UndoButton
+  window.__sonaraUsuario = usuarioActual?.nombre || usuarioActual?.usuario || "";
 
   const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < today()).length;
   const turnosHoy = data.turnos.filter(t => t.fecha === today()).length;
@@ -5565,6 +5725,7 @@ function AppInner() {
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
     { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
     { id: "stock",          label: "Stock",          icon: "📦" },
+    { id: "auditoria",      label: "Auditoría",      icon: "🔍" },
   ];
 
   if (loading) return (
@@ -5623,6 +5784,7 @@ function AppInner() {
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
         {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
+        {tab === "auditoria"      && <Auditoria db={db} />}
       </div>
       <UndoButton db={db} />
     </div>
