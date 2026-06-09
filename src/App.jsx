@@ -2261,6 +2261,10 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
 
+  // Venta state
+  const [ventaModal, setVentaModal] = useState(false);
+  const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion", observaciones: "" });
+
   // Datos state
   const [editando, setEditando] = useState(false);
   const [form, setForm] = useState({});
@@ -2494,7 +2498,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           {tab === "ventas" && (
             <div>
               <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                <button onClick={() => window.alert("Usá la solapa Ventas para cargar un nuevo presupuesto para este paciente.")} style={btnPrimary}>+ Nueva venta</button>
+                <button onClick={() => setVentaModal(true)} style={btnPrimary}>+ Nueva venta</button>
               </div>
               {ventasPac.length === 0
                 ? <div style={{ textAlign: "center", color: "#aaa", padding: 30 }}>Sin ventas registradas</div>
@@ -2526,6 +2530,71 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                   })}
                 </div>
               }
+            </div>
+          )}
+
+          {/* ── MODAL NUEVA VENTA DESDE FICHA ── */}
+          {ventaModal && (
+            <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+              <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 560, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1.5px solid #F0F0F0", position: "sticky", top: 0, background: "#fff", zIndex: 10 }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>🛒 Nueva venta / selección</h3>
+                  <button onClick={() => setVentaModal(false)} style={{ background: "#F3F4F6", border: "none", borderRadius: 8, width: 30, height: 30, fontSize: 16, cursor: "pointer" }}>×</button>
+                </div>
+                <div style={{ padding: "16px 20px" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <Field label="Fecha"><input type="date" style={inputStyle} value={ventaForm.fecha} onChange={e => setVentaForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                    <Field label="Estado">
+                      <select style={selectStyle} value={ventaForm.estado} onChange={e => setVentaForm(f => ({ ...f, estado: e.target.value }))}>
+                        {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+                    <Field label="Marca"><input style={inputStyle} value={ventaForm.marca_der} onChange={e => setVentaForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
+                    <Field label="Modelo"><input style={inputStyle} value={ventaForm.modelo_der} onChange={e => setVentaForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído izquierdo</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
+                    <Field label="Marca"><input style={inputStyle} value={ventaForm.marca_izq} onChange={e => setVentaForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
+                    <Field label="Modelo"><input style={inputStyle} value={ventaForm.modelo_izq} onChange={e => setVentaForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
+                  </div>
+                  <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
+                  <Field label="Precio total ($)"><input type="number" style={inputStyle} value={ventaForm.precio} onChange={e => setVentaForm(f => ({ ...f, precio: e.target.value }))} /></Field>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={ventaForm.obraSocialCubre} onChange={e => setVentaForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
+                    <Field label="Condición OS">
+                      <select style={selectStyle} value={ventaForm.condicion_pago_os} onChange={e => setVentaForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
+                        <option value="">—</option>
+                        {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Saldo paciente ($)"><input type="number" style={inputStyle} value={ventaForm.saldoPaciente} onChange={e => setVentaForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
+                    <Field label="Condición paciente">
+                      <select style={selectStyle} value={ventaForm.condicion_pago_paciente} onChange={e => setVentaForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
+                        <option value="">—</option>
+                        {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </Field>
+                  </div>
+                  <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={ventaForm.observaciones} onChange={e => setVentaForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12 }}>
+                    <button onClick={() => setVentaModal(false)} style={btnSecondary}>Cancelar</button>
+                    <button onClick={async () => {
+                      setSaving(true);
+                      try {
+                        await db.agregarVenta({ ...ventaForm, paciente_id: pacienteId });
+                        setVentaModal(false);
+                        setVentaForm({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion", observaciones: "" });
+                      } finally { setSaving(false); }
+                    }} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)" }}>
+                      {saving ? "Guardando..." : "🛒 Guardar venta"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
