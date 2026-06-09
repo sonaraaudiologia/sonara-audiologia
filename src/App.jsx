@@ -362,6 +362,510 @@ function calcularHoraFin(horaInicio, motivo) {
   return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
+
+const PRACTICAS_LISTA = [
+  "Audiometría",
+  "Audiometría y logoaudiometría",
+  "Audiometría por juego",
+  "Calibración de audífono",
+  "Calibración de IC",
+  "Encendido de IC",
+  "Rendimiento de IC",
+  "Rendimiento de OTA",
+  "Toma de impresión para molde",
+  "Retira molde",
+  "Selección de audífonos",
+  "Entrega de audífonos",
+  "Asesoramiento comercial",
+  "Control",
+  "Reparación",
+  "Cambio de spaguetti",
+  "Reunión con profesional / Visita",
+  "Otro",
+];
+
+function Badge({ estado }) {
+  const c = COLORES_ESTADO[estado];
+  if (!c) return null;
+  return (
+    <span style={{ background: c.bg, color: c.color, borderRadius: 20, padding: "2px 9px", fontSize: 11, fontWeight: 700, display: "inline-block" }}>
+      {c.label}
+    </span>
+  );
+}
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.45)", zIndex: 900, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 580, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 22px 14px", borderBottom: "1.5px solid #F0F0F0", position: "sticky", top: 0, background: "#fff", zIndex: 10 }}>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1a1a2e" }}>{title}</h2>
+          <button onClick={onClose} style={{ background: "#F3F4F6", border: "none", borderRadius: 8, width: 32, height: 32, fontSize: 17, cursor: "pointer", color: "#555", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+        </div>
+        <div style={{ padding: "18px 22px 22px" }}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 5, textTransform: "none" }}>{label}</label>}
+      {children}
+    </div>
+  );
+}
+
+function CopyButton({ text, label }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button type="button" onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+      style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: copied ? "#059669" : "#4338CA", padding: "0 4px", fontWeight: 600 }}>
+      {copied ? "✓" : "📋"}
+    </button>
+  );
+}
+
+// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+function Dashboard({ data, onNavigate }) {
+  const hoy = today();
+  const [busqueda, setBusqueda] = useState("");
+
+  const turnosHoy = data.turnos.filter(t => t.fecha === hoy).sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
+  const recsHoy = data.recordatorios.filter(r => !r.completado && r.fecha <= hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
+  const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
+
+  const busquedaResultados = busqueda.length > 1 ? [
+    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
+    ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
+    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
+  ] : [];
+
+  const hoyDia = new Date().getDate();
+  const hoyMes = new Date().getMonth() + 1;
+
+  return (
+    <div>
+      {/* Bienvenida + búsqueda */}
+      <div style={{ background: "linear-gradient(135deg, #1a6b6b 0%, #145555 100%)", borderRadius: 16, padding: "24px 28px", marginBottom: 20, color: "#fff" }}>
+        <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>👋 Bienvenida al sistema</div>
+        <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 16 }}>
+          {["Domingo","Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"][new Date().getDay()]} {hoyDia} — {turnosHoy.length} turno{turnosHoy.length !== 1 ? "s" : ""} hoy
+        </div>
+        <div style={{ position: "relative" }}>
+          <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            placeholder="🔍 Buscar paciente, turno, recordatorio..."
+            style={{ width: "100%", padding: "11px 16px", borderRadius: 10, border: "none", fontSize: 14, outline: "none", background: "rgba(255,255,255,0.15)", color: "#fff", boxSizing: "border-box" }}
+          />
+          {busquedaResultados.length > 0 && (
+            <div style={{ position: "absolute", top: "110%", left: 0, right: 0, background: "#fff", borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.15)", zIndex: 100, overflow: "hidden" }}>
+              {busquedaResultados.map((r, i) => (
+                <div key={i} onClick={() => { onNavigate(r.tipo); setBusqueda(""); }}
+                  style={{ padding: "10px 16px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", display: "flex", gap: 10, alignItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
+                  onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                  <span style={{ fontSize: 16 }}>{r.tipo === "paciente" ? "👤" : r.tipo === "turno" ? "📅" : "🔔"}</span>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1a2e" }}>{r.label}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{r.sub}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {[
+          { label: "Pacientes", value: data.pacientes.length, color: "#4338CA", bg: "#EEF2FF", icon: "👤", tab: "paciente" },
+          { label: "Turnos hoy", value: turnosHoy.length, color: "#0891B2", bg: "#E0F2FE", icon: "📅", tab: "turno" },
+          { label: "Recordatorios", value: recsHoy.length, color: "#D97706", bg: "#FEF3C7", icon: "🔔", tab: "recordatorio" },
+          { label: "Insumos pend.", value: data.compras.filter(c => c.estado === "pendiente").length, color: "#991B1B", bg: "#FEE2E2", icon: "🛍️", tab: "compras" },
+        ].map(s => (
+          <div key={s.label} onClick={() => onNavigate(s.tab)}
+            style={{ background: s.bg, borderRadius: 12, padding: "14px 16px", cursor: "pointer", border: `1.5px solid ${s.color}22`, transition: "transform 0.15s" }}
+            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "translateY(0)"}>
+            <div style={{ fontSize: 24, marginBottom: 4 }}>{s.icon}</div>
+            <div style={{ fontSize: 26, fontWeight: 800, color: s.color }}>{s.value}</div>
+            <div style={{ fontSize: 12, color: s.color, opacity: 0.8 }}>{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Turnos hoy */}
+        <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color: "#1a1a2e" }}>📅 Turnos de hoy</div>
+          {turnosHoy.length === 0
+            ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>Sin turnos para hoy</div>
+            : turnosHoy.slice(0, 6).map(t => {
+              const pac = data.pacientes.find(p => p.id === t.paciente_id);
+              return (
+                <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "7px 0", borderBottom: "1px solid #F8F8F8" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", minWidth: 40 }}>{t.hora?.slice(0,5)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {pac ? `${pac.apellido}, ${pac.nombre}` : (t.motivo || "Sin paciente")}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#888" }}>{Array.isArray(t.practicas) && t.practicas.length > 0 ? t.practicas[0] : t.motivo}</div>
+                  </div>
+                  <Badge estado={t.estado} />
+                </div>
+              );
+            })
+          }
+        </div>
+
+        {/* Recordatorios pendientes */}
+        <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12, color: "#1a1a2e" }}>🔔 Recordatorios pendientes</div>
+          {recsHoy.length === 0
+            ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>Sin recordatorios pendientes</div>
+            : recsHoy.slice(0, 6).map(r => (
+              <div key={r.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "7px 0", borderBottom: "1px solid #F8F8F8" }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: r.fecha < hoy ? "#DC2626" : "#D97706", minWidth: 40 }}>{r.fecha < hoy ? "⚠️" : "📅"}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e" }}>{r.titulo}</div>
+                  <div style={{ fontSize: 11, color: "#888" }}>{formatFecha(r.fecha)}{r.hora ? ` · ${r.hora.slice(0,5)}` : ""}</div>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── SUPABASE HOOK ────────────────────────────────────────────────────────────
+async function logAuditoria(usuario, accion, tabla, descripcion, datosAnteriores = null, datosNuevos = null) {
+  try {
+    await supabase.from("auditoria").insert({
+      usuario: usuario || "Sistema", accion, tabla, descripcion,
+      datos_anteriores: datosAnteriores, datos_nuevos: datosNuevos,
+    });
+  } catch(e) { console.warn("Log auditoria:", e); }
+}
+
+function useSupabase() {
+  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const undoStack = React.useRef([]);
+
+  function pushUndo(accion) {
+    undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
+    window.__sonaraUndo = undoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+  }
+
+  async function deshacerUltima() {
+    const accion = undoStack.current[0];
+    if (!accion) return;
+    undoStack.current = undoStack.current.slice(1);
+    window.__sonaraUndo = undoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+    try {
+      if (accion.tipo === "eliminar") {
+        await supabase.from(accion.tabla).insert({ ...accion.item });
+        const { data: rows } = await supabase.from(accion.tabla).select("*");
+        if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
+      } else if (accion.tipo === "crear") {
+        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
+      } else if (accion.tipo === "actualizar") {
+        await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
+      }
+      alert(`↩ Deshecho: ${accion.descripcion}`);
+    } catch(e) { alert("Error al deshacer: " + e.message); }
+  }
+
+  useEffect(() => {
+    cargarTodo();
+    const tablas = ["pacientes", "turnos", "ventas", "recordatorios", "compras"];
+    const channels = tablas.map(tabla =>
+      supabase.channel(`realtime-${tabla}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: tabla }, payload => {
+          setData(prev => {
+            const lista = [...prev[tabla]];
+            if (payload.eventType === "INSERT") {
+              if (!lista.find(r => r.id === payload.new.id)) return { ...prev, [tabla]: [...lista, payload.new] };
+            } else if (payload.eventType === "UPDATE") {
+              return { ...prev, [tabla]: lista.map(r => r.id === payload.new.id ? payload.new : r) };
+            } else if (payload.eventType === "DELETE") {
+              return { ...prev, [tabla]: lista.filter(r => r.id !== payload.old.id) };
+            }
+            return prev;
+          });
+        }).subscribe()
+    );
+    return () => channels.forEach(ch => supabase.removeChannel(ch));
+  }, []);
+
+  async function cargarTodo() {
+    try {
+      const [pac, tur, ven, rec, com] = await Promise.all([
+        supabase.from("pacientes").select("*").order("apellido"),
+        supabase.from("turnos").select("*").order("fecha").order("hora"),
+        supabase.from("ventas").select("*").order("fecha", { ascending: false }),
+        supabase.from("recordatorios").select("*").order("fecha").order("hora"),
+        supabase.from("compras").select("*").order("fecha", { ascending: false }),
+      ]);
+      if (pac.error || tur.error) throw new Error(pac.error?.message || tur.error?.message);
+      setData({
+        pacientes: (pac.data || []).map(fromDB),
+        turnos: tur.data || [],
+        ventas: (ven.data || []).map(fromDBVenta),
+        recordatorios: rec.data || [],
+        compras: com.data || [],
+      });
+    } catch(e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  // ── toDB / fromDB ─────────────────────────────────────────────────────────
+  function toDB(pac) {
+    return {
+      nombre: pac.nombre || "", apellido: pac.apellido || "",
+      dni: pac.dni || "", fecha_nac: (pac.fechaNac || pac.fecha_nac) ? (pac.fechaNac || pac.fecha_nac) : null,
+      telefono: pac.telefono || "", email: pac.email || "",
+      obra_social: pac.obraSocial || pac.obra_social || "",
+      nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
+      diagnostico: pac.diagnostico || "", antecedentes: pac.antecedentes || "",
+      notas: pac.notas || "", derivado_por: pac.derivadoPor || pac.derivado_por || "",
+      audifono: pac.audifono || pac.audifono_der || "",
+      audifono_der: pac.audifono_der || "", audifono_der_anio: pac.audifono_der_anio || "",
+      audifono_izq: pac.audifono_izq || "", audifono_izq_anio: pac.audifono_izq_anio || "",
+      historia: Array.isArray(pac.historia) ? pac.historia : [],
+      etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
+    };
+  }
+
+  function fromDB(row) {
+    return {
+      ...row,
+      fechaNac: row.fecha_nac || "",
+      obraSocial: row.obra_social || "",
+      nroAfiliado: row.nro_afiliado || "",
+      derivadoPor: row.derivado_por || "",
+      audifono: row.audifono || "",
+      audifono_der: row.audifono_der || row.audifono || "",
+      audifono_der_anio: row.audifono_der_anio || "",
+      audifono_izq: row.audifono_izq || "",
+      audifono_izq_anio: row.audifono_izq_anio || "",
+      historia: Array.isArray(row.historia) ? row.historia : [],
+      etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
+    };
+  }
+
+  function toDBTurno(t) {
+    return {
+      paciente_id: t.paciente_id || null, fecha: t.fecha, hora: t.hora, hora_fin: t.hora_fin || "",
+      motivo: t.motivo || "", practicas: Array.isArray(t.practicas) ? t.practicas : [],
+      profesional: t.profesional || "", estado: t.estado || "pendiente",
+      notas: t.notas || "", color_custom: t.color_custom || null,
+      creado_por: t.creado_por || "",
+    };
+  }
+
+  function toDBVenta(v) {
+    return {
+      paciente_id: v.paciente_id || null, fecha: v.fecha, dispositivo: v.dispositivo || "Audífono",
+      marca_der: v.marca_der || "", modelo_der: v.modelo_der || "",
+      marca_izq: v.marca_izq || "", modelo_izq: v.modelo_izq || "",
+      oido: v.oido || "bilateral", precio: parseFloat(v.precio) || null,
+      obra_social_cubre: parseFloat(v.obraSocialCubre) || null,
+      condicion_pago_os: v.condicion_pago_os || "",
+      saldo_paciente: parseFloat(v.saldoPaciente) || null,
+      condicion_pago_paciente: v.condicion_pago_paciente || "",
+      estado: v.estado || "presupuestado", observaciones: v.observaciones || "",
+      pagos: Array.isArray(v.pagos) ? v.pagos : [],
+      seguimiento: Array.isArray(v.seguimiento) ? v.seguimiento : [],
+    };
+  }
+
+  function fromDBVenta(row) {
+    return {
+      ...row,
+      obraSocialCubre: row.obra_social_cubre || "",
+      saldoPaciente: row.saldo_paciente || "",
+      marca_der: row.marca_der || "", modelo_der: row.modelo_der || "",
+      pagos: Array.isArray(row.pagos) ? row.pagos : [],
+      seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
+    };
+  }
+
+  function toDBRec(r) {
+    return {
+      titulo: r.titulo || "", fecha: r.fecha, hora: r.hora || "09:00",
+      tipo: r.tipo || "seguimiento", paciente_id: r.paciente_id || null,
+      descripcion: r.descripcion || "", completado: r.completado || false,
+    };
+  }
+
+  // ── CRUD Pacientes ────────────────────────────────────────────────────────
+  const agregarPaciente = useCallback(async (pac) => {
+    const payload = toDB(pac);
+    const { data: row, error } = await supabase.from("pacientes").insert(payload).select().single();
+    if (!error && row) {
+      const p = fromDB(row);
+      setData(d => ({ ...d, pacientes: [...d.pacientes, p] }));
+      pushUndo({ tipo: "crear", tabla: "pacientes", item: row, descripcion: `Paciente ${row.apellido}, ${row.nombre} creado` });
+      return p;
+    }
+    return null;
+  }, []);
+
+  const actualizarPaciente = useCallback(async (pac) => {
+    const itemAnterior = data.pacientes.find(p => p.id === pac.id);
+    const payload = toDB(pac);
+    const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
+    if (!error) {
+      setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload) } : p) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: toDB(itemAnterior), descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
+    }
+  }, [data.pacientes]);
+
+  const eliminarPaciente = useCallback(async (id) => {
+    const item = data.pacientes.find(p => p.id === id);
+    const { error } = await supabase.from("pacientes").delete().eq("id", id);
+    if (!error) {
+      setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "pacientes", `Paciente ${item.apellido}, ${item.nombre}`, item, null);
+      }
+    }
+  }, [data.pacientes]);
+
+  const agregarEntradaHC = useCallback(async (pacId, entrada) => {
+    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pac) return;
+    const nueva = { ...entrada, id: uid(), fecha: entrada.fecha || today() };
+    const historia = [...(pac.historia || []), nueva];
+    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+  }, [data.pacientes]);
+
+  // ── CRUD Turnos ───────────────────────────────────────────────────────────
+  const agregarTurno = useCallback(async (turno) => {
+    const payload = toDBTurno(turno);
+    const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
+    if (error) { console.error("Error turno:", error); return; }
+    setData(d => ({ ...d, turnos: [...d.turnos, row] }));
+    if (row) {
+      pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "turnos", `Turno del ${row.fecha} ${row.hora?.slice(0,5)} — ${row.motivo || ""}`, null, row);
+    }
+  }, []);
+
+  const actualizarTurno = useCallback(async (turno) => {
+    const itemAnterior = data.turnos.find(t => t.id === turno.id);
+    const payload = { ...toDBTurno(turno), id: turno.id };
+    const { error } = await supabase.from("turnos").update(payload).eq("id", turno.id);
+    if (!error) {
+      setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "turnos", item: payload, itemAnterior, descripcion: `Turno ${turno.fecha} ${turno.hora?.slice(0,5)} editado` });
+    }
+  }, [data.turnos]);
+
+  const eliminarTurno = useCallback(async (id) => {
+    const item = data.turnos.find(t => t.id === id);
+    const { error } = await supabase.from("turnos").delete().eq("id", id);
+    if (!error) {
+      setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "turnos", `Turno del ${item.fecha} ${item.hora?.slice(0,5)} — ${item.motivo || ""}`, item, null);
+      }
+    }
+  }, [data.turnos]);
+
+  // ── CRUD Ventas ───────────────────────────────────────────────────────────
+  const agregarVenta = useCallback(async (venta) => {
+    const { data: row } = await supabase.from("ventas").insert(toDBVenta(venta)).select().single();
+    if (row) setData(d => ({ ...d, ventas: [fromDBVenta(row), ...d.ventas] }));
+    return row;
+  }, []);
+
+  const actualizarVenta = useCallback(async (venta) => {
+    const payload = { ...toDBVenta(venta), id: venta.id };
+    const { error } = await supabase.from("ventas").update(payload).eq("id", venta.id);
+    if (!error) setData(d => ({ ...d, ventas: d.ventas.map(v => v.id === venta.id ? { ...v, ...fromDBVenta(payload) } : v) }));
+  }, []);
+
+  const eliminarVenta = useCallback(async (id) => {
+    const item = data.ventas.find(v => v.id === id);
+    const { error } = await supabase.from("ventas").delete().eq("id", id);
+    if (!error) {
+      setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "ventas", `Venta ${item.fecha}`, item, null);
+      }
+    }
+  }, [data.ventas]);
+
+  // ── CRUD Compras ──────────────────────────────────────────────────────────
+  const agregarCompra = useCallback(async (compra) => {
+    const total = parseFloat(compra.total) || 0;
+    const seña = parseFloat(compra.seña) || 0;
+    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
+    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
+    if (row) setData(d => ({ ...d, compras: [row, ...d.compras] }));
+    return row;
+  }, []);
+
+  const actualizarCompra = useCallback(async (compra) => {
+    const total = parseFloat(compra.total) || 0;
+    const seña = parseFloat(compra.seña) || 0;
+    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
+    const updated = { ...compra, estado: estadoAuto };
+    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
+  }, []);
+
+  const eliminarCompra = useCallback(async (id) => {
+    const { error } = await supabase.from("compras").delete().eq("id", id);
+    if (!error) setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
+  }, []);
+
+  // ── CRUD Recordatorios ────────────────────────────────────────────────────
+  const agregarRecordatorio = useCallback(async (rec) => {
+    const { data: row } = await supabase.from("recordatorios").insert(toDBRec(rec)).select().single();
+    if (row) setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
+    return row;
+  }, []);
+
+  const actualizarRecordatorio = useCallback(async (rec) => {
+    const payload = { ...toDBRec(rec), id: rec.id };
+    const { error } = await supabase.from("recordatorios").update(payload).eq("id", rec.id);
+    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? { ...r, ...payload } : r) }));
+  }, []);
+
+  const eliminarRecordatorio = useCallback(async (id) => {
+    const { error } = await supabase.from("recordatorios").delete().eq("id", id);
+    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
+  }, []);
+
+  return {
+    data, loading, error,
+    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
+    agregarVenta, actualizarVenta, eliminarVenta,
+    agregarCompra, actualizarCompra, eliminarCompra,
+    agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
+  };
+}
+
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [] };
+
+
 function SelectorPracticas({ seleccionadas = [], onChange }) {
   return (
     <div>
