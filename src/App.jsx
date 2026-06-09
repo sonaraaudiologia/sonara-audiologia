@@ -347,543 +347,9 @@ const COLORES_ESTADO = {
   ausente:     { bg: "#F3F4F6", color: "#4B5563", label: "Ausente" },
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
-const COLORES_VENTA = {
-  presupuestado:        { bg: "#EDE9FE", color: "#4C1D95",  label: "Presupuestado" },
-  aprobado:             { bg: "#DBEAFE", color: "#1E40AF",  label: "Aprobado" },
-  señado:               { bg: "#FEF3C7", color: "#92400E",  label: "Señado" },
-  subido_sios:          { bg: "#E0F2FE", color: "#075985",  label: "Subido a SIOS" },
-  pedido_acompañamiento:{ bg: "#F3E8FF", color: "#6D28D9",  label: "Pedido acompañamiento" },
-  atendido_fono:        { bg: "#ECFDF5", color: "#047857",  label: "Atendido por Fono" },
-  vendido:              { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
-  perdido:              { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
-};
 
 const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
-const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Cheque", "SIOS / OS directo", "Pendiente"];
-
-function Badge({ estado, tipo = "turno" }) {
-  const mapa = tipo === "venta" ? COLORES_VENTA : COLORES_ESTADO;
-  const c = mapa[estado] || { bg: "#F3F4F6", color: "#374151", label: estado };
-  return <span style={{ background: c.bg, color: c.color, borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>{c.label}</span>;
-}
-
-function Modal({ title, onClose, children }) {
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 540, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 24px 16px", borderBottom: "1px solid #F0F0F0" }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>{title}</h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#888" }}>×</button>
-        </div>
-        <div style={{ padding: "20px 24px 24px" }}>{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: "#555", marginBottom: 5 }}>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function CopyButton({ text, label }) {
-  const [copied, setCopied] = useState(false);
-  function handleCopy() {
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    });
-  }
-  return (
-    <button onClick={handleCopy} title={`Copiar ${label}`} style={{
-      background: copied ? "#D1FAE5" : "#F3F4F6", color: copied ? "#065F46" : "#6B7280",
-      border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11,
-      fontWeight: 600, cursor: "pointer", marginLeft: 6, transition: "all 0.2s"
-    }}>{copied ? "✓ Copiado" : "Copiar"}</button>
-  );
-}
-
-// ─── HOOK SUPABASE ────────────────────────────────────────────────────────────
-async function logAuditoria(usuario, accion, tabla, descripcion, datosAnteriores = null, datosNuevos = null) {
-  try {
-    await supabase.from("auditoria").insert({
-      usuario: usuario || "Sistema",
-      accion,
-      tabla,
-      descripcion,
-      datos_anteriores: datosAnteriores,
-      datos_nuevos: datosNuevos,
-    });
-  } catch(e) { console.warn("Log auditoria:", e); }
-}
-
-function useSupabase() {
-  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const undoStack = React.useRef([]); // { tipo, tabla, item, descripcion }
-
-  function pushUndo(accion) {
-    undoStack.current = [accion, ...undoStack.current.slice(0, 9)]; // keep last 10
-    window.__sonaraUndo = undoStack.current;
-    window.dispatchEvent(new Event("sonara-undo-update"));
-  }
-
-  async function deshacerUltima() {
-    const accion = undoStack.current[0];
-    if (!accion) return;
-    undoStack.current = undoStack.current.slice(1);
-    window.__sonaraUndo = undoStack.current;
-    window.dispatchEvent(new Event("sonara-undo-update"));
-
-    try {
-      if (accion.tipo === "eliminar") {
-        // Restore deleted item
-        await supabase.from(accion.tabla).insert({ ...accion.item });
-        const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
-
-      } else if (accion.tipo === "crear") {
-        // Delete the created item
-        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
-
-      } else if (accion.tipo === "actualizar") {
-        // Restore previous version
-        await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
-      }
-      alert(`↩ Deshecho: ${accion.descripcion}`);
-    } catch(e) {
-      alert("Error al deshacer: " + e.message);
-    }
-  }
-
-  useEffect(() => {
-    cargarTodo();
-
-    // ─── Tiempo real: escuchar cambios en todas las tablas ────────────────────
-    const tablas = ["pacientes", "turnos", "ventas", "recordatorios", "compras"];
-    const channels = tablas.map(tabla =>
-      supabase.channel(`realtime-${tabla}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: tabla }, payload => {
-          setData(prev => {
-            const lista = [...prev[tabla]];
-            if (payload.eventType === "INSERT") {
-              // Avoid duplicates
-              if (!lista.find(r => r.id === payload.new.id)) return { ...prev, [tabla]: [...lista, payload.new] };
-            } else if (payload.eventType === "UPDATE") {
-              return { ...prev, [tabla]: lista.map(r => r.id === payload.new.id ? payload.new : r) };
-            } else if (payload.eventType === "DELETE") {
-              return { ...prev, [tabla]: lista.filter(r => r.id !== payload.old.id) };
-            }
-            return prev;
-          });
-        })
-        .subscribe()
-    );
-
-    return () => { channels.forEach(ch => supabase.removeChannel(ch)); };
-  }, []);
-
-  async function cargarTodo() {
-    try {
-      setLoading(true);
-      const [p, t, v, r, c] = await Promise.all([
-        supabase.from("pacientes").select("*").order("apellido"),
-        supabase.from("turnos").select("*").order("fecha").order("hora"),
-        supabase.from("ventas").select("*").order("fecha", { ascending: false }).then(r => ({ ...r, data: (r.data||[]).map(v => ({ ...v, obraSocialCubre: v.obra_social_cubre||"", saldoPaciente: v.saldo_paciente||"" })) })),
-        supabase.from("recordatorios").select("*").order("fecha"),
-        supabase.from("compras").select("*").order("fecha", { ascending: false }),
-      ]);
-      if (p.error || t.error || v.error || r.error) throw new Error("Error al cargar datos");
-      setData({
-        pacientes: p.data || [],
-        turnos: t.data || [],
-        ventas: v.data || [],
-        recordatorios: r.data || [],
-        compras: c.data || [],
-      });
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function toDB(pac) {
-    return {
-      nombre: pac.nombre || "",
-      apellido: pac.apellido || "",
-      dni: pac.dni || "",
-      fecha_nac: (pac.fechaNac || pac.fecha_nac) ? (pac.fechaNac || pac.fecha_nac) : null,
-      telefono: pac.telefono || "",
-      email: pac.email || "",
-      obra_social: pac.obraSocial || pac.obra_social || "",
-      nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
-      diagnostico: pac.diagnostico || "",
-      antecedentes: pac.antecedentes || "",
-      notas: pac.notas || "",
-      derivado_por: pac.derivadoPor || pac.derivado_por || "",
-      audifono: pac.audifono || pac.audifono_der || "",
-      audifono_der: pac.audifono_der || "",
-      audifono_der_anio: pac.audifono_der_anio || "",
-      audifono_izq: pac.audifono_izq || "",
-      audifono_izq_anio: pac.audifono_izq_anio || "",
-      historia: Array.isArray(pac.historia) ? pac.historia : [],
-      etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
-    };
-  }
-
-  function fromDB(row) {
-    return {
-      ...row,
-      fechaNac: row.fecha_nac || "",
-      obraSocial: row.obra_social || "",
-      nroAfiliado: row.nro_afiliado || "",
-      derivadoPor: row.derivado_por || "",
-      audifono: row.audifono || "",
-      audifono_der: row.audifono_der || row.audifono || "",
-      audifono_der_anio: row.audifono_der_anio || "",
-      audifono_izq: row.audifono_izq || "",
-      audifono_izq_anio: row.audifono_izq_anio || "",
-      etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
-    };
-  }
-
-  const agregarPaciente = useCallback(async (pac) => {
-    const { data: row, error } = await supabase.from("pacientes").insert(toDB(pac)).select().single();
-    if (!error) setData(d => ({ ...d, pacientes: [...d.pacientes, fromDB(row)] }));
-    return row ? fromDB(row) : null;
-  }, []);
-
-  const actualizarPaciente = useCallback(async (pac) => {
-    const payload = toDB(pac);
-    const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
-    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...pac, ...fromDB({...payload, id: pac.id}) } : p) }));
-  }, []);
-
-  const eliminarPaciente = useCallback(async (id) => {
-    const item = data.pacientes.find(p => p.id === id);
-    const { error } = await supabase.from("pacientes").delete().eq("id", id);
-    if (!error) {
-      setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
-      if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
-        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "pacientes", `Paciente ${item.apellido}, ${item.nombre} — DNI: ${item.dni || "—"}`, item, null);
-      }
-    }
-  }, [data.pacientes]);
-
-  function toDBTurno(turno) {
-    return {
-      paciente_id: turno.paciente_id || null,
-      fecha: turno.fecha,
-      hora: turno.hora,
-      hora_fin: turno.hora_fin || null,
-      motivo: Array.isArray(turno.practicas) && turno.practicas.length > 0
-        ? turno.practicas.join(", ")
-        : (turno.motivo || ""),
-      practicas: Array.isArray(turno.practicas) ? turno.practicas : [],
-      profesional: turno.profesional || "",
-      estado: turno.estado || "pendiente",
-      notas: turno.notas || "",
-      color_custom: turno.color_custom || null,
-    };
-  }
-
-  const agregarTurno = useCallback(async (turno) => {
-    const payload = toDBTurno(turno);
-    const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
-    if (error) { console.error("Error turno:", error); return; }
-    setData(d => ({ ...d, turnos: [...d.turnos, row] }));
-    if (row) {
-      pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
-      logAuditoria(window.__sonaraUsuario, "CREAR", "turnos", `Turno del ${row.fecha} ${row.hora?.slice(0,5)} — ${row.motivo || "Sin motivo"}`, null, row);
-    }
-  }, []);
-
-  const actualizarTurno = useCallback(async (turno) => {
-    const itemAnterior = data.turnos.find(t => t.id === turno.id);
-    const payload = { ...toDBTurno(turno), id: turno.id };
-    const { error } = await supabase.from("turnos").update(payload).eq("id", turno.id);
-    if (!error) {
-      setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "turnos", item: payload, itemAnterior, descripcion: `Turno ${turno.fecha} ${turno.hora?.slice(0,5)} editado` });
-    }
-  }, [data.turnos]);
-
-  const eliminarTurno = useCallback(async (id, usuario) => {
-    const item = data.turnos.find(t => t.id === id);
-    const { error } = await supabase.from("turnos").delete().eq("id", id);
-    if (!error) {
-      setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
-      if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
-        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "turnos", `Turno del ${item.fecha} ${item.hora?.slice(0,5)} — ${item.motivo || "Sin motivo"}`, item, null);
-      }
-    }
-  }, [data.turnos]);
-
-  function toDBVenta(v) {
-    return {
-      paciente_id: v.paciente_id || null,
-      fecha: v.fecha || today(),
-      dispositivo: v.dispositivo || "",
-      marca: v.marca || "",
-      modelo: v.modelo || "",
-      marca_der: v.marca_der || "",
-      modelo_der: v.modelo_der || "",
-      marca_izq: v.marca_izq || "",
-      modelo_izq: v.modelo_izq || "",
-      oido: v.oido || "bilateral",
-      precio: parseFloat(v.precio) || null,
-      obra_social_cubre: parseFloat(v.obraSocialCubre || v.obra_social_cubre) || null,
-      condicion_pago_os: v.condicion_pago_os || "",
-      saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
-      condicion_pago_paciente: v.condicion_pago_paciente || "",
-      estado: v.estado || "presupuestado",
-      observaciones: v.observaciones || "",
-      pagos: Array.isArray(v.pagos) ? v.pagos : [],
-      seguimiento: Array.isArray(v.seguimiento) ? v.seguimiento : [],
-    };
-  }
-
-  function fromDBVenta(row) {
-    return {
-      ...row,
-      obraSocialCubre: row.obra_social_cubre || "",
-      saldoPaciente: row.saldo_paciente || "",
-      marca_der: row.marca_der || "",
-      modelo_der: row.modelo_der || "",
-      pagos: Array.isArray(row.pagos) ? row.pagos : [],
-      seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
-      marca_izq: row.marca_izq || "",
-      modelo_izq: row.modelo_izq || "",
-      condicion_pago_os: row.condicion_pago_os || "",
-      condicion_pago_paciente: row.condicion_pago_paciente || "",
-    };
-  }
-
-  const agregarVenta = useCallback(async (venta) => {
-    const { data: row, error } = await supabase.from("ventas").insert(toDBVenta(venta)).select().single();
-    if (error) { console.error("Error venta:", error); return null; }
-    const v = fromDBVenta(row);
-    setData(d => ({ ...d, ventas: [...d.ventas, v] }));
-    return v;
-  }, []);
-
-  const actualizarVenta = useCallback(async (venta) => {
-    const payload = { ...toDBVenta(venta), id: venta.id };
-    const { error } = await supabase.from("ventas").update(payload).eq("id", venta.id);
-    if (!error) {
-      const v = fromDBVenta(payload);
-      setData(d => ({ ...d, ventas: d.ventas.map(x => x.id === venta.id ? { ...x, ...v } : x) }));
-    }
-  }, []);
-
-  const eliminarVenta = useCallback(async (id) => {
-    const item = data.ventas.find(v => v.id === id);
-    const { error } = await supabase.from("ventas").delete().eq("id", id);
-    if (!error) {
-      setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
-      if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
-        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "ventas", `Venta ${item.fecha} — ${item.marca_der || item.dispositivo || ""} $${item.precio || 0}`, item, null);
-      }
-    }
-  }, [data.ventas]);
-
-  function toDBRec(rec) {
-    return {
-      titulo: rec.titulo || "",
-      fecha: rec.fecha || today(),
-      hora: rec.hora || "09:00",
-      tipo: rec.tipo || "seguimiento",
-      paciente_id: rec.paciente_id || null,
-      descripcion: rec.descripcion || "",
-      completado: rec.completado || false,
-    };
-  }
-
-  const agregarRecordatorio = useCallback(async (rec) => {
-    const payload = toDBRec(rec);
-    const { data: row, error } = await supabase.from("recordatorios").insert(payload).select().single();
-    if (error) { console.error("Error recordatorio:", error); return; }
-    if (!error) setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
-  }, []);
-
-  const actualizarRecordatorio = useCallback(async (rec) => {
-    const payload = { ...toDBRec(rec), id: rec.id };
-    const { error } = await supabase.from("recordatorios").update(payload).eq("id", rec.id);
-    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? { ...r, ...payload } : r) }));
-  }, []);
-
-  const eliminarRecordatorio = useCallback(async (id) => {
-    const { error } = await supabase.from("recordatorios").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
-  }, []);
-
-  const agregarCompra = useCallback(async (compra) => {
-    const { data: row, error } = await supabase.from("compras").insert(compra).select().single();
-    if (!error) setData(d => ({ ...d, compras: [row, ...d.compras] }));
-    return row;
-  }, []);
-
-  const actualizarCompra = useCallback(async (compra) => {
-    const total = parseFloat(compra.total) || 0;
-    const seña = parseFloat(compra.seña) || 0;
-    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const updated = { ...compra, estado: estadoAuto };
-    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
-    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
-  }, []);
-
-  const eliminarCompra = useCallback(async (id) => {
-    const { error } = await supabase.from("compras").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
-  }, []);
-
-  const agregarEntradaHC = useCallback(async (pacienteId, entrada) => {
-    const pac = data.pacientes.find(p => p.id === pacienteId);
-    if (!pac) return;
-    const nuevaHistoria = [...(pac.historia || []), { ...entrada, id: uid() }];
-    await actualizarPaciente({ ...pac, historia: nuevaHistoria });
-  }, [data.pacientes, actualizarPaciente]);
-
-  return {
-    data, loading, error,
-    agregarPaciente, actualizarPaciente, eliminarPaciente,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
-    agregarVenta, actualizarVenta, eliminarVenta,
-    agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
-    agregarCompra, actualizarCompra, eliminarCompra,
-    agregarEntradaHC,
-  };
-}
-
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({ data, onNavigate }) {
-  const hoy = today();
-  const [busqueda, setBusqueda] = useState("");
-  const turnosHoy = data.turnos.filter(t => t.fecha === hoy).length;
-  const recVencidos = data.recordatorios.filter(r => !r.completado && r.fecha < hoy).length;
-  const ventasActivas = data.ventas.filter(v => v.estado === "en_proceso").length;
-  const totalVendido = data.ventas.filter(v => v.estado === "vendido").reduce((s, v) => s + (parseFloat(v.precio) || 0), 0);
-  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
-  const proximosTurnos = data.turnos.filter(t => t.fecha >= hoy).sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`)).slice(0, 5);
-  const proximosRec = data.recordatorios.filter(r => !r.completado && r.fecha >= hoy).sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`)).slice(0, 5);
-
-  const pacNombreD = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
-
-  const resultados = busqueda.trim().length > 1 ? [
-    ...data.turnos.filter(t => {
-      const pac = data.pacientes.find(p => p.id === t.paciente_id);
-      const nombre = pac ? `${pac.nombre} ${pac.apellido}` : "";
-      return nombre.toLowerCase().includes(busqueda.toLowerCase()) || (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase());
-    }).slice(0,5).map(t => ({ tipo: "turno", label: pacNombreD(t.paciente_id), sub: `${formatFecha(t.fecha)} · ${t.hora} · ${t.motivo||""}`, id: t.id })),
-    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,5).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: `DNI: ${p.dni||"—"} · ${p.obra_social||"Particular"}`, id: p.id })),
-    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
-  ] : [];
-
-  return (
-    <div>
-      {/* Buscador */}
-      <div style={{ position: "relative", marginBottom: 20 }}>
-        <input
-          style={{ ...inputStyle, paddingLeft: 36, fontSize: 15, borderRadius: 12, border: "1.5px solid #E5E7EB" }}
-          placeholder="🔍 Buscar turnos, pacientes, recordatorios..."
-          value={busqueda}
-          onChange={e => setBusqueda(e.target.value)}
-        />
-        {resultados.length > 0 && (
-          <div style={{ position: "absolute", top: "100%", left: 0, right: 0, background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 50, maxHeight: 300, overflowY: "auto", marginTop: 4 }}>
-            {resultados.map((r, i) => {
-              const iconos = { turno: "📅", paciente: "👤", recordatorio: "🔔" };
-              const colores = { turno: "#4338CA", paciente: "#0891B2", recordatorio: "#D97706" };
-              return (
-                <div key={r.tipo+r.id} onClick={() => { setBusqueda(""); if (onNavigate) onNavigate(r.tipo); }}
-                  style={{ padding: "10px 14px", borderBottom: i < resultados.length-1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", display: "flex", gap: 10, alignItems: "center" }}
-                  onMouseEnter={e => e.currentTarget.style.background = "#F8FAFC"}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <span style={{ fontSize: 18 }}>{iconos[r.tipo]}</span>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: colores[r.tipo] }}>{r.label}</div>
-                    <div style={{ fontSize: 12, color: "#888" }}>{r.sub}</div>
-                  </div>
-                  <span style={{ marginLeft: "auto", fontSize: 11, color: "#aaa", background: "#F3F4F6", borderRadius: 6, padding: "2px 8px" }}>{r.tipo}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Turnos hoy", value: turnosHoy, color: "#4338CA", bg: "#EEF2FF" },
-          { label: "Pacientes", value: data.pacientes.length, color: "#0891B2", bg: "#E0F2FE" },
-          { label: "Ventas en proceso", value: ventasActivas, color: "#D97706", bg: "#FEF3C7" },
-          { label: "Alertas vencidas", value: recVencidos, color: "#DC2626", bg: "#FEE2E2" },
-          { label: "Total vendido", value: `$${totalVendido.toLocaleString("es-AR")}`, color: "#166534", bg: "#F0FDF4" },
-        ].map(c => (
-          <div key={c.label} style={{ background: c.bg, borderRadius: 10, padding: "14px 16px" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, color: c.color }}>{c.value}</div>
-            <div style={{ fontSize: 12, color: c.color, opacity: 0.8 }}>{c.label}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>📅 Próximos turnos</div>
-          {proximosTurnos.length === 0 ? <div style={{ color: "#aaa", fontSize: 14 }}>Sin turnos próximos</div> : proximosTurnos.map(t => (
-            <div key={t.id} style={{ background: "#F8FAFC", borderRadius: 10, padding: "10px 12px", marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{pacNombre(t.paciente_id)}</div>
-              <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(t.fecha)} · {t.hora} · {t.motivo || "—"}</div>
-            </div>
-          ))}
-        </div>
-        <div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>🔔 Recordatorios pendientes</div>
-          {proximosRec.length === 0 ? <div style={{ color: "#aaa", fontSize: 14 }}>Sin recordatorios próximos</div> : proximosRec.map(r => (
-            <div key={r.id} style={{ background: "#F8FAFC", borderRadius: 10, padding: "10px 12px", marginBottom: 8, borderLeft: r.fecha < hoy ? "3px solid #EF4444" : "3px solid #10B981" }}>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{r.titulo}</div>
-              <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(r.fecha)} · {r.hora}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── TURNOS ───────────────────────────────────────────────────────────────────
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", telefono: "", obraSocial: "", fechaNac: "", email: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [] };
-const PRACTICAS_LISTA = [
-  "Audiometría",
-  "Audiometría y logoaudiometría",
-  "Audiometría por juego",
-  "Calibración de audífono",
-  "Calibración de IC",
-  "Encendido de IC",
-  "Rendimiento de IC",
-  "Rendimiento de OTA",
-  "Toma de impresión para molde",
-  "Retira molde",
-  "Selección de audífonos",
-  "Entrega de audífonos",
-  "Asesoramiento comercial",
-  "Control",
-  "Reparación",
-  "Cambio de spaguetti",
-  "Reunión con profesional / Visita",
-  "Otro",
-];
 
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
 
@@ -3238,48 +2704,136 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   );
 }
 
-// ─── VENTAS ───────────────────────────────────────────────────────────────────
+// ─── VENTAS CRM ───────────────────────────────────────────────────────────────
+const COLORES_VENTA = {
+  seleccion:        { bg: "#F3E8FF", color: "#6D28D9",  label: "Selección" },
+  sin_presupuesto:  { bg: "#FEE2E2", color: "#991B1B",  label: "Sin presupuesto" },
+  ausente:          { bg: "#F3F4F6", color: "#6B7280",  label: "Ausente" },
+  presupuestado:    { bg: "#EDE9FE", color: "#4C1D95",  label: "Presupuestado" },
+  aprobado:         { bg: "#DBEAFE", color: "#1E40AF",  label: "Aprobado" },
+  señado:           { bg: "#FEF3C7", color: "#92400E",  label: "Señado" },
+  subido_sios:      { bg: "#E0F2FE", color: "#075985",  label: "Subido a SIOS" },
+  pedido_acompañamiento: { bg: "#F3E8FF", color: "#6D28D9", label: "Pedido acomp." },
+  atendido_fono:    { bg: "#D1FAE5", color: "#065F46",  label: "Atendido por Fono" },
+  vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
+  perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
+};
+
+const PIPELINE_STAGES = [
+  { key: "seleccion",       label: "Selección",      icon: "👂", desc: "Paciente vino a selección" },
+  { key: "sin_presupuesto", label: "Sin presupuesto", icon: "🚶", desc: "Fue sin presupuesto" },
+  { key: "ausente",         label: "Ausente",         icon: "❌", desc: "No se presentó" },
+  { key: "presupuestado",   label: "Presupuestado",   icon: "📋", desc: "Se entregó presupuesto" },
+  { key: "aprobado",        label: "Aprobado",        icon: "✅", desc: "Presupuesto aprobado" },
+  { key: "señado",          label: "Señado",          icon: "💰", desc: "Dejó seña" },
+  { key: "subido_sios",     label: "SIOS",            icon: "📤", desc: "Subido a SIOS" },
+  { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
+  { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
+];
+
+const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia"];
+
+function useObjetivoMensual() {
+  const [objetivo, setObjetivo] = useState(10);
+  useEffect(() => {
+    const saved = localStorage.getItem ? null : null; // no localStorage in artifacts
+    // Use supabase to store objetivo
+    cargarObjetivo();
+  }, []);
+  async function cargarObjetivo() {
+    const { data } = await supabase.from("auditoria")
+      .select("datos_nuevos").eq("tabla", "objetivo_ventas").order("created_at", { ascending: false }).limit(1);
+    if (data && data[0]?.datos_nuevos?.objetivo) setObjetivo(data[0].datos_nuevos.objetivo);
+  }
+  async function guardarObjetivo(val) {
+    setObjetivo(val);
+    await supabase.from("auditoria").insert({
+      usuario: window.__sonaraUsuario || "Sistema",
+      accion: "CONFIG",
+      tabla: "objetivo_ventas",
+      descripcion: `Objetivo mensual actualizado a ${val} audífonos`,
+      datos_nuevos: { objetivo: val }
+    });
+  }
+  return { objetivo, guardarObjetivo };
+}
+
+function ObjetivoBar({ ventas, objetivo, editando = false }) {
+  const hoy = new Date();
+  const mes = hoy.getMonth() + 1;
+  const anio = hoy.getFullYear();
+  const vendidosMes = ventas.filter(v => {
+    if (v.estado !== "vendido") return false;
+    const f = v.fecha || "";
+    return f.startsWith(`${anio}-${String(mes).padStart(2,"0")}`);
+  }).length;
+  const pct = Math.min(100, Math.round((vendidosMes / objetivo) * 100));
+  const color = pct >= 100 ? "#065F46" : pct >= 60 ? "#1a6b6b" : pct >= 30 ? "#92400E" : "#991B1B";
+  const bg = pct >= 100 ? "#D1FAE5" : pct >= 60 ? "#e0f4f4" : pct >= 30 ? "#FEF3C7" : "#FEE2E2";
+  const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  return (
+    <div style={{ background: bg, border: `1.5px solid ${color}44`, borderRadius: 12, padding: "12px 16px", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div>
+          <span style={{ fontWeight: 800, fontSize: 15, color }}>🎯 Objetivo {MESES_N[mes-1]}</span>
+          <span style={{ fontSize: 13, color, marginLeft: 8 }}>{vendidosMes} / {objetivo} audífonos</span>
+        </div>
+        <span style={{ fontSize: 20, fontWeight: 800, color }}>{pct}%</span>
+      </div>
+      <div style={{ background: "rgba(255,255,255,0.6)", borderRadius: 20, height: 12, overflow: "hidden" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 20, transition: "width 0.5s" }} />
+      </div>
+      {pct >= 100 && <div style={{ fontSize: 12, color, fontWeight: 700, marginTop: 6 }}>🎉 ¡Objetivo alcanzado este mes!</div>}
+      {pct < 100 && <div style={{ fontSize: 12, color: "#666", marginTop: 4 }}>Faltan {objetivo - vendidosMes} audífonos para el objetivo</div>}
+    </div>
+  );
+}
 
 function Ventas({ data, db, usuario }) {
   const [filtroEstado, setFiltroEstado] = useState("");
+  const [filtroMes, setFiltroMes] = useState(() => {
+    const h = new Date();
+    return `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,"0")}`;
+  });
   const [busqueda, setBusqueda] = useState("");
-  const [modal, setModal] = useState(null); // null | "nuevo" | venta.id
-  const [verDetalle, setVerDetalle] = useState(null); // venta.id abierto en panel
+  const [modal, setModal] = useState(null);
+  const [verDetalle, setVerDetalle] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [editandoObjetivo, setEditandoObjetivo] = useState(false);
+  const [nuevoObjetivo, setNuevoObjetivo] = useState(10);
+  const { objetivo, guardarObjetivo } = useObjetivoMensual();
 
   const FORM_VACIO = {
     paciente_id: "", fecha: today(), dispositivo: "Audífono",
     marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
     oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
-    saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado",
+    saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion",
     observaciones: "", seguimiento: [], pagos: []
   };
   const [form, setForm] = useState(FORM_VACIO);
-
-  // Seguimiento
   const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
-  // Pago
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
 
+  // Stats por estado del mes actual
+  const ventasMes = data.ventas.filter(v => !filtroMes || (v.fecha || "").startsWith(filtroMes));
+
   const ventas = data.ventas.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
+    const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
     const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
       (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase());
-    return matchEstado && matchBusq;
+      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
+    return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
-  const totalVendido = data.ventas.filter(v => v.estado === "vendido").reduce((s,v) => s + (parseFloat(v.precio)||0), 0);
   const ventaActual = verDetalle ? data.ventas.find(v => v.id === verDetalle) : null;
 
-  // Calcular saldo real de una venta (precio - pagos registrados)
   function saldoReal(v) {
     const pagos = Array.isArray(v.pagos) ? v.pagos : [];
-    const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    return (parseFloat(v.precio)||0) - totalPagado;
+    return (parseFloat(v.precio)||0) - pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
   }
 
   async function guardar() {
@@ -3294,11 +2848,10 @@ function Ventas({ data, db, usuario }) {
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
-        await db.agregarRecordatorio({ titulo: `Control 3 meses · ${nombre}`, fecha: sumarMeses(form.fecha, 3), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control 3 meses. Venta: ${formatFecha(form.fecha)}.`, completado: false });
-        await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual. Venta: ${formatFecha(form.fecha)}.`, completado: false });
+        await db.agregarRecordatorio({ titulo: `Control 3 meses · ${nombre}`, fecha: sumarMeses(form.fecha, 3), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control 3 meses.`, completado: false });
+        await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual.`, completado: false });
       }
       setModal(null);
-      if (esNueva) setVerDetalle(null);
     } finally { setSaving(false); }
   }
 
@@ -3318,59 +2871,113 @@ function Ventas({ data, db, usuario }) {
     const nuevosPagos = [...(Array.isArray(v.pagos) ? v.pagos : []), { ...pagoForm, id: uid() }];
     const totalPagado = nuevosPagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const saldo = (parseFloat(v.precio)||0) - totalPagado;
-    const nuevoEstado = saldo <= 0 && v.estado === "vendido" ? "vendido" : v.estado;
-    await db.actualizarVenta({ ...v, pagos: nuevosPagos, estado: nuevoEstado });
+    await db.actualizarVenta({ ...v, pagos: nuevosPagos });
     setPagoForm({ fecha: today(), monto: "", descripcion: "" });
     if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
   }
 
+  async function cambiarEstado(ventaId, nuevoEstado) {
+    const v = data.ventas.find(x => x.id === ventaId);
+    if (!v) return;
+    await db.actualizarVenta({ ...v, estado: nuevoEstado });
+  }
+
   const TIPOS_SEG = ["Llamada", "Email", "WhatsApp", "Visita", "Nota interna", "Reunión"];
+  const MESES_SEL = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() - i);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  });
+
+  // Stats del mes
+  const statsSeleccion = {
+    total: ventasMes.filter(v => ["seleccion","sin_presupuesto","ausente","presupuestado","aprobado","señado","subido_sios","vendido","perdido"].includes(v.estado)).length,
+    conPresupuesto: ventasMes.filter(v => ["presupuestado","aprobado","señado","subido_sios","vendido"].includes(v.estado)).length,
+    sinPresupuesto: ventasMes.filter(v => v.estado === "sin_presupuesto").length,
+    ausentes: ventasMes.filter(v => v.estado === "ausente").length,
+    vendidos: ventasMes.filter(v => v.estado === "vendido").length,
+    perdidos: ventasMes.filter(v => v.estado === "perdido").length,
+  };
 
   return (
-    <div style={{ display: "flex", gap: 16, height: "calc(100vh - 160px)", minHeight: 500 }}>
-      {/* ── Panel izquierdo: lista ── */}
-      <div style={{ width: verDetalle ? 340 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-        {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-          {[
-            ["presupuestado","Presupuestos"],["aprobado","Aprobados"],["vendido","Vendidos"],["perdido","Perdidos"]
-          ].map(([k,l]) => {
-            const cv = COLORES_VENTA[k];
-            return (
-              <div key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
-                style={{ background: filtroEstado === k ? cv.bg : "#F8FAFC", border: `1.5px solid ${filtroEstado === k ? cv.color : "#E5E7EB"}`, borderRadius: 10, padding: "8px 10px", cursor: "pointer" }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: cv.color }}>{data.ventas.filter(v => v.estado === k).length}</div>
-                <div style={{ fontSize: 10, color: cv.color, fontWeight: 600 }}>{l}</div>
+    <div style={{ display: "flex", gap: 16, minHeight: 500 }}>
+      {/* ── Panel izquierdo ── */}
+      <div style={{ width: verDetalle ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+
+        {/* Objetivo mensual */}
+        <div style={{ position: "relative" }}>
+          <ObjetivoBar ventas={data.ventas} objetivo={objetivo} />
+          <div style={{ position: "absolute", top: 12, right: 12, display: "flex", gap: 6, alignItems: "center" }}>
+            {editandoObjetivo ? (
+              <>
+                <input type="number" min="1" max="100" value={nuevoObjetivo} onChange={e => setNuevoObjetivo(parseInt(e.target.value)||10)}
+                  style={{ ...inputStyle, width: 60, padding: "4px 8px", fontSize: 13 }} />
+                <button onClick={async () => { await guardarObjetivo(nuevoObjetivo); setEditandoObjetivo(false); }} style={{ ...btnPrimary, padding: "4px 10px", fontSize: 12 }}>✓</button>
+                <button onClick={() => setEditandoObjetivo(false)} style={{ ...btnSecondary, padding: "4px 8px", fontSize: 12 }}>✕</button>
+              </>
+            ) : (
+              <button onClick={() => { setNuevoObjetivo(objetivo); setEditandoObjetivo(true); }}
+                style={{ background: "rgba(255,255,255,0.8)", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer", color: "#555" }}>✎ Cambiar objetivo</button>
+            )}
+          </div>
+        </div>
+
+        {/* Stats selección del mes */}
+        <div style={{ background: "#F8FAFC", borderRadius: 12, padding: "12px 14px", marginBottom: 4 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            📊 Selecciones del mes
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+            {[
+              ["Total selecciones", statsSeleccion.total, "#1a6b6b", "#e0f4f4"],
+              ["Con presupuesto", statsSeleccion.conPresupuesto, "#1E40AF", "#DBEAFE"],
+              ["Sin presupuesto", statsSeleccion.sinPresupuesto, "#991B1B", "#FEE2E2"],
+              ["Ausentes", statsSeleccion.ausentes, "#6B7280", "#F3F4F6"],
+              ["Vendidos", statsSeleccion.vendidos, "#065F46", "#D1FAE5"],
+              ["Perdidos", statsSeleccion.perdidos, "#991B1B", "#FEE2E2"],
+            ].map(([label, val, color, bg]) => (
+              <div key={label} style={{ background: bg, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color }}>{val}</div>
+                <div style={{ fontSize: 10, color, fontWeight: 600, lineHeight: 1.2 }}>{label}</div>
               </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Pipeline rápido */}
+        <div style={{ display: "flex", gap: 4, overflowX: "auto", paddingBottom: 4 }}>
+          <button onClick={() => setFiltroEstado("")} style={{ background: !filtroEstado ? "#1a6b6b" : "#F3F4F6", color: !filtroEstado ? "#fff" : "#555", border: "none", borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+            Todos ({ventasMes.length})
+          </button>
+          {PIPELINE_STAGES.map(s => {
+            const n = ventasMes.filter(v => v.estado === s.key).length;
+            if (n === 0 && filtroEstado !== s.key) return null;
+            const cv = COLORES_VENTA[s.key];
+            return (
+              <button key={s.key} onClick={() => setFiltroEstado(filtroEstado === s.key ? "" : s.key)}
+                style={{ background: filtroEstado === s.key ? cv.color : cv.bg, color: filtroEstado === s.key ? "#fff" : cv.color, border: `1.5px solid ${cv.color}55`, borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                {s.icon} {s.label} ({n})
+              </button>
             );
           })}
         </div>
 
-        {/* Buscador + nuevo */}
+        {/* Buscador + filtro mes + nuevo */}
         <div style={{ display: "flex", gap: 8 }}>
-          <input style={{ ...inputStyle, flex: 1 }} placeholder="🔍 Buscar paciente, dispositivo..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          <input style={{ ...inputStyle, flex: 1 }} placeholder="🔍 Buscar paciente..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          <select style={{ ...selectStyle, maxWidth: 140 }} value={filtroMes} onChange={e => setFiltroMes(e.target.value)}>
+            <option value="">Todos los meses</option>
+            {MESES_SEL.map(m => <option key={m} value={m}>{m}</option>)}
+          </select>
           <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
         </div>
 
-        {/* Filtro estados */}
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          <button onClick={() => setFiltroEstado("")} style={{ ...btnSecondary, fontSize: 11, padding: "3px 8px", background: !filtroEstado ? "#1a6b6b" : "#F3F4F6", color: !filtroEstado ? "#fff" : "#555" }}>Todos</button>
-          {Object.entries(COLORES_VENTA).map(([k,v]) => (
-            <button key={k} onClick={() => setFiltroEstado(filtroEstado === k ? "" : k)}
-              style={{ ...btnSecondary, fontSize: 11, padding: "3px 8px", background: filtroEstado === k ? v.color : "#F3F4F6", color: filtroEstado === k ? "#fff" : "#555" }}>
-              {v.label} ({data.ventas.filter(x => x.estado === k).length})
-            </button>
-          ))}
-        </div>
-
-        {/* Lista ventas */}
-        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* Lista */}
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
           {ventas.length === 0
-            ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 36 }}>🛒</div><div>No hay ventas</div></div>
+            ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}><div style={{ fontSize: 32 }}>🛒</div><div>No hay registros</div></div>
             : ventas.map(v => {
               const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
-              const derInfo = [v.marca_der, v.modelo_der].filter(Boolean).join(" ");
-              const izqInfo = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ");
+              const stage = PIPELINE_STAGES.find(s => s.key === v.estado);
               const saldo = saldoReal(v);
               const pagos = Array.isArray(v.pagos) ? v.pagos : [];
               const segs = Array.isArray(v.seguimiento) ? v.seguimiento : [];
@@ -3378,26 +2985,24 @@ function Ventas({ data, db, usuario }) {
               const activo = verDetalle === v.id;
               return (
                 <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
-                  style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 12, padding: "12px 14px", cursor: "pointer", transition: "border-color 0.15s" }}>
+                  style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: 14 }}>{pacNombre(v.paciente_id)}</span>
-                        <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{cv.label}</span>
-                        {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
-                        {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>💰 Debe ${saldo.toLocaleString("es-AR")}</span>}
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{pacNombre(v.paciente_id)}</span>
+                        <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
+                        {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
+                        {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>💰 ${saldo.toLocaleString("es-AR")}</span>}
                       </div>
-                      <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        {derInfo && <span>👂D: {derInfo}</span>}
-                        {izqInfo && <span>👂I: {izqInfo}</span>}
+                      <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {[v.marca_der, v.modelo_der].filter(Boolean).length > 0 && <span>👂D: {[v.marca_der,v.modelo_der].filter(Boolean).join(" ")}</span>}
+                        {[v.marca_izq, v.modelo_izq].filter(Boolean).length > 0 && <span>👂I: {[v.marca_izq,v.modelo_izq].filter(Boolean).join(" ")}</span>}
                         <span>{formatFecha(v.fecha)}</span>
                         {parseFloat(v.precio) > 0 && <span style={{ color: "#166534", fontWeight: 600 }}>${parseFloat(v.precio).toLocaleString("es-AR")}</span>}
                       </div>
                       {(segs.length > 0 || pagos.length > 0) && (
-                        <div style={{ fontSize: 11, color: "#aaa", marginTop: 3 }}>
-                          {segs.length > 0 && `${segs.length} seguimiento${segs.length > 1 ? "s" : ""}`}
-                          {segs.length > 0 && pagos.length > 0 && " · "}
-                          {pagos.length > 0 && `${pagos.length} pago${pagos.length > 1 ? "s" : ""}`}
+                        <div style={{ fontSize: 10, color: "#aaa", marginTop: 2 }}>
+                          {segs.length > 0 && `${segs.length} seg.`}{segs.length > 0 && pagos.length > 0 && " · "}{pagos.length > 0 && `${pagos.length} pagos`}
                         </div>
                       )}
                     </div>
@@ -3409,107 +3014,94 @@ function Ventas({ data, db, usuario }) {
         </div>
       </div>
 
-      {/* ── Panel derecho: detalle + CRM ── */}
+      {/* ── Panel derecho detalle ── */}
       {verDetalle && ventaActual && (
-        <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 20 }}>
+        <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 18 }}>
           {/* Header */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 17 }}>{pacNombre(ventaActual.paciente_id)}</div>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{pacNombre(ventaActual.paciente_id)}</div>
               <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActual.fecha)}</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => { setForm({ ...FORM_VACIO, ...ventaActual, obraSocialCubre: ventaActual.obra_social_cubre || ventaActual.obraSocialCubre || "", saldoPaciente: ventaActual.saldo_paciente || ventaActual.saldoPaciente || "" }); setModal(ventaActual.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 12px" }}>✎ Editar</button>
-              <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActual.id); setVerDetalle(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+              <button onClick={() => { setForm({ ...FORM_VACIO, ...ventaActual, obraSocialCubre: ventaActual.obra_social_cubre || ventaActual.obraSocialCubre || "", saldoPaciente: ventaActual.saldo_paciente || ventaActual.saldoPaciente || "" }); setModal(ventaActual.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>✎ Editar</button>
+              <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActual.id); setVerDetalle(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
               <button onClick={() => setVerDetalle(null)} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
             </div>
           </div>
 
-          {/* Estado + precio */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-            {[
-              { label: "Estado", value: COLORES_VENTA[ventaActual.estado]?.label || ventaActual.estado, color: COLORES_VENTA[ventaActual.estado]?.color },
-              { label: "Precio total", value: ventaActual.precio ? `$${parseFloat(ventaActual.precio).toLocaleString("es-AR")}` : "—", color: "#166534" },
-              { label: "Saldo pendiente", value: `$${Math.max(0, saldoReal(ventaActual)).toLocaleString("es-AR")}`, color: saldoReal(ventaActual) <= 0 ? "#065F46" : "#92400E" },
-            ].map(item => (
-              <div key={item.label} style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ fontSize: 10, color: "#888", textTransform: "uppercase", fontWeight: 600, marginBottom: 3 }}>{item.label}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: item.color || "#1a1a2e" }}>{item.value}</div>
-              </div>
-            ))}
+          {/* Pipeline stages */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8, textTransform: "uppercase" }}>Estado del pipeline</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {PIPELINE_STAGES.map(s => {
+                const cv = COLORES_VENTA[s.key];
+                const actual = ventaActual.estado === s.key;
+                return (
+                  <button key={s.key} onClick={() => cambiarEstado(ventaActual.id, s.key)}
+                    style={{ background: actual ? cv.color : cv.bg, color: actual ? "#fff" : cv.color, border: `1.5px solid ${cv.color}`, borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: actual ? 800 : 600, cursor: "pointer" }}>
+                    {s.icon} {s.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Dispositivos */}
+          {/* Info */}
           {(ventaActual.marca_der || ventaActual.marca_izq) && (
-            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "10px 12px", marginBottom: 14, fontSize: 13 }}>
-              {ventaActual.marca_der && <div>👂 Der: {[ventaActual.marca_der, ventaActual.modelo_der].filter(Boolean).join(" ")}</div>}
-              {ventaActual.marca_izq && <div>👂 Izq: {[ventaActual.marca_izq, ventaActual.modelo_izq].filter(Boolean).join(" ")}</div>}
+            <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
+              {ventaActual.marca_der && <div>👂 Der: {[ventaActual.marca_der,ventaActual.modelo_der].filter(Boolean).join(" ")}</div>}
+              {ventaActual.marca_izq && <div>👂 Izq: {[ventaActual.marca_izq,ventaActual.modelo_izq].filter(Boolean).join(" ")}</div>}
               {ventaActual.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActual.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_os}</div>}
               {ventaActual.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActual.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_paciente}</div>}
             </div>
           )}
 
-          {/* ── COBRANZA ── */}
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a6b6b", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
+          {/* Cobranza */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
               <span>💰 Cobranza</span>
-              <span style={{ fontSize: 12, color: saldoReal(ventaActual) <= 0 ? "#065F46" : "#92400E", fontWeight: 700 }}>
-                {saldoReal(ventaActual) <= 0 ? "✅ Saldado" : `Saldo: $${Math.max(0, saldoReal(ventaActual)).toLocaleString("es-AR")}`}
-              </span>
+              {ventaActual.precio && <span style={{ color: saldoReal(ventaActual) <= 0 ? "#065F46" : "#92400E", fontWeight: 700 }}>
+                {saldoReal(ventaActual) <= 0 ? "✅ Saldado" : `Saldo: $${Math.max(0,saldoReal(ventaActual)).toLocaleString("es-AR")}`}
+              </span>}
             </div>
-            {/* Pagos registrados */}
-            {(Array.isArray(ventaActual.pagos) ? ventaActual.pagos : []).length > 0 && (
-              <div style={{ marginBottom: 8 }}>
-                {(ventaActual.pagos||[]).map(p => (
-                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "5px 10px", marginBottom: 4, fontSize: 12 }}>
-                    <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
-                    <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
-                    <span style={{ color: "#555" }}>{p.descripcion || "Pago"}</span>
-                  </div>
-                ))}
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#065F46", textAlign: "right", marginTop: 4 }}>
-                  Total pagado: ${(ventaActual.pagos||[]).reduce((s,p) => s + (parseFloat(p.monto)||0), 0).toLocaleString("es-AR")}
-                </div>
+            {(ventaActual.pagos||[]).map(p => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "4px 10px", marginBottom: 3, fontSize: 12 }}>
+                <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
+                <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
+                <span style={{ color: "#555" }}>{p.descripcion||"Pago"}</span>
               </div>
-            )}
-            {/* Nuevo pago */}
+            ))}
             {saldoReal(ventaActual) > 0 && (
-              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", marginBottom: 8 }}>+ Registrar pago</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 8, alignItems: "end" }}>
+              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 6, alignItems: "end" }}>
                   <Field label="Fecha"><input type="date" style={inputStyle} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-                  <Field label="Monto $"><input type="number" style={inputStyle} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0" /></Field>
+                  <Field label="Monto $"><input type="number" style={inputStyle} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} /></Field>
                   <Field label="Descripción"><input style={inputStyle} value={pagoForm.descripcion} onChange={e => setPagoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Seña, Cuota 1..." /></Field>
-                  <button onClick={() => agregarPago(ventaActual.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 12px", marginBottom: 14 }}>✓</button>
+                  <button onClick={() => agregarPago(ventaActual.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px", marginBottom: 14 }}>✓</button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* ── SEGUIMIENTO CRM ── */}
+          {/* Seguimiento */}
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#1a6b6b", marginBottom: 10 }}>📋 Seguimiento</div>
-            {/* Historial */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, maxHeight: 220, overflowY: "auto" }}>
-              {(Array.isArray(ventaActual.seguimiento) ? [...ventaActual.seguimiento] : []).reverse().map(s => (
-                <div key={s.id} style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 8, padding: "8px 12px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3, flexWrap: "wrap", gap: 4 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{s.tipo}</span>
-                      {s.responsable && <span style={{ fontSize: 10, color: "#aaa" }}>por {s.responsable}</span>}
-                    </div>
-                    <span style={{ fontSize: 10, color: "#aaa" }}>{formatFecha(s.fecha)}</span>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8 }}>📋 Seguimiento</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10, maxHeight: 200, overflowY: "auto" }}>
+              {[...(ventaActual.seguimiento||[])].reverse().map(s => (
+                <div key={s.id} style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 7, padding: "6px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                    <span style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>{s.tipo}</span>
+                    <span style={{ fontSize: 10, color: "#aaa" }}>{formatFecha(s.fecha)}{s.responsable ? ` · ${s.responsable}` : ""}</span>
                   </div>
-                  <div style={{ fontSize: 13, color: "#374151" }}>{s.descripcion}</div>
+                  <div style={{ fontSize: 12, color: "#374151" }}>{s.descripcion}</div>
                 </div>
               ))}
               {(!ventaActual.seguimiento || ventaActual.seguimiento.length === 0) && (
-                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 12 }}>Sin entradas de seguimiento</div>
+                <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 8 }}>Sin entradas</div>
               )}
             </div>
-            {/* Nueva entrada */}
             <div style={{ background: "#F0F4FF", border: "1px solid #C7D2FE", borderRadius: 8, padding: "10px 12px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 8 }}>+ Nueva entrada</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
                 <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e => setSegForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
                 <Field label="Tipo">
@@ -3518,21 +3110,21 @@ function Ventas({ data, db, usuario }) {
                   </select>
                 </Field>
               </div>
-              <Field label="Nota / Descripción">
-                <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Se llamó al paciente, confirmó que está interesado..." />
+              <Field label="Nota">
+                <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} />
               </Field>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: "#888" }}>Por: {usuario?.nombre || "—"}</span>
-                <button onClick={() => agregarSeguimiento(ventaActual.id)} style={{ ...btnPrimary, padding: "7px 16px", fontSize: 12 }}>Agregar</button>
+                <button onClick={() => agregarSeguimiento(ventaActual.id)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 12 }}>Agregar</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Modal nuevo/editar ── */}
+      {/* Modal */}
       {modal && (
-        <Modal title={modal === "nuevo" ? "Nueva venta / presupuesto" : "Editar venta"} onClose={() => setModal(null)}>
+        <Modal title={modal === "nuevo" ? "Nueva selección / venta" : "Editar"} onClose={() => setModal(null)}>
           <Field label="Paciente *">
             <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
               <option value="">Seleccionar...</option>
@@ -3543,58 +3135,40 @@ function Ventas({ data, db, usuario }) {
             <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
             <Field label="Estado">
               <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-                {Object.entries(COLORES_VENTA).map(([k,v]) => <option key={k} value={k}>{v.label}</option>)}
+                {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
               </select>
             </Field>
           </div>
-          {form.estado === "vendido" && modal !== "nuevo" && (() => {
-            const anterior = data.ventas.find(v => v.id === modal);
-            if (anterior?.estado === "vendido") return null;
-            return (
-              <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: 4, fontSize: 12 }}>
-                <div style={{ fontWeight: 700, color: "#1D4ED8" }}>🔔 Se crearán recordatorios automáticos de control</div>
-              </div>
-            );
-          })()}
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído derecho</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca_der || ""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={form.modelo_der || ""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_der||""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_der||""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>👂 Oído izquierdo</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído izquierdo</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca_izq || ""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq || ""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
+            <Field label="Marca"><input style={inputStyle} value={form.marca_izq||""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
+            <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq||""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
           </div>
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>💰 Precios</div>
           <Field label="Precio total ($)"><input type="number" style={inputStyle} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} /></Field>
-          <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 8 }}>Cobertura Obra Social</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={form.obraSocialCubre} onChange={e => setForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
-              <Field label="Condición pago OS">
-                <select style={selectStyle} value={form.condicion_pago_os || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
-                  <option value="">— Seleccionar —</option>
-                  {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
-                </select>
-              </Field>
-            </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={form.obraSocialCubre} onChange={e => setForm(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
+            <Field label="Condición OS">
+              <select style={selectStyle} value={form.condicion_pago_os||""} onChange={e => setForm(f => ({ ...f, condicion_pago_os: e.target.value }))}>
+                <option value="">—</option>
+                {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </Field>
+            <Field label="Saldo paciente ($)"><input type="number" style={inputStyle} value={form.saldoPaciente} onChange={e => setForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
+            <Field label="Condición paciente">
+              <select style={selectStyle} value={form.condicion_pago_paciente||""} onChange={e => setForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
+                <option value="">—</option>
+                {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </Field>
           </div>
-          <div style={{ background: "#FEF9EC", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "12px 14px", marginBottom: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 8 }}>Saldo Paciente</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <Field label="Monto paciente ($)"><input type="number" style={inputStyle} value={form.saldoPaciente} onChange={e => setForm(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
-              <Field label="Condición pago paciente">
-                <select style={selectStyle} value={form.condicion_pago_paciente || ""} onChange={e => setForm(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
-                  <option value="">— Seleccionar —</option>
-                  {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
-                </select>
-              </Field>
-            </div>
-          </div>
-          <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
+          <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.observaciones} onChange={e => setForm(f => ({ ...f, observaciones: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
