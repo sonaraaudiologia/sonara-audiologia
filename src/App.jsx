@@ -410,6 +410,19 @@ function CopyButton({ text, label }) {
 }
 
 // ─── HOOK SUPABASE ────────────────────────────────────────────────────────────
+async function logAuditoria(usuario, accion, tabla, descripcion, datosAnteriores = null, datosNuevos = null) {
+  try {
+    await supabase.from("auditoria").insert({
+      usuario: usuario || "Sistema",
+      accion,
+      tabla,
+      descripcion,
+      datos_anteriores: datosAnteriores,
+      datos_nuevos: datosNuevos,
+    });
+  } catch(e) { console.warn("Log auditoria:", e); }
+}
+
 function useSupabase() {
   const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
   const [loading, setLoading] = useState(true);
@@ -747,7 +760,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima, logAuditoria,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
     agregarCompra, actualizarCompra, eliminarCompra,
