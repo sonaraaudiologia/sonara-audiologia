@@ -552,7 +552,7 @@ async function logAuditoria(usuario, accion, tabla, descripcion, datosAnteriores
 }
 
 function useSupabase() {
-  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [] });
+  const [data, setData] = useState({ pacientes: [], turnos: [], ventas: [], recordatorios: [], compras: [], stock: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const undoStack = React.useRef([]);
@@ -609,12 +609,13 @@ function useSupabase() {
 
   async function cargarTodo() {
     try {
-      const [pac, tur, ven, rec, com] = await Promise.all([
+      const [pac, tur, ven, rec, com, stk] = await Promise.all([
         supabase.from("pacientes").select("*").order("apellido"),
         supabase.from("turnos").select("*").order("fecha").order("hora"),
         supabase.from("ventas").select("*").order("fecha", { ascending: false }),
         supabase.from("recordatorios").select("*").order("fecha").order("hora"),
         supabase.from("compras").select("*").order("fecha", { ascending: false }),
+        supabase.from("stock").select("*").order("created_at", { ascending: false }),
       ]);
       if (pac.error || tur.error) throw new Error(pac.error?.message || tur.error?.message);
       setData({
@@ -623,6 +624,7 @@ function useSupabase() {
         ventas: (ven.data || []).map(fromDBVenta),
         recordatorios: rec.data || [],
         compras: com.data || [],
+        stock: stk.data || [],
       });
     } catch(e) { setError(e.message); }
     finally { setLoading(false); }
@@ -3289,8 +3291,10 @@ const COLORES_VENTA = {
   aprobado:         { bg: "#DBEAFE", color: "#1E40AF",  label: "Aprobado" },
   señado:           { bg: "#FEF3C7", color: "#92400E",  label: "Señado" },
   subido_sios:      { bg: "#E0F2FE", color: "#075985",  label: "Subido a SIOS" },
+  facturado_os:     { bg: "#ECFDF5", color: "#065F46",  label: "Facturado a OS" },
   pedido_acompañamiento: { bg: "#F3E8FF", color: "#6D28D9", label: "Pedido acomp." },
   atendido_fono:    { bg: "#D1FAE5", color: "#065F46",  label: "Atendido por Fono" },
+  facturado_os:     { bg: "#E0F2FE", color: "#0369A1",  label: "Facturado a OS" },
   vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
   perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
 };
@@ -3303,11 +3307,12 @@ const PIPELINE_STAGES = [
   { key: "aprobado",        label: "Aprobado",        icon: "✅", desc: "Presupuesto aprobado" },
   { key: "señado",          label: "Señado",          icon: "💰", desc: "Dejó seña" },
   { key: "subido_sios",     label: "SIOS",            icon: "📤", desc: "Subido a SIOS" },
+  { key: "facturado_os",    label: "Facturado a OS",  icon: "🧾", desc: "Facturado a Obra Social" },
   { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
   { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
 ];
 
-const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia"];
+const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
 
 function useObjetivoMensual() {
   const [objetivo, setObjetivo] = useState(10);
@@ -3391,6 +3396,7 @@ function Ventas({ data, db, usuario }) {
   const FORM_VACIO = {
     paciente_id: "", fecha: today(), dispositivo: "Audífono",
     marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
+    stock_der_id: "", stock_izq_id: "",
     oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
     saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion",
     observaciones: "", seguimiento: [], pagos: []
@@ -3470,8 +3476,14 @@ function Ventas({ data, db, usuario }) {
       const esNueva = modal === "nuevo";
       const ventaAnterior = !esNueva && data.ventas.find(v => v.id === modal);
       const generarRec = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
+      const ventaId = esNueva ? null : modal;
       if (esNueva) await db.agregarVenta({ ...form, seguimiento: [], pagos: [] });
       else await db.actualizarVenta({ ...form, id: modal });
+      // Vincular items de stock al paciente cuando se vende
+      if (form.estado === "vendido" || form.estado === "facturado_os") {
+        if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
+        if (form.stock_izq_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_izq_id);
+      }
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
@@ -3945,11 +3957,35 @@ function Ventas({ data, db, usuario }) {
             <Field label="Marca"><input style={inputStyle} value={form.marca_der||""} onChange={e => setForm(f => ({ ...f, marca_der: e.target.value }))} /></Field>
             <Field label="Modelo"><input style={inputStyle} value={form.modelo_der||""} onChange={e => setForm(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
           </div>
+          <Field label="Audífono del stock (oído derecho)">
+            <select style={selectStyle} value={form.stock_der_id||""} onChange={e => {
+              const id = e.target.value;
+              const item = data.stock?.find ? data.stock.find(s => s.id === id) : null;
+              setForm(f => ({ ...f, stock_der_id: id, ...(item ? { marca_der: item.marca || f.marca_der, modelo_der: item.modelo || f.modelo_der } : {}) }));
+            }}>
+              <option value="">— Sin vincular —</option>
+              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.id === form.stock_der_id).map(s => (
+                <option key={s.id} value={s.id}>{s.marca} {s.modelo} · {s.numero_serie || "S/N"} · {ESTADOS_STOCK[s.estado]?.label}</option>
+              ))}
+            </select>
+          </Field>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído izquierdo</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
             <Field label="Marca"><input style={inputStyle} value={form.marca_izq||""} onChange={e => setForm(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
             <Field label="Modelo"><input style={inputStyle} value={form.modelo_izq||""} onChange={e => setForm(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
           </div>
+          <Field label="Audífono del stock (oído izquierdo)">
+            <select style={selectStyle} value={form.stock_izq_id||""} onChange={e => {
+              const id = e.target.value;
+              const item = data.stock?.find ? data.stock.find(s => s.id === id) : null;
+              setForm(f => ({ ...f, stock_izq_id: id, ...(item ? { marca_izq: item.marca || f.marca_izq, modelo_izq: item.modelo || f.modelo_izq } : {}) }));
+            }}>
+              <option value="">— Sin vincular —</option>
+              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.id === form.stock_izq_id).map(s => (
+                <option key={s.id} value={s.id}>{s.marca} {s.modelo} · {s.numero_serie || "S/N"} · {ESTADOS_STOCK[s.estado]?.label}</option>
+              ))}
+            </select>
+          </Field>
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <Field label="Precio total ($)"><input type="number" style={inputStyle} value={form.precio} onChange={e => setForm(f => ({ ...f, precio: e.target.value }))} /></Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
