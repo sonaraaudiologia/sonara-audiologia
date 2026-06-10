@@ -645,6 +645,8 @@ function useSupabase() {
       audifono_izq: pac.audifono_izq || "", audifono_izq_anio: pac.audifono_izq_anio || "",
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
+      acompanante_nombre: pac.acompanante_nombre || "",
+      acompanante_parentesco: pac.acompanante_parentesco || "",
     };
   }
 
@@ -662,6 +664,8 @@ function useSupabase() {
       audifono_izq_anio: row.audifono_izq_anio || "",
       historia: Array.isArray(row.historia) ? row.historia : [],
       etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
+      acompanante_nombre: row.acompanante_nombre || "",
+      acompanante_parentesco: row.acompanante_parentesco || "",
     };
   }
 
@@ -868,7 +872,7 @@ function useSupabase() {
   };
 }
 
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [] };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
 
 
 function SelectorPracticas({ seleccionadas = [], onChange }) {
@@ -2617,6 +2621,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                       ["Fecha nac.", pac.fechaNac || pac.fecha_nac ? `${formatFecha(pac.fechaNac || pac.fecha_nac)} (${calcEdad(pac.fechaNac || pac.fecha_nac)} años)` : "—"],
                       ["Derivado por", pac.derivadoPor || pac.derivado_por],
                       ["Diagnóstico", pac.diagnostico],
+                      ["Acompañante", pac.acompanante_nombre ? `${pac.acompanante_nombre}${pac.acompanante_parentesco ? " · " + pac.acompanante_parentesco : ""}` : null],
                     ].map(([label, val]) => val ? (
                       <div key={label} style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px" }}>
                         <div style={{ fontSize: 10, fontWeight: 700, color: "#888", textTransform: "uppercase", marginBottom: 2 }}>{label}</div>
@@ -2670,6 +2675,19 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                   </div>
                   <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes||""} onChange={e => setForm(f => ({...f, antecedentes: e.target.value}))} /></Field>
                   <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas||""} onChange={e => setForm(f => ({...f, notas: e.target.value}))} /></Field>
+                  <div style={{ height: 1, background: "#F0F0F0", margin: "8px 0 12px" }} />
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", marginBottom: 8 }}>👥 Acompañante</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <Field label="Nombre y apellido"><input style={inputStyle} value={form.acompanante_nombre||""} onChange={e => setForm(f => ({...f, acompanante_nombre: e.target.value}))} placeholder="Ej: María García" /></Field>
+                    <Field label="Parentesco">
+                      <select style={selectStyle} value={form.acompanante_parentesco||""} onChange={e => setForm(f => ({...f, acompanante_parentesco: e.target.value}))}>
+                        <option value="">— Sin especificar —</option>
+                        <option>Cónyuge / Pareja</option><option>Hijo/a</option><option>Padre / Madre</option>
+                        <option>Hermano/a</option><option>Nieto/a</option><option>Cuidador/a</option>
+                        <option>Otro familiar</option><option>Otro</option>
+                      </select>
+                    </Field>
+                  </div>
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 12 }}>
                     <button onClick={() => setEditando(false)} style={btnSecondary}>Cancelar</button>
                     <button onClick={guardarDatos} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar cambios"}</button>
@@ -2749,7 +2767,9 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       audifono_der_anio: p.audifono_der_anio || "",
       audifono_izq: p.audifono_izq || "",
       audifono_izq_anio: p.audifono_izq_anio || "",
-      etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : []
+      etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : [],
+      acompanante_nombre: p.acompanante_nombre || "",
+      acompanante_parentesco: p.acompanante_parentesco || "",
     });
     setModal(p.id);
   }
@@ -2943,6 +2963,13 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                     </div>
                   </div>
 
+                  {/* Acompañante */}
+                  {(p.acompanante_nombre) && (
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 4, textTransform: "uppercase" }}>👥 Acompañante</div>
+                      <div style={{ fontSize: 13 }}>{p.acompanante_nombre}{p.acompanante_parentesco ? ` · ${p.acompanante_parentesco}` : ""}</div>
+                    </div>
+                  )}
                   {/* Antecedentes y notas si existen */}
                   {(p.antecedentes || p.notas) && (
                     <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", marginBottom: 12 }}>
@@ -3028,6 +3055,28 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           </div>
           <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes} onChange={e => setForm(f => ({ ...f, antecedentes: e.target.value }))} /></Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
+
+          {/* ── Acompañante ── */}
+          <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>👥 Acompañante</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Nombre y apellido">
+              <input style={inputStyle} value={form.acompanante_nombre||""} onChange={e => setForm(f => ({ ...f, acompanante_nombre: e.target.value }))} placeholder="Ej: María García" />
+            </Field>
+            <Field label="Parentesco">
+              <select style={selectStyle} value={form.acompanante_parentesco||""} onChange={e => setForm(f => ({ ...f, acompanante_parentesco: e.target.value }))}>
+                <option value="">— Sin especificar —</option>
+                <option>Cónyuge / Pareja</option>
+                <option>Hijo/a</option>
+                <option>Padre / Madre</option>
+                <option>Hermano/a</option>
+                <option>Nieto/a</option>
+                <option>Cuidador/a</option>
+                <option>Otro familiar</option>
+                <option>Otro</option>
+              </select>
+            </Field>
+          </div>
 
           {/* ── Etiquetas ── */}
           <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
