@@ -4374,6 +4374,26 @@ function Estadisticas({ data }) {
   const maxTurnos = Math.max(...turnosPorMes.map(m => m.total), 1);
   const maxVentas = Math.max(...ventasPorMes.map(m => m.monto), 1);
 
+  // ── Métricas interrelacionadas ────────────────────────────────────────────
+  const mesActual = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
+  const visitasProfMes = profExternos.reduce((acc, p) =>
+    acc + (p.seguimiento||[]).filter(s => (s.tipo==="Visita"||s.tipo==="Reunión") && (s.fecha||"").startsWith(mesActual)).length, 0);
+  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim() !== "").length;
+  const derivacionesMes = data.pacientes.filter(p => {
+    const der = (p.derivado_por||p.derivadoPor||"").trim();
+    const created = p.created_at || "";
+    return der !== "" && created.startsWith(mesActual);
+  }).length;
+  const seleccionesMes = data.ventas.filter(v =>
+    (v.fecha||"").startsWith(mesActual) && v.paciente_id &&
+    ["seleccion","sin_presupuesto","ausente","presupuestado","aprobado","señado","subido_sios","facturado_os","vendido","perdido"].includes(v.estado)
+  ).length;
+  const ventasMesConcretadas = data.ventas.filter(v =>
+    (v.fecha||"").startsWith(mesActual) && v.estado === "vendido"
+  ).length;
+  const convSeleccionVenta = seleccionesMes > 0 ? Math.round((ventasMesConcretadas/seleccionesMes)*100) : 0;
+  const convDerivacionSeleccion = totalDerivaciones > 0 ? Math.round((seleccionesMes/totalDerivaciones)*100) : 0;
+
   const cardStyle = { background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "18px 20px", marginBottom: 16 };
   const sectionTitle = { fontWeight: 700, fontSize: 15, color: "#1a1a2e", marginBottom: 14 };
 
@@ -4428,6 +4448,73 @@ function Estadisticas({ data }) {
             <div style={{ fontSize: 11, color: c.color, opacity: 0.8 }}>{c.label}</div>
           </div>
         ))}
+      </div>
+
+      {/* ── Funnel interrelacionado del mes ─────────────────────────────── */}
+      <div style={{ ...cardStyle, marginBottom: 16 }}>
+        <div style={{ ...sectionTitle }}>🔗 Embudo del mes — {["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"][new Date().getMonth()]} {new Date().getFullYear()}</div>
+        
+        {/* Funnel visual */}
+        <div style={{ display: "flex", alignItems: "stretch", gap: 0, marginBottom: 20 }}>
+          {[
+            { label: "Visitas a prof.", value: visitasProfMes, icon: "🤝", color: "#4338CA", bg: "#EEF2FF", desc: "Visitas/reuniones realizadas" },
+            { label: "Derivaciones nuevas", value: derivacionesMes, icon: "➡️", color: "#0891B2", bg: "#E0F2FE", desc: "Pacientes nuevos derivados" },
+            { label: "Selecciones", value: seleccionesMes, icon: "👂", color: "#6D28D9", bg: "#F3E8FF", desc: "Pacientes que vinieron a selección" },
+            { label: "Ventas concretadas", value: ventasMesConcretadas, icon: "🎉", color: "#065F46", bg: "#D1FAE5", desc: "Ventas cerradas" },
+          ].map((s, i, arr) => {
+            const prev = i > 0 ? arr[i-1].value : null;
+            const pct = prev && prev > 0 ? Math.round((s.value / prev) * 100) : null;
+            const barW = arr[0].value > 0 ? Math.max((s.value / arr[0].value) * 100, s.value > 0 ? 8 : 0) : 0;
+            return (
+              <div key={s.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                {/* Flecha entre pasos */}
+                {i > 0 && (
+                  <div style={{ position: "relative", width: "100%", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 4 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: pct !== null ? (pct >= 50 ? "#065F46" : pct >= 20 ? "#92400E" : "#991B1B") : "#aaa",
+                      background: pct !== null ? (pct >= 50 ? "#D1FAE5" : pct >= 20 ? "#FEF3C7" : "#FEE2E2") : "#F3F4F6",
+                      borderRadius: 10, padding: "1px 7px" }}>
+                      {pct !== null ? `${pct}% conv.` : "—"}
+                    </div>
+                  </div>
+                )}
+                {/* Barra + valor */}
+                <div style={{ width: "100%", padding: "0 4px" }}>
+                  <div style={{ background: s.bg, border: `2px solid ${s.color}44`, borderRadius: 10, padding: "12px 10px", textAlign: "center", position: "relative", overflow: "hidden" }}>
+                    {/* Barra de fondo proporcional */}
+                    <div style={{ position: "absolute", bottom: 0, left: 0, width: `${barW}%`, height: "100%", background: s.color, opacity: 0.08, transition: "width 0.5s" }} />
+                    <div style={{ fontSize: 22, marginBottom: 2 }}>{s.icon}</div>
+                    <div style={{ fontSize: 28, fontWeight: 900, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: s.color, marginTop: 4, lineHeight: 1.3 }}>{s.label}</div>
+                    <div style={{ fontSize: 10, color: "#888", marginTop: 3, lineHeight: 1.3 }}>{s.desc}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Métricas acumuladas totales */}
+        <div style={{ borderTop: "1px solid #F0F0F0", paddingTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#555", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>Acumulado total</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+            {[
+              { label: "Profesionales externos", value: profExternos.length, icon: "🏥", color: "#4338CA", bg: "#EEF2FF" },
+              { label: "Total derivaciones históricas", value: totalDerivaciones, icon: "➡️", color: "#0891B2", bg: "#E0F2FE" },
+              { label: "Total selecciones históricas", value: data.ventas.filter(v => v.paciente_id).length, icon: "👂", color: "#6D28D9", bg: "#F3E8FF" },
+              { label: "Conv. selección → venta", value: `${convSeleccionVenta}%`, icon: "📈", color: convSeleccionVenta >= 50 ? "#065F46" : convSeleccionVenta >= 25 ? "#92400E" : "#991B1B", bg: convSeleccionVenta >= 50 ? "#D1FAE5" : convSeleccionVenta >= 25 ? "#FEF3C7" : "#FEE2E2" },
+              { label: "Total ventas concretadas", value: data.ventas.filter(v => v.estado === "vendido").length, icon: "🎉", color: "#065F46", bg: "#D1FAE5" },
+              { label: "Monto total vendido", value: `$${(totalVendidoGeneral/1000).toFixed(0)}k`, icon: "💰", color: "#166534", bg: "#F0FDF4" },
+            ].map(s => (
+              <div key={s.label} style={{ background: s.bg, borderRadius: 8, padding: "10px 12px", display: "flex", gap: 10, alignItems: "center" }}>
+                <span style={{ fontSize: 20 }}>{s.icon}</span>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: s.color, opacity: 0.8, lineHeight: 1.3 }}>{s.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* Turnos por mes */}
