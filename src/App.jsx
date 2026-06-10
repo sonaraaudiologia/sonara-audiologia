@@ -4745,307 +4745,347 @@ function useProfesionalesExternos() {
   return { profesionales, loading, agregar, actualizar, eliminar, agregarSeguimiento };
 }
 
-const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", alias_cbu: "", notas: "" };
+// ─── DERIVADORES (Profesionales externos + Obras Sociales) ────────────────────
 const TIPOS_SEGUIMIENTO_PROF = ["Visita", "Llamada", "Email", "Derivación recibida", "Derivación enviada", "Reunión", "Otro"];
 const ESPECIALIDADES = ["Médico clínico", "Fonoaudiólogo/a", "Otorrinolaringólogo/a", "Neurólogo/a", "Pediatra", "Geriatra", "Psicólogo/a", "Kinesiólogo/a", "Otro"];
 
+const TIPO_COLOR_SEG = {
+  "Visita":              { bg: "#EEF2FF", c: "#4338CA" },
+  "Llamada":             { bg: "#DBEAFE", c: "#1E40AF" },
+  "Email":               { bg: "#E0F2FE", c: "#075985" },
+  "Derivación recibida": { bg: "#D1FAE5", c: "#065F46" },
+  "Derivación enviada":  { bg: "#FEF3C7", c: "#92400E" },
+  "Reunión":             { bg: "#EDE9FE", c: "#5B21B6" },
+  "Otro":                { bg: "#F3F4F6", c: "#374151" },
+};
+
+// Tabla obras_sociales en supabase — si no existe se usa tabla prof_externos con tipo="os"
+// Usamos la misma tabla profesionales_externos con campo tipo: "profesional" | "obra_social"
+function useDerivadores() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-prof-der-" + Math.random().toString(36).slice(2,7))
+      .on("postgres_changes", { event: "*", schema: "public", table: "profesionales_externos" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  async function cargar() {
+    const { data } = await supabase.from("profesionales_externos").select("*").order("nombre");
+    if (data) setItems(data);
+    setLoading(false);
+  }
+
+  async function agregar(item) {
+    const { data: row } = await supabase.from("profesionales_externos").insert({ ...item, seguimiento: item.seguimiento || [] }).select().single();
+    if (row) setItems(s => [...s, row]);
+    return row;
+  }
+  async function actualizar(item) {
+    await supabase.from("profesionales_externos").update(item).eq("id", item.id);
+    setItems(s => s.map(x => x.id === item.id ? item : x));
+  }
+  async function eliminar(id) {
+    await supabase.from("profesionales_externos").delete().eq("id", id);
+    setItems(s => s.filter(x => x.id !== id));
+  }
+  async function agregarSeguimiento(id, entrada) {
+    const item = items.find(x => x.id === id);
+    if (!item) return;
+    const seg = [...(item.seguimiento || []), { ...entrada, id: uid() }];
+    await actualizar({ ...item, seguimiento: seg });
+  }
+
+  return { items, loading, agregar, actualizar, eliminar, agregarSeguimiento };
+}
+
+const FORM_PROF_VACIO = { nombre: "", especialidad: "", institucion: "", telefono: "", email: "", localidad: "", alias_cbu: "", notas: "", tipo: "profesional" };
+const FORM_OS_VACIO = { nombre: "", especialidad: "Obra Social", institucion: "", telefono: "", email: "", localidad: "", alias_cbu: "", notas: "", tipo: "obra_social" };
+
 function Profesionales({ data }) {
-  const { profesionales, loading: loadingProf, agregar, actualizar, eliminar, agregarSeguimiento } = useProfesionalesExternos();
-  const [modal, setModal] = useState(null); // null | "nuevo" | id
-  const [verSeg, setVerSeg] = useState(null); // id del prof
-  const [verDerivados, setVerDerivados] = useState(null); // id del prof
+  const { items, loading, agregar, actualizar, eliminar, agregarSeguimiento } = useDerivadores();
+  const [subTab, setSubTab] = useState("profesionales");
+  const [modal, setModal] = useState(null);
+  const [verSeg, setVerSeg] = useState(null);
+  const [verDerivados, setVerDerivados] = useState(null);
   const [busqueda, setBusqueda] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(FORM_PROF_VACIO);
   const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Visita", descripcion: "", proxContacto: "" });
   const [segModal, setSegModal] = useState(false);
 
-  const lista = profesionales.filter(p =>
-    busqueda === "" || `${p.nombre} ${p.especialidad} ${p.institucion || ""}`.toLowerCase().includes(busqueda.toLowerCase())
-  );
+  // Separar por tipo
+  const profesionales = items.filter(x => x.tipo !== "obra_social");
+  const obrasSociales = items.filter(x => x.tipo === "obra_social");
+  const lista = (subTab === "profesionales" ? profesionales : obrasSociales)
+    .filter(p => busqueda === "" || `${p.nombre} ${p.especialidad||""} ${p.institucion||""}`.toLowerCase().includes(busqueda.toLowerCase()));
+
+  // Stats
+  const hoy = new Date();
+  const mesActivo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,"0")}`;
+  const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim()!=="").length;
+  const visitasMes = profesionales.reduce((acc,p) =>
+    acc + (p.seguimiento||[]).filter(s=>(s.tipo==="Visita"||s.tipo==="Reunión")&&(s.fecha||"").startsWith(mesActivo)).length, 0);
+
+  const [objetivoVisitas, setObjetivoVisitas] = useState(4);
+  const [editandoObj, setEditandoObj] = useState(false);
+  const [nuevoObj, setNuevoObj] = useState(4);
+
+  useEffect(() => {
+    supabase.from("auditoria").select("datos_nuevos").eq("tabla","objetivo_visitas")
+      .order("created_at",{ascending:false}).limit(1)
+      .then(({data:rows})=>{ if(rows&&rows[0]?.datos_nuevos?.objetivo) setObjetivoVisitas(rows[0].datos_nuevos.objetivo); });
+  }, []);
+
+  const pctV = Math.min(100, Math.round((visitasMes/objetivoVisitas)*100));
+  const colV = pctV>=100?"#065F46":pctV>=60?"#1a6b6b":pctV>=30?"#92400E":"#991B1B";
+  const bgV = pctV>=100?"#D1FAE5":pctV>=60?"#e0f4f4":pctV>=30?"#FEF3C7":"#FEE2E2";
+
+  function pacientesPorProf(nombre) {
+    return data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").toLowerCase().includes(nombre.toLowerCase()));
+  }
+  function derivCount(nombre) { return pacientesPorProf(nombre).length; }
 
   function abrirNuevo() {
-    setForm(FORM_PROF_VACIO);
+    setForm(subTab === "profesionales" ? FORM_PROF_VACIO : FORM_OS_VACIO);
     setModal("nuevo");
   }
-
   function abrirEditar(p) {
-    setForm({ nombre: p.nombre, especialidad: p.especialidad || "", institucion: p.institucion || "", telefono: p.telefono || "", email: p.email || "", localidad: p.localidad || "", alias_cbu: p.alias_cbu || "", notas: p.notas || "" });
+    setForm({ nombre:p.nombre, especialidad:p.especialidad||"", institucion:p.institucion||"", telefono:p.telefono||"", email:p.email||"", localidad:p.localidad||"", alias_cbu:p.alias_cbu||"", notas:p.notas||"", tipo:p.tipo||"profesional" });
     setModal(p.id);
   }
-
   async function guardar() {
     if (!form.nombre) return alert("El nombre es obligatorio.");
     setSaving(true);
     try {
-      if (modal === "nuevo") agregar(form);
-      else actualizar({ ...profesionales.find(p => p.id === modal), ...form });
+      if (modal==="nuevo") await agregar(form);
+      else await actualizar({ ...items.find(p=>p.id===modal), ...form });
       setModal(null);
     } finally { setSaving(false); }
   }
-
   function guardarSeguimiento() {
     if (!segForm.descripcion) return alert("Escribí una descripción.");
     agregarSeguimiento(verSeg, segForm);
     setSegModal(false);
-    setSegForm({ fecha: today(), tipo: "Visita", descripcion: "", proxContacto: "" });
+    setSegForm({ fecha:today(), tipo:"Visita", descripcion:"", proxContacto:"" });
   }
-
-  const profActual = profesionales.find(p => p.id === verSeg);
-  // Count derivaciones from pacientes
-  const derivacionesPorProf = (profNombre) =>
-    data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").toLowerCase().includes(profNombre.toLowerCase())).length;
-
-  const pacientesPorProf = (profNombre) =>
-    data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").toLowerCase().includes(profNombre.toLowerCase()));
-
-  const TIPO_COLOR_SEG = {
-    "Visita": { bg: "#EEF2FF", c: "#4338CA" },
-    "Llamada": { bg: "#DBEAFE", c: "#1E40AF" },
-    "Email": { bg: "#E0F2FE", c: "#075985" },
-    "Derivación recibida": { bg: "#D1FAE5", c: "#065F46" },
-    "Derivación enviada": { bg: "#FEF3C7", c: "#92400E" },
-    "Reunión": { bg: "#EDE9FE", c: "#5B21B6" },
-    "Otro": { bg: "#F3F4F6", c: "#374151" },
-  };
-
-  // Stats globales
-  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por || p.derivadoPor || "").trim() !== "").length;
-  const hoy = new Date();
-  const mesActivo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,"0")}`;
-  const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-
-  // Visitas del mes = entradas de seguimiento tipo Visita o Reunión en el mes actual
-  const visitasMes = profesionales.reduce((acc, p) => {
-    const segs = (p.seguimiento || []).filter(s =>
-      (s.tipo === "Visita" || s.tipo === "Reunión") &&
-      s.fecha && s.fecha.startsWith(mesActivo)
-    );
-    return acc + segs.length;
-  }, 0);
-
-  const [objetivoVisitas, setObjetivoVisitas] = useState(4);
-  const [editandoObjetivoV, setEditandoObjetivoV] = useState(false);
-  const [nuevoObjetivoV, setNuevoObjetivoV] = useState(4);
-
-  // Load objetivo from supabase auditoria
-  useEffect(() => {
-    supabase.from("auditoria").select("datos_nuevos")
-      .eq("tabla", "objetivo_visitas").order("created_at", { ascending: false }).limit(1)
-      .then(({ data: rows }) => {
-        if (rows && rows[0]?.datos_nuevos?.objetivo) setObjetivoVisitas(rows[0].datos_nuevos.objetivo);
-      });
-  }, []);
-
-  const pctVisitas = Math.min(100, Math.round((visitasMes / objetivoVisitas) * 100));
-  const colorV = pctVisitas >= 100 ? "#065F46" : pctVisitas >= 60 ? "#1a6b6b" : pctVisitas >= 30 ? "#92400E" : "#991B1B";
-  const bgV = pctVisitas >= 100 ? "#D1FAE5" : pctVisitas >= 60 ? "#e0f4f4" : pctVisitas >= 30 ? "#FEF3C7" : "#FEE2E2";
+  const profActual = items.find(p=>p.id===verSeg);
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>🏥 Profesionales externos</div>
-        <button onClick={abrirNuevo} style={btnPrimary}>+ Nuevo profesional</button>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+        <div style={{ fontSize:18, fontWeight:700, color:"#1a1a2e" }}>🔗 Derivadores</div>
+        <button onClick={abrirNuevo} style={btnPrimary}>+ Nuevo</button>
       </div>
 
-      {/* Stats resumen */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
-        <div style={{ background: "#EEF2FF", border: "1.5px solid #C7D2FE", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#4338CA" }}>{profesionales.length}</div>
-          <div style={{ fontSize: 12, color: "#4338CA", fontWeight: 600 }}>🏥 Profesionales externos</div>
+      {/* Stats row */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:16 }}>
+        <div style={{ background:"#EEF2FF", border:"1.5px solid #C7D2FE", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
+          <div style={{ fontSize:26, fontWeight:800, color:"#4338CA" }}>{profesionales.length}</div>
+          <div style={{ fontSize:11, color:"#4338CA", fontWeight:600 }}>🏥 Profesionales</div>
         </div>
-        <div style={{ background: "#D1FAE5", border: "1.5px solid #A7F3D0", borderRadius: 12, padding: "12px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: "#065F46" }}>{totalDerivaciones}</div>
-          <div style={{ fontSize: 12, color: "#065F46", fontWeight: 600 }}>👥 Total derivaciones</div>
+        <div style={{ background:"#D1FAE5", border:"1.5px solid #A7F3D0", borderRadius:12, padding:"12px 16px", textAlign:"center" }}>
+          <div style={{ fontSize:26, fontWeight:800, color:"#065F46" }}>{totalDerivaciones}</div>
+          <div style={{ fontSize:11, color:"#065F46", fontWeight:600 }}>👥 Total derivaciones</div>
         </div>
-        <div style={{ background: bgV, border: `1.5px solid ${colorV}44`, borderRadius: 12, padding: "12px 14px", position: "relative" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <div style={{ background:bgV, border:`1.5px solid ${colV}44`, borderRadius:12, padding:"12px 14px", position:"relative" }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: colorV }}>🤝 Visitas {MESES_N[hoy.getMonth()]}</div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: colorV }}>{visitasMes} / {objetivoVisitas}</div>
+              <div style={{ fontSize:11, fontWeight:700, color:colV }}>🤝 Visitas {MESES_N[hoy.getMonth()]}</div>
+              <div style={{ fontSize:22, fontWeight:800, color:colV }}>{visitasMes} / {objetivoVisitas}</div>
             </div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: colorV }}>{pctVisitas}%</div>
+            <div style={{ fontSize:16, fontWeight:800, color:colV }}>{pctV}%</div>
           </div>
-          <div style={{ background: "rgba(255,255,255,0.5)", borderRadius: 20, height: 8, overflow: "hidden", marginBottom: 4 }}>
-            <div style={{ height: "100%", width: `${pctVisitas}%`, background: colorV, borderRadius: 20, transition: "width 0.4s" }} />
+          <div style={{ background:"rgba(255,255,255,0.5)", borderRadius:20, height:7, overflow:"hidden", marginBottom:4 }}>
+            <div style={{ height:"100%", width:`${pctV}%`, background:colV, borderRadius:20, transition:"width 0.4s" }} />
           </div>
-          {pctVisitas >= 100
-            ? <div style={{ fontSize: 10, color: colorV, fontWeight: 700 }}>🎉 ¡Objetivo alcanzado!</div>
-            : <div style={{ fontSize: 10, color: "#666" }}>Faltan {objetivoVisitas - visitasMes} visitas</div>
+          {pctV>=100
+            ? <div style={{ fontSize:10, color:colV, fontWeight:700 }}>🎉 ¡Objetivo alcanzado!</div>
+            : <div style={{ fontSize:10, color:"#666" }}>Faltan {objetivoVisitas-visitasMes} visitas</div>
           }
-          {/* Botón cambiar objetivo */}
-          {editandoObjetivoV ? (
-            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 6 }}>
-              <input type="number" min="1" max="50" value={nuevoObjetivoV} onChange={e => setNuevoObjetivoV(parseInt(e.target.value)||1)}
-                style={{ ...inputStyle, width: 50, padding: "3px 6px", fontSize: 12 }} />
-              <button onClick={async () => {
-                setObjetivoVisitas(nuevoObjetivoV);
-                await supabase.from("auditoria").insert({ usuario: window.__sonaraUsuario || "Sistema", accion: "CONFIG", tabla: "objetivo_visitas", descripcion: `Objetivo visitas actualizado a ${nuevoObjetivoV}`, datos_nuevos: { objetivo: nuevoObjetivoV } });
-                setEditandoObjetivoV(false);
-              }} style={{ ...btnPrimary, padding: "3px 8px", fontSize: 11 }}>✓</button>
-              <button onClick={() => setEditandoObjetivoV(false)} style={{ ...btnSecondary, padding: "3px 6px", fontSize: 11 }}>✕</button>
+          {editandoObj ? (
+            <div style={{ display:"flex", gap:4, marginTop:5 }}>
+              <input type="number" min="1" value={nuevoObj} onChange={e=>setNuevoObj(parseInt(e.target.value)||1)} style={{ ...inputStyle, width:50, padding:"3px 6px", fontSize:12 }} />
+              <button onClick={async()=>{ setObjetivoVisitas(nuevoObj); await supabase.from("auditoria").insert({usuario:window.__sonaraUsuario||"Sistema",accion:"CONFIG",tabla:"objetivo_visitas",descripcion:`Objetivo visitas actualizado a ${nuevoObj}`,datos_nuevos:{objetivo:nuevoObj}}); setEditandoObj(false); }} style={{...btnPrimary,padding:"3px 8px",fontSize:11}}>✓</button>
+              <button onClick={()=>setEditandoObj(false)} style={{...btnSecondary,padding:"3px 6px",fontSize:11}}>✕</button>
             </div>
           ) : (
-            <button onClick={() => { setNuevoObjetivoV(objetivoVisitas); setEditandoObjetivoV(true); }}
-              style={{ background: "rgba(255,255,255,0.7)", border: "none", borderRadius: 5, padding: "2px 7px", fontSize: 10, cursor: "pointer", color: "#555", marginTop: 4 }}>✎ Cambiar objetivo</button>
+            <button onClick={()=>{setNuevoObj(objetivoVisitas);setEditandoObj(true);}} style={{ background:"rgba(255,255,255,0.7)", border:"none", borderRadius:5, padding:"2px 7px", fontSize:10, cursor:"pointer", color:"#555", marginTop:4 }}>✎ Cambiar objetivo</button>
           )}
         </div>
       </div>
 
-      <input style={{ ...inputStyle, maxWidth: 320, marginBottom: 16 }} placeholder="Buscar por nombre, especialidad..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+      {/* Sub-tabs */}
+      <div style={{ display:"flex", gap:4, background:"#F3F4F6", borderRadius:10, padding:4, marginBottom:14, width:"fit-content" }}>
+        <button onClick={()=>{setSubTab("profesionales");setBusqueda("");}}
+          style={{ background:subTab==="profesionales"?"#1a6b6b":"transparent", color:subTab==="profesionales"?"#fff":"#555", border:"none", borderRadius:8, padding:"8px 20px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          👩‍⚕️ Profesionales externos <span style={{ background:"rgba(255,255,255,0.25)", borderRadius:10, padding:"1px 6px", fontSize:11 }}>{profesionales.length}</span>
+        </button>
+        <button onClick={()=>{setSubTab("obras_sociales");setBusqueda("");}}
+          style={{ background:subTab==="obras_sociales"?"#4338CA":"transparent", color:subTab==="obras_sociales"?"#fff":"#555", border:"none", borderRadius:8, padding:"8px 20px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
+          🏥 Obras sociales / Entidades <span style={{ background:"rgba(255,255,255,0.25)", borderRadius:10, padding:"1px 6px", fontSize:11 }}>{obrasSociales.length}</span>
+        </button>
+      </div>
 
-      {loadingProf
-        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 30 }}>⏳</div><div>Cargando...</div></div>
-        : lista.length === 0
-        ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🏥</div><div>No hay profesionales cargados</div></div>
-        : <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 12 }}>
+      <input style={{ ...inputStyle, maxWidth:320, marginBottom:14 }} placeholder="Buscar por nombre..." value={busqueda} onChange={e=>setBusqueda(e.target.value)} />
+
+      {/* Lista */}
+      {loading
+        ? <div style={{ textAlign:"center", padding:40, color:"#aaa" }}>⏳ Cargando...</div>
+        : lista.length===0
+        ? <div style={{ textAlign:"center", padding:40, color:"#aaa" }}>
+            <div style={{ fontSize:40 }}>{subTab==="profesionales"?"👩‍⚕️":"🏥"}</div>
+            <div>No hay {subTab==="profesionales"?"profesionales":"obras sociales"} cargados</div>
+          </div>
+        : <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(270px, 1fr))", gap:12 }}>
           {lista.map(p => {
-            const derivaciones = derivacionesPorProf(p.nombre);
-            const ultSeg = (p.seguimiento || []).slice(-1)[0];
+            const derivaciones = subTab==="profesionales" ? derivCount(p.nombre) : 0;
+            const ultSeg = (p.seguimiento||[]).slice(-1)[0];
+            const esOS = p.tipo==="obra_social";
+            const accentColor = esOS ? "#4338CA" : "#1a6b6b";
+            const accentBg = esOS ? "#EEF2FF" : "#e0f4f4";
             return (
-              <div key={p.id} style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px" }}>
-                <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
-                  <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#e0f0f0", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 16, color: "#1a6b6b", flexShrink: 0 }}>
-                    {p.nombre.split(" ").filter(w => w.length > 1).map(w => w[0]).slice(0, 2).join("").toUpperCase()}
+              <div key={p.id} style={{ background:"#fff", border:"1.5px solid #F0F0F0", borderRadius:12, padding:"16px 18px" }}>
+                <div style={{ display:"flex", gap:12, marginBottom:10 }}>
+                  <div style={{ width:44, height:44, borderRadius:"50%", background:accentBg, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:16, color:accentColor, flexShrink:0 }}>
+                    {esOS ? "🏥" : p.nombre.split(" ").filter(w=>w.length>1).map(w=>w[0]).slice(0,2).join("").toUpperCase()}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>{p.nombre}</div>
-                    <div style={{ fontSize: 13, color: "#888" }}>{p.especialidad || "—"}</div>
-                    {p.institucion && <div style={{ fontSize: 12, color: "#aaa" }}>{p.institucion}</div>}
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:700, fontSize:15 }}>{p.nombre}</div>
+                    <div style={{ fontSize:13, color:"#888" }}>{p.especialidad||"—"}</div>
+                    {p.institucion && <div style={{ fontSize:12, color:"#aaa" }}>{p.institucion}</div>}
                   </div>
                 </div>
 
-                {derivaciones > 0 && (
-                  <div onClick={() => setVerDerivados(verDerivados === p.id ? null : p.id)}
-                    style={{ background: "#D1FAE5", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", marginBottom: 8, display: "inline-block", cursor: "pointer" }}>
-                    👥 {derivaciones} paciente{derivaciones !== 1 ? "s" : ""} derivado{derivaciones !== 1 ? "s" : ""} {verDerivados === p.id ? "▲" : "▼"}
+                {!esOS && derivaciones>0 && (
+                  <div onClick={()=>setVerDerivados(verDerivados===p.id?null:p.id)}
+                    style={{ background:"#D1FAE5", borderRadius:8, padding:"5px 10px", fontSize:12, fontWeight:700, color:"#065F46", marginBottom:8, display:"inline-block", cursor:"pointer" }}>
+                    👥 {derivaciones} paciente{derivaciones!==1?"s":""} derivado{derivaciones!==1?"s":""} {verDerivados===p.id?"▲":"▼"}
                   </div>
                 )}
-                {verDerivados === p.id && (
-                  <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "8px 10px", marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#065F46", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 }}>Pacientes derivados</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {pacientesPorProf(p.nombre).map(pac => (
-                        <div key={pac.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", borderRadius: 6, padding: "5px 8px", fontSize: 12 }}>
-                          <div>
-                            <div style={{ fontWeight: 600, color: "#1a1a2e" }}>{pac.apellido}, {pac.nombre}</div>
-                            <div style={{ color: "#888", fontSize: 11 }}>{pac.obraSocial || pac.obra_social || "Particular"}</div>
-                          </div>
-                          {pac.telefono && (
-                            <div style={{ color: "#1a6b6b", fontSize: 11, display: "flex", alignItems: "center", gap: 2 }}>
-                              📞 {pac.telefono}
-                            </div>
-                          )}
+                {verDerivados===p.id && (
+                  <div style={{ background:"#F0FDF4", border:"1px solid #BBF7D0", borderRadius:8, padding:"8px 10px", marginBottom:8 }}>
+                    <div style={{ fontSize:11, fontWeight:700, color:"#065F46", marginBottom:6, textTransform:"uppercase" }}>Pacientes derivados</div>
+                    {pacientesPorProf(p.nombre).map(pac=>(
+                      <div key={pac.id} style={{ display:"flex", justifyContent:"space-between", background:"#fff", borderRadius:6, padding:"5px 8px", marginBottom:4, fontSize:12 }}>
+                        <div>
+                          <div style={{ fontWeight:600 }}>{pac.apellido}, {pac.nombre}</div>
+                          <div style={{ color:"#888", fontSize:11 }}>{pac.obraSocial||pac.obra_social||"Particular"}</div>
                         </div>
-                      ))}
-                    </div>
+                        {pac.telefono && <span style={{ color:"#1a6b6b", fontSize:11 }}>📞{pac.telefono}</span>}
+                      </div>
+                    ))}
                   </div>
                 )}
 
-                {p.telefono && (
-                  <div style={{ fontSize: 13, color: "#666", marginBottom: 3, display: "flex", alignItems: "center" }}>
-                    📞 {p.telefono} <CopyButton text={p.telefono} label="teléfono" />
-                  </div>
-                )}
-                {p.email && (
-                  <div style={{ fontSize: 13, color: "#666", marginBottom: 3, display: "flex", alignItems: "center" }}>
-                    ✉️ {p.email} <CopyButton text={p.email} label="email" />
-                  </div>
-                )}
-                {p.localidad && <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>📍 {p.localidad}</div>}
+                {p.telefono && <div style={{ fontSize:13, color:"#666", marginBottom:3, display:"flex", alignItems:"center" }}>📞 {p.telefono} <CopyButton text={p.telefono} label="teléfono" /></div>}
+                {p.email && <div style={{ fontSize:13, color:"#666", marginBottom:3, display:"flex", alignItems:"center" }}>✉️ {p.email} <CopyButton text={p.email} label="email" /></div>}
+                {p.alias_cbu && <div style={{ fontSize:12, color:"#888", marginBottom:3 }}>🏦 {p.alias_cbu}</div>}
+                {p.localidad && <div style={{ fontSize:12, color:"#aaa", marginBottom:8 }}>📍 {p.localidad}</div>}
+                {ultSeg && <div style={{ background:"#F8FAFC", borderRadius:8, padding:"6px 10px", fontSize:12, color:"#555", marginBottom:8 }}><span style={{ fontWeight:600 }}>Último contacto:</span> {formatFecha(ultSeg.fecha)} · {ultSeg.tipo}</div>}
 
-                {ultSeg && (
-                  <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "6px 10px", fontSize: 12, color: "#555", marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600 }}>Último contacto:</span> {formatFecha(ultSeg.fecha)} · {ultSeg.tipo}
-                  </div>
-                )}
-
-                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-                  <button onClick={() => setVerSeg(p.id)} style={{ ...btnPrimary, padding: "6px 12px", fontSize: 12, flex: 1 }}>Seguimiento ({(p.seguimiento||[]).length})</button>
-                  <button onClick={() => abrirEditar(p)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12 }}>Editar</button>
-                  <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(p.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                <div style={{ display:"flex", gap:6, marginTop:8 }}>
+                  <button onClick={()=>setVerSeg(p.id)} style={{ ...btnPrimary, padding:"6px 12px", fontSize:12, flex:1, background: esOS ? "linear-gradient(135deg,#4338CA,#3730A3)" : "linear-gradient(135deg,#1a6b6b,#145555)" }}>Seguimiento ({(p.seguimiento||[]).length})</button>
+                  <button onClick={()=>abrirEditar(p)} style={{ ...btnSecondary, padding:"6px 12px", fontSize:12 }}>✎</button>
+                  <button onClick={()=>{ if(window.confirm("¿Eliminar?")) eliminar(p.id); }} style={{ background:"#FEE2E2", color:"#991B1B", border:"none", borderRadius:8, padding:"6px 10px", fontSize:12, cursor:"pointer" }}>✕</button>
                 </div>
               </div>
             );
           })}
-        </div>}
+        </div>
+      }
 
       {/* Modal nuevo/editar */}
       {modal && (
-        <Modal title={modal === "nuevo" ? "Nuevo profesional externo" : "Editar profesional"} onClose={() => setModal(null)}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Nombre completo *" ><input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Dr. Juan Pérez" /></Field>
-            <Field label="Especialidad">
-              <select style={selectStyle} value={form.especialidad} onChange={e => setForm(f => ({ ...f, especialidad: e.target.value }))}>
-                <option value="">— Seleccionar —</option>
-                {ESPECIALIDADES.map(e => <option key={e}>{e}</option>)}
-              </select>
-            </Field>
-            <Field label="Institución / Hospital"><input style={inputStyle} value={form.institucion} onChange={e => setForm(f => ({ ...f, institucion: e.target.value }))} placeholder="Hospital, clínica, consultorio..." /></Field>
-            <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e => setForm(f => ({ ...f, localidad: e.target.value }))} /></Field>
-            <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
-            <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
-          </div>
-          <Field label="Alias / CBU (para transferencias)">
-            <input style={inputStyle} value={form.alias_cbu || ""} onChange={e => setForm(f => ({ ...f, alias_cbu: e.target.value }))} placeholder="Ej: alias.banco o CBU 0000000..." />
-          </Field>
-          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} placeholder="Observaciones, vínculo, frecuencia de contacto..." /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 6 }}>
-            <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
-            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+        <Modal title={modal==="nuevo" ? `Nuevo ${subTab==="obras_sociales"?"OS/Entidad":"profesional"}` : "Editar"} onClose={()=>setModal(null)}>
+          {subTab==="obras_sociales" || form.tipo==="obra_social" ? (
+            <>
+              <Field label="Nombre de la OS / Entidad *"><input style={inputStyle} value={form.nombre} onChange={e=>setForm(f=>({...f,nombre:e.target.value}))} placeholder="Ej: PAMI, OSDE, IOMA..." /></Field>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e=>setForm(f=>({...f,telefono:e.target.value}))} /></Field>
+                <Field label="Email"><input style={inputStyle} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} /></Field>
+                <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e=>setForm(f=>({...f,localidad:e.target.value}))} /></Field>
+              </div>
+              <Field label="Alias / CBU"><input style={inputStyle} value={form.alias_cbu||""} onChange={e=>setForm(f=>({...f,alias_cbu:e.target.value}))} placeholder="Alias o CBU para transferencias" /></Field>
+              <Field label="Notas"><textarea style={{...inputStyle,resize:"vertical",minHeight:60}} value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} /></Field>
+            </>
+          ) : (
+            <>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <Field label="Nombre completo *"><input style={inputStyle} value={form.nombre} onChange={e=>setForm(f=>({...f,nombre:e.target.value}))} placeholder="Dr. Juan Pérez" /></Field>
+                <Field label="Especialidad">
+                  <select style={selectStyle} value={form.especialidad} onChange={e=>setForm(f=>({...f,especialidad:e.target.value}))}>
+                    <option value="">— Seleccionar —</option>
+                    {ESPECIALIDADES.map(e=><option key={e}>{e}</option>)}
+                  </select>
+                </Field>
+                <Field label="Institución"><input style={inputStyle} value={form.institucion} onChange={e=>setForm(f=>({...f,institucion:e.target.value}))} /></Field>
+                <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e=>setForm(f=>({...f,localidad:e.target.value}))} /></Field>
+                <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e=>setForm(f=>({...f,telefono:e.target.value}))} /></Field>
+                <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} /></Field>
+              </div>
+              <Field label="Alias / CBU"><input style={inputStyle} value={form.alias_cbu||""} onChange={e=>setForm(f=>({...f,alias_cbu:e.target.value}))} /></Field>
+              <Field label="Notas"><textarea style={{...inputStyle,resize:"vertical",minHeight:60}} value={form.notas} onChange={e=>setForm(f=>({...f,notas:e.target.value}))} /></Field>
+            </>
+          )}
+          <div style={{ display:"flex", gap:10, justifyContent:"flex-end", marginTop:6 }}>
+            <button onClick={()=>setModal(null)} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving?"Guardando...":"Guardar"}</button>
           </div>
         </Modal>
       )}
 
       {/* Modal seguimiento */}
       {verSeg && profActual && (
-        <Modal title={`Seguimiento · ${profActual.nombre}`} onClose={() => setVerSeg(null)}>
-          <div style={{ background: "#F8FAFC", borderRadius: 10, padding: "12px 16px", marginBottom: 16, fontSize: 13 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{profActual.nombre}</div>
-            <div style={{ color: "#888" }}>{profActual.especialidad}{profActual.institucion ? ` · ${profActual.institucion}` : ""}</div>
-            {profActual.telefono && <div style={{ display: "flex", alignItems: "center", marginTop: 4 }}>📞 {profActual.telefono} <CopyButton text={profActual.telefono} label="teléfono" /></div>}
-            {profActual.email && <div style={{ display: "flex", alignItems: "center", marginTop: 2 }}>✉️ {profActual.email} <CopyButton text={profActual.email} label="email" /></div>}
-            {(() => { const d = derivacionesPorProf(profActual.nombre); return d > 0 ? <div style={{ marginTop: 6, background: "#D1FAE5", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, color: "#065F46", display: "inline-block" }}>👥 {d} paciente{d !== 1 ? "s" : ""} derivado{d !== 1 ? "s" : ""}</div> : null; })()}
+        <Modal title={`Seguimiento · ${profActual.nombre}`} onClose={()=>setVerSeg(null)}>
+          <div style={{ background:"#F8FAFC", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13 }}>
+            <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{profActual.nombre}</div>
+            <div style={{ color:"#888" }}>{profActual.especialidad}{profActual.institucion?` · ${profActual.institucion}`:""}</div>
+            {profActual.telefono && <div style={{ display:"flex", alignItems:"center", marginTop:4 }}>📞 {profActual.telefono} <CopyButton text={profActual.telefono} label="teléfono" /></div>}
+            {!profActual.tipo || profActual.tipo==="profesional" ? (() => { const d=derivCount(profActual.nombre); return d>0 ? <div style={{ marginTop:6, background:"#D1FAE5", borderRadius:6, padding:"3px 10px", fontSize:12, fontWeight:700, color:"#065F46", display:"inline-block" }}>👥 {d} paciente{d!==1?"s":""} derivado{d!==1?"s":""}</div> : null; })() : null}
           </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <span style={{ fontWeight: 700, fontSize: 15 }}>Historial de contactos</span>
-            <button onClick={() => setSegModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Agregar</button>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+            <span style={{ fontWeight:700, fontSize:15 }}>Historial de contactos</span>
+            <button onClick={()=>setSegModal(true)} style={{...btnPrimary,padding:"6px 14px",fontSize:13}}>+ Agregar</button>
           </div>
-
-          {(profActual.seguimiento || []).length === 0
-            ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin contactos registrados</div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {[...(profActual.seguimiento || [])].reverse().map(s => {
-                const tc = TIPO_COLOR_SEG[s.tipo] || TIPO_COLOR_SEG["Otro"];
+          {(profActual.seguimiento||[]).length===0
+            ? <div style={{ textAlign:"center", color:"#aaa", padding:20 }}>Sin contactos registrados</div>
+            : <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+              {[...(profActual.seguimiento||[])].reverse().map(s=>{
+                const tc = TIPO_COLOR_SEG[s.tipo]||TIPO_COLOR_SEG["Otro"];
                 return (
-                  <div key={s.id} style={{ background: tc.bg, border: `1px solid ${tc.c}22`, borderRadius: 10, padding: "10px 14px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: tc.c }}>{s.tipo}</span>
-                      <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(s.fecha)}</span>
+                  <div key={s.id} style={{ background:tc.bg, border:`1px solid ${tc.c}22`, borderRadius:10, padding:"10px 14px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                      <span style={{ fontSize:13, fontWeight:700, color:tc.c }}>{s.tipo}</span>
+                      <span style={{ fontSize:12, color:"#888" }}>{formatFecha(s.fecha)}</span>
                     </div>
-                    <p style={{ margin: 0, fontSize: 14 }}>{s.descripcion}</p>
-                    {s.proxContacto && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>📅 Próximo contacto: {formatFecha(s.proxContacto)}</div>}
+                    <p style={{ margin:0, fontSize:14 }}>{s.descripcion}</p>
+                    {s.proxContacto && <div style={{ fontSize:12, color:"#888", marginTop:4 }}>📅 Próximo: {formatFecha(s.proxContacto)}</div>}
                   </div>
                 );
               })}
-            </div>}
-
+            </div>
+          }
           {segModal && (
-            <div style={{ marginTop: 16, background: "#F8FAFC", borderRadius: 10, padding: 16 }}>
-              <h4 style={{ margin: "0 0 12px", fontSize: 14 }}>Nuevo contacto</h4>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e => setSegForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+            <div style={{ marginTop:16, background:"#F8FAFC", borderRadius:10, padding:16 }}>
+              <h4 style={{ margin:"0 0 12px", fontSize:14 }}>Nuevo contacto</h4>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+                <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e=>setSegForm(f=>({...f,fecha:e.target.value}))} /></Field>
                 <Field label="Tipo">
-                  <select style={selectStyle} value={segForm.tipo} onChange={e => setSegForm(f => ({ ...f, tipo: e.target.value }))}>
-                    {TIPOS_SEGUIMIENTO_PROF.map(t => <option key={t}>{t}</option>)}
+                  <select style={selectStyle} value={segForm.tipo} onChange={e=>setSegForm(f=>({...f,tipo:e.target.value}))}>
+                    {TIPOS_SEGUIMIENTO_PROF.map(t=><option key={t}>{t}</option>)}
                   </select>
                 </Field>
               </div>
-              <Field label="Descripción *"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 70 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Detalles del contacto, acuerdos, observaciones..." /></Field>
-              <Field label="Próximo contacto (opcional)"><input type="date" style={inputStyle} value={segForm.proxContacto} onChange={e => setSegForm(f => ({ ...f, proxContacto: e.target.value }))} /></Field>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button onClick={() => setSegModal(false)} style={btnSecondary}>Cancelar</button>
+              <Field label="Descripción *"><textarea style={{...inputStyle,resize:"vertical",minHeight:70}} value={segForm.descripcion} onChange={e=>setSegForm(f=>({...f,descripcion:e.target.value}))} /></Field>
+              <Field label="Próximo contacto"><input type="date" style={inputStyle} value={segForm.proxContacto} onChange={e=>setSegForm(f=>({...f,proxContacto:e.target.value}))} /></Field>
+              <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+                <button onClick={()=>setSegModal(false)} style={btnSecondary}>Cancelar</button>
                 <button onClick={guardarSeguimiento} style={btnPrimary}>Guardar</button>
               </div>
             </div>
@@ -5055,6 +5095,7 @@ function Profesionales({ data }) {
     </div>
   );
 }
+
 
 
 // ─── BLOQUEO DE AGENDA ────────────────────────────────────────────────────────
@@ -6407,7 +6448,7 @@ function AppInner() {
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
 
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
-    { id: "profesionales",  label: "Profesionales",  icon: "👩‍⚕️" },
+    { id: "profesionales",  label: "Derivadores",    icon: "🔗" },
     { id: "disponibilidad", label: "Disponibilidad", icon: "🗓️" },
     { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
     { id: "stock",          label: "Stock",          icon: "📦" },
