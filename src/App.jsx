@@ -3363,6 +3363,18 @@ const PIPELINE_STAGES = [
 
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
 
+
+function contarAudifonos(v) {
+  // Si tiene ambos oídos cargados = 2 audífonos, si solo uno = 1
+  const tieneDer = !!(v.marca_der || v.modelo_der);
+  const tieneIzq = !!(v.marca_izq || v.modelo_izq);
+  if (tieneDer && tieneIzq) return 2;
+  if (tieneDer || tieneIzq) return 1;
+  // Si tiene oido="bilateral" sin detallar = 2
+  if (v.oido === "bilateral") return 2;
+  return 1;
+}
+
 function useObjetivoMensual() {
   const [objetivo, setObjetivo] = useState(10);
   useEffect(() => {
@@ -3392,11 +3404,9 @@ function ObjetivoBar({ ventas, objetivo, editando = false }) {
   const hoy = new Date();
   const mes = hoy.getMonth() + 1;
   const anio = hoy.getFullYear();
-  const vendidosMes = ventas.filter(v => {
-    if (v.estado !== "vendido") return false;
-    const f = v.fecha || "";
-    return f.startsWith(`${anio}-${String(mes).padStart(2,"0")}`);
-  }).length;
+  const vendidosMes = ventas
+    .filter(v => v.estado === "vendido" && (v.fecha||"").startsWith(`${anio}-${String(mes).padStart(2,"0")}`))
+    .reduce((sum, v) => sum + contarAudifonos(v), 0);
   const pct = Math.min(100, Math.round((vendidosMes / objetivo) * 100));
   const color = pct >= 100 ? "#065F46" : pct >= 60 ? "#1a6b6b" : pct >= 30 ? "#92400E" : "#991B1B";
   const bg = pct >= 100 ? "#D1FAE5" : pct >= 60 ? "#e0f4f4" : pct >= 30 ? "#FEF3C7" : "#FEE2E2";
@@ -3582,7 +3592,7 @@ function Ventas({ data, db, usuario }) {
     conPresupuesto: ventasMes.filter(v => ["presupuestado","aprobado","señado","subido_sios","vendido"].includes(v.estado)).length,
     sinPresupuesto: ventasMes.filter(v => v.estado === "sin_presupuesto").length,
     ausentes: ventasMes.filter(v => v.estado === "ausente").length,
-    vendidos: ventasMes.filter(v => v.estado === "vendido").length,
+    vendidos: ventasMes.filter(v => v.estado === "vendido").reduce((sum,v) => sum + contarAudifonos(v), 0),
     perdidos: ventasMes.filter(v => v.estado === "perdido").length,
   };
 
@@ -4388,9 +4398,9 @@ function Estadisticas({ data }) {
     (v.fecha||"").startsWith(mesActual) && v.paciente_id &&
     ["seleccion","sin_presupuesto","ausente","presupuestado","aprobado","señado","subido_sios","facturado_os","vendido","perdido"].includes(v.estado)
   ).length;
-  const ventasMesConcretadas = data.ventas.filter(v =>
-    (v.fecha||"").startsWith(mesActual) && v.estado === "vendido"
-  ).length;
+  const ventasMesConcretadas = data.ventas
+    .filter(v => (v.fecha||"").startsWith(mesActual) && v.estado === "vendido")
+    .reduce((sum, v) => sum + contarAudifonos(v), 0);
   const convSeleccionVenta = seleccionesMes > 0 ? Math.round((ventasMesConcretadas/seleccionesMes)*100) : 0;
   const convDerivacionSeleccion = totalDerivaciones > 0 ? Math.round((seleccionesMes/totalDerivaciones)*100) : 0;
 
