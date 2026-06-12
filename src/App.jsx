@@ -6422,6 +6422,473 @@ function Auditoria({ db }) {
   );
 }
 
+// ─── GESTIÓN ──────────────────────────────────────────────────────────────────
+function useGastos() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-gastos-" + Math.random().toString(36).slice(2,6))
+      .on("postgres_changes", { event: "*", schema: "public", table: "gastos" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+  async function cargar() {
+    const { data } = await supabase.from("gastos").select("*").order("dia_vencimiento");
+    if (data) setItems(data);
+    setLoading(false);
+  }
+  async function agregar(item) {
+    const { data: row } = await supabase.from("gastos").insert(item).select().single();
+    if (row) setItems(s => [...s, row].sort((a,b) => (a.dia_vencimiento||99) - (b.dia_vencimiento||99)));
+    return row;
+  }
+  async function actualizar(item) {
+    await supabase.from("gastos").update(item).eq("id", item.id);
+    setItems(s => s.map(x => x.id === item.id ? item : x));
+  }
+  async function eliminar(id) {
+    await supabase.from("gastos").delete().eq("id", id);
+    setItems(s => s.filter(x => x.id !== id));
+  }
+  return { items, loading, agregar, actualizar, eliminar };
+}
+
+const GASTOS_CATEGORIAS = {
+  alquiler:      { label: "Alquiler",           icon: "🏠", color: "#92400E", bg: "#FEF3C7" },
+  impuestos:     { label: "Impuestos",           icon: "💡", color: "#1E40AF", bg: "#DBEAFE" },
+  sueldos:       { label: "Sueldos",             icon: "👥", color: "#065F46", bg: "#D1FAE5" },
+  impositivo:    { label: "Impositivo",          icon: "📋", color: "#6D28D9", bg: "#EDE9FE" },
+  seguros:       { label: "Seguros / Servicios", icon: "🔒", color: "#374151", bg: "#F3F4F6" },
+  otros:         { label: "Otros",               icon: "📌", color: "#0891B2", bg: "#E0F2FE" },
+};
+
+const GASTOS_PREDEFINIDOS = [
+  { nombre: "Alquiler",                    categoria: "alquiler",   frecuencia: "mensual" },
+  { nombre: "Agua Santafesina",            categoria: "impuestos",  frecuencia: "bimestral" },
+  { nombre: "Luz / Electricidad",          categoria: "impuestos",  frecuencia: "bimestral" },
+  { nombre: "Expensas",                    categoria: "impuestos",  frecuencia: "mensual" },
+  { nombre: "Sueldo Empleado/a",           categoria: "sueldos",    frecuencia: "mensual" },
+  { nombre: "IVA a pagar",                 categoria: "impositivo", frecuencia: "mensual" },
+  { nombre: "Adelanto Ganancias",          categoria: "impositivo", frecuencia: "mensual" },
+  { nombre: "Plan de Facilitación Ganancias", categoria: "impositivo", frecuencia: "mensual" },
+  { nombre: "ADT Alarma",                  categoria: "seguros",    frecuencia: "mensual" },
+  { nombre: "Seguro Incendios",            categoria: "seguros",    frecuencia: "mensual" },
+];
+
+function Gestion({ db, usuario }) {
+  const { items, loading, agregar, actualizar, eliminar } = useGastos();
+  const [modal, setModal] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [filtroCategoria, setFiltroCategoria] = useState("");
+  const [subTab, setSubTab] = useState("gastos"); // gastos | cobranzas
+  const [seeded, setSeeded] = useState(false);
+
+  const FORM_VACIO = {
+    nombre: "", categoria: "alquiler", importe: "",
+    dia_vencimiento: "", fecha_vencimiento: "", frecuencia: "mensual",
+    estado: "pendiente", notas: ""
+  };
+  const [form, setForm] = useState(FORM_VACIO);
+
+  const hoy = new Date();
+  const diaHoy = hoy.getDate();
+  const mesHoy = hoy.getMonth() + 1;
+  const anioHoy = hoy.getFullYear();
+
+  function diasHastaVenc(diaVenc) {
+    if (!diaVenc) return null;
+    let diff = diaVenc - diaHoy;
+    if (diff < 0) diff += new Date(anioHoy, mesHoy, 0).getDate();
+    return diff;
+  }
+
+  function esVenceHoy(item) {
+    return item.dia_vencimiento === diaHoy;
+  }
+  function esProximo(item, dias = 7) {
+    const d = diasHastaVenc(item.dia_vencimiento);
+    return d !== null && d > 0 && d <= dias;
+  }
+  function esVencido(item) {
+    const d = diasHastaVenc(item.dia_vencimiento);
+    return d !== null && d > 20 && item.estado === "pendiente"; // más de 20 días = mes pasado
+  }
+
+  const lista = items.filter(i => !filtroCategoria || i.categoria === filtroCategoria);
+
+  const totalMensual = items
+    .filter(i => i.frecuencia === "mensual" && i.importe)
+    .reduce((s, i) => s + (parseFloat(i.importe) || 0), 0);
+
+  const vencenHoy = items.filter(esVenceHoy);
+  const vencenProximo = items.filter(i => esProximo(i) && !esVenceHoy(i));
+
+  async function guardar() {
+    if (!form.nombre) return alert("Ingresá el nombre.");
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        importe: parseFloat(form.importe) || null,
+        dia_vencimiento: parseInt(form.dia_vencimiento) || null,
+        creado_por: usuario?.nombre || ""
+      };
+      if (modal === "nuevo") await agregar(payload);
+      else await actualizar({ ...payload, id: modal });
+      setModal(null);
+      setForm(FORM_VACIO);
+    } finally { setSaving(false); }
+  }
+
+  async function marcarPagado(item) {
+    await actualizar({ ...item, estado: "pagado" });
+    // Crear recordatorio del próximo mes
+    const proximoDia = item.dia_vencimiento;
+    if (proximoDia) {
+      const proxMes = mesHoy === 12 ? 1 : mesHoy + 1;
+      const proxAnio = mesHoy === 12 ? anioHoy + 1 : anioHoy;
+      const fechaProx = `${proxAnio}-${String(proxMes).padStart(2,"0")}-${String(proximoDia).padStart(2,"0")}`;
+      await db.agregarRecordatorio({
+        titulo: `💰 PAGAR ${item.nombre}${item.importe ? ` · $${parseFloat(item.importe).toLocaleString("es-AR")}` : ""}`,
+        fecha: fechaProx,
+        hora: "09:00",
+        tipo: "gasto",
+        paciente_id: null,
+        descripcion: `Vencimiento ${item.nombre} — ${item.frecuencia}`,
+        completado: false,
+      });
+    }
+  }
+
+  async function resetearMes() {
+    if (!window.confirm("¿Resetear todos los gastos a 'pendiente' para el nuevo mes?")) return;
+    for (const item of items) {
+      if (item.estado === "pagado") await actualizar({ ...item, estado: "pendiente" });
+    }
+  }
+
+  async function crearRecordatorioHoy(item) {
+    await db.agregarRecordatorio({
+      titulo: `💰 PAGAR ${item.nombre}${item.importe ? ` · $${parseFloat(item.importe).toLocaleString("es-AR")}` : ""}`,
+      fecha: today(),
+      hora: "09:00",
+      tipo: "gasto",
+      paciente_id: null,
+      descripcion: `Vencimiento hoy: ${item.nombre}`,
+      completado: false,
+    });
+    alert(`✅ Recordatorio creado para hoy: ${item.nombre}`);
+  }
+
+  async function seedGastos() {
+    setSeeded(true);
+    for (const g of GASTOS_PREDEFINIDOS) {
+      await agregar({ ...g, importe: null, dia_vencimiento: null, estado: "pendiente", notas: "", creado_por: usuario?.nombre || "" });
+    }
+  }
+
+  const pagadosMes = items.filter(i => i.estado === "pagado").length;
+  const pendientesMes = items.filter(i => i.estado === "pendiente").length;
+  const pctPagado = items.length > 0 ? Math.round((pagadosMes / items.length) * 100) : 0;
+
+  // Cobranzas — ventas con saldo pendiente
+  const ventasConSaldo = (db.data?.ventas || []).filter(v => {
+    if (!v.paciente_id) return false;
+    const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+    const totalPagado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+    const saldo = (parseFloat(v.precio) || 0) - totalPagado;
+    return saldo > 0 && v.estado !== "perdido";
+  }).map(v => {
+    const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+    const totalPagado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+    const saldo = (parseFloat(v.precio) || 0) - totalPagado;
+    const pac = (db.data?.pacientes || []).find(p => p.id === v.paciente_id);
+    return { ...v, saldo, pacNombre: pac ? `${pac.apellido}, ${pac.nombre}` : "—", pac };
+  }).sort((a, b) => b.saldo - a.saldo);
+
+  const totalCobranzaPendiente = ventasConSaldo.reduce((s, v) => s + v.saldo, 0);
+
+  const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>💼 Gestión</div>
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 10, padding: 4, marginBottom: 16, width: "fit-content" }}>
+        <button onClick={() => setSubTab("gastos")}
+          style={{ background: subTab === "gastos" ? "#1a6b6b" : "transparent", color: subTab === "gastos" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          💸 Gastos y vencimientos
+        </button>
+        <button onClick={() => setSubTab("cobranzas")}
+          style={{ background: subTab === "cobranzas" ? "#065F46" : "transparent", color: subTab === "cobranzas" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          💰 Cobranzas pendientes {ventasConSaldo.length > 0 && <span style={{ background: "rgba(255,255,255,0.25)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{ventasConSaldo.length}</span>}
+        </button>
+      </div>
+
+      {/* ── GASTOS ── */}
+      {subTab === "gastos" && (
+        <div>
+          {/* Stats */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#92400E" }}>{pendientesMes}</div>
+              <div style={{ fontSize: 11, color: "#92400E", fontWeight: 600 }}>⏳ Pendientes</div>
+            </div>
+            <div style={{ background: "#D1FAE5", border: "1.5px solid #A7F3D0", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#065F46" }}>{pagadosMes}</div>
+              <div style={{ fontSize: 11, color: "#065F46", fontWeight: 600 }}>✅ Pagados este mes</div>
+            </div>
+            <div style={{ background: "#EEF2FF", border: "1.5px solid #C7D2FE", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "#4338CA" }}>${totalMensual.toLocaleString("es-AR")}</div>
+              <div style={{ fontSize: 11, color: "#4338CA", fontWeight: 600 }}>📊 Total mensual estimado</div>
+            </div>
+            <div style={{ background: pctPagado >= 80 ? "#D1FAE5" : pctPagado >= 50 ? "#FEF3C7" : "#FEE2E2", border: "1.5px solid #E5E7EB", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: pctPagado >= 80 ? "#065F46" : pctPagado >= 50 ? "#92400E" : "#991B1B" }}>{pctPagado}%</div>
+              <div style={{ fontSize: 11, color: "#555", fontWeight: 600 }}>📈 Cumplimiento mes</div>
+              <div style={{ background: "rgba(255,255,255,0.5)", borderRadius: 10, height: 5, overflow: "hidden", marginTop: 4 }}>
+                <div style={{ height: "100%", width: `${pctPagado}%`, background: pctPagado >= 80 ? "#065F46" : pctPagado >= 50 ? "#92400E" : "#991B1B", borderRadius: 10 }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Alertas vencen hoy */}
+          {vencenHoy.length > 0 && (
+            <div style={{ background: "linear-gradient(135deg, #FEF3C7, #FDE68A)", border: "2px solid #FCD34D", borderRadius: 12, padding: "12px 16px", marginBottom: 14 }}>
+              <div style={{ fontWeight: 800, color: "#92400E", marginBottom: 8 }}>⚠️ Vencen HOY</div>
+              {vencenHoy.map(item => (
+                <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "rgba(255,255,255,0.6)", borderRadius: 8, padding: "8px 12px", marginBottom: 4 }}>
+                  <div>
+                    <span style={{ fontWeight: 700, fontSize: 14 }}>{GASTOS_CATEGORIAS[item.categoria]?.icon} {item.nombre}</span>
+                    {item.importe && <span style={{ fontSize: 13, color: "#92400E", marginLeft: 8 }}>${parseFloat(item.importe).toLocaleString("es-AR")}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => crearRecordatorioHoy(item)} style={{ background: "#92400E", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>🔔 Recordatorio</button>
+                    {item.estado !== "pagado" && <button onClick={() => marcarPagado(item)} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 700 }}>✅ Pagar</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Próximos 7 días */}
+          {vencenProximo.length > 0 && (
+            <div style={{ background: "#EFF6FF", border: "1.5px solid #BFDBFE", borderRadius: 10, padding: "10px 14px", marginBottom: 14 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#1D4ED8", marginBottom: 6 }}>📅 Vencen en los próximos 7 días</div>
+              {vencenProximo.map(item => (
+                <div key={item.id} style={{ fontSize: 13, color: "#1E40AF", marginBottom: 3, display: "flex", justifyContent: "space-between" }}>
+                  <span>{GASTOS_CATEGORIAS[item.categoria]?.icon} {item.nombre} — día {item.dia_vencimiento}</span>
+                  <span style={{ fontWeight: 700 }}>en {diasHastaVenc(item.dia_vencimiento)} días{item.importe ? ` · $${parseFloat(item.importe).toLocaleString("es-AR")}` : ""}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Acciones */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Agregar gasto</button>
+            {items.length === 0 && !seeded && (
+              <button onClick={seedGastos} style={{ ...btnSecondary, background: "#e0f4f4", color: "#1a6b6b" }}>📋 Cargar gastos predefinidos</button>
+            )}
+            <button onClick={resetearMes} style={{ ...btnSecondary, fontSize: 12 }}>↺ Resetear mes</button>
+          </div>
+
+          {/* Filtro por categoría */}
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 12 }}>
+            <button onClick={() => setFiltroCategoria("")} style={{ background: !filtroCategoria ? "#1a1a2e" : "#F3F4F6", color: !filtroCategoria ? "#fff" : "#555", border: "none", borderRadius: 20, padding: "3px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Todos</button>
+            {Object.entries(GASTOS_CATEGORIAS).map(([k, v]) => {
+              const n = items.filter(i => i.categoria === k).length;
+              if (!n) return null;
+              return (
+                <button key={k} onClick={() => setFiltroCategoria(filtroCategoria === k ? "" : k)}
+                  style={{ background: filtroCategoria === k ? v.color : v.bg, color: filtroCategoria === k ? "#fff" : v.color, border: "none", borderRadius: 20, padding: "3px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {v.icon} {v.label} ({n})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Lista de gastos agrupada por categoría */}
+          {loading
+            ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}>⏳ Cargando...</div>
+            : lista.length === 0
+            ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}><div style={{ fontSize: 36 }}>💸</div><div>No hay gastos cargados</div></div>
+            : Object.entries(GASTOS_CATEGORIAS).map(([catKey, cat]) => {
+              const gastosCat = lista.filter(i => i.categoria === catKey);
+              if (gastosCat.length === 0) return null;
+              return (
+                <div key={catKey} style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: cat.color, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ background: cat.bg, borderRadius: 6, padding: "2px 8px" }}>{cat.icon} {cat.label}</span>
+                    <span style={{ color: "#aaa", fontWeight: 400 }}>
+                      ${gastosCat.reduce((s, i) => s + (parseFloat(i.importe) || 0), 0).toLocaleString("es-AR")} / mes
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {gastosCat.sort((a,b) => (a.dia_vencimiento||99) - (b.dia_vencimiento||99)).map(item => {
+                      const dias = diasHastaVenc(item.dia_vencimiento);
+                      const pagado = item.estado === "pagado";
+                      const venceHoyItem = esVenceHoy(item);
+                      const proximoItem = esProximo(item);
+                      return (
+                        <div key={item.id} style={{
+                          background: pagado ? "#F0FDF4" : venceHoyItem ? "#FEF3C7" : proximoItem ? "#EFF6FF" : "#fff",
+                          border: `1.5px solid ${pagado ? "#BBF7D0" : venceHoyItem ? "#FCD34D" : proximoItem ? "#BFDBFE" : "#E5E7EB"}`,
+                          borderRadius: 10, padding: "10px 14px",
+                          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span style={{ fontWeight: 700, fontSize: 14 }}>{item.nombre}</span>
+                              {pagado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>✅ Pagado</span>}
+                              {!pagado && venceHoyItem && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>⚠️ Vence hoy</span>}
+                              {!pagado && proximoItem && <span style={{ background: "#EFF6FF", color: "#1D4ED8", borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>📅 {dias}d</span>}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#888", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                              {item.dia_vencimiento && <span>Vence: día {item.dia_vencimiento}</span>}
+                              <span style={{ textTransform: "capitalize" }}>{item.frecuencia}</span>
+                              {item.notas && <span>· {item.notas}</span>}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                            {item.importe && <span style={{ fontWeight: 800, fontSize: 15, color: pagado ? "#065F46" : "#1a1a2e" }}>${parseFloat(item.importe).toLocaleString("es-AR")}</span>}
+                            {!pagado && (
+                              <button onClick={() => marcarPagado(item)} style={{ background: "#065F46", color: "#fff", border: "none", borderRadius: 7, padding: "5px 10px", fontSize: 12, cursor: "pointer", fontWeight: 700 }}>✅ Pagar</button>
+                            )}
+                            {pagado && (
+                              <button onClick={() => actualizar({ ...item, estado: "pendiente" })} style={{ ...btnSecondary, padding: "5px 9px", fontSize: 11 }}>↩</button>
+                            )}
+                            <button onClick={() => { setForm({ nombre: item.nombre, categoria: item.categoria, importe: item.importe || "", dia_vencimiento: item.dia_vencimiento || "", fecha_vencimiento: item.fecha_vencimiento || "", frecuencia: item.frecuencia, estado: item.estado, notas: item.notas || "" }); setModal(item.id); }} style={{ ...btnSecondary, padding: "5px 9px", fontSize: 12 }}>✎</button>
+                            <button onClick={() => { if (window.confirm("¿Eliminar?")) eliminar(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 7, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          }
+        </div>
+      )}
+
+      {/* ── COBRANZAS ── */}
+      {subTab === "cobranzas" && (
+        <div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+            <div style={{ background: "#FEE2E2", border: "1.5px solid #FECACA", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#991B1B" }}>{ventasConSaldo.length}</div>
+              <div style={{ fontSize: 12, color: "#991B1B", fontWeight: 600 }}>💰 Ventas con saldo pendiente</div>
+            </div>
+            <div style={{ background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "14px 16px" }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#92400E" }}>${totalCobranzaPendiente.toLocaleString("es-AR")}</div>
+              <div style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>📊 Total a cobrar</div>
+            </div>
+          </div>
+
+          {ventasConSaldo.length === 0
+            ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>✅</div><div>Sin cobranzas pendientes</div></div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {ventasConSaldo.map(v => {
+                const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
+                const pagos = Array.isArray(v.pagos) ? v.pagos : [];
+                const totalPagado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+                return (
+                  <div key={v.id} style={{ background: "#fff", border: "1.5px solid #FDE68A", borderRadius: 12, padding: "12px 16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15 }}>{v.pacNombre}</div>
+                        <div style={{ fontSize: 12, color: "#888", marginTop: 2, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <span>{formatFecha(v.fecha)}</span>
+                          {(v.marca_der || v.marca_izq) && <span>👂 {[v.marca_der, v.modelo_der].filter(Boolean).join(" ")}</span>}
+                          <span style={{ background: cv.bg, color: cv.color, borderRadius: 10, padding: "0 6px", fontWeight: 700 }}>{cv.label}</span>
+                        </div>
+                        {/* Barra de cobro */}
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#888", marginBottom: 3 }}>
+                            <span>Cobrado: ${totalPagado.toLocaleString("es-AR")} / ${(parseFloat(v.precio)||0).toLocaleString("es-AR")}</span>
+                            <span style={{ fontWeight: 700, color: "#92400E" }}>Saldo: ${v.saldo.toLocaleString("es-AR")}</span>
+                          </div>
+                          <div style={{ background: "#F3F4F6", borderRadius: 10, height: 8, overflow: "hidden" }}>
+                            <div style={{ height: "100%", background: "#059669", borderRadius: 10, width: `${Math.min(100, (totalPagado/(parseFloat(v.precio)||1))*100)}%`, transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                        {/* Condición de pago */}
+                        {v.condicion_pago_paciente && (
+                          <div style={{ fontSize: 11, color: "#555", marginTop: 4 }}>💳 {v.condicion_pago_paciente}</div>
+                        )}
+                      </div>
+                      <div style={{ flexShrink: 0 }}>
+                        <button onClick={async () => {
+                          await db.agregarRecordatorio({
+                            titulo: `💰 COBRAR a ${v.pacNombre} · $${v.saldo.toLocaleString("es-AR")}`,
+                            fecha: today(),
+                            hora: "09:00",
+                            tipo: "cobranza",
+                            paciente_id: v.paciente_id,
+                            descripcion: `Saldo pendiente venta ${v.marca_der || ""} ${v.modelo_der || ""}`,
+                            completado: false,
+                          });
+                          alert(`✅ Recordatorio creado`);
+                        }} style={{ ...btnSecondary, background: "#FEF3C7", color: "#92400E", fontSize: 12, padding: "6px 12px" }}>
+                          🔔 Recordar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          }
+        </div>
+      )}
+
+      {/* Modal agregar/editar gasto */}
+      {modal && (
+        <Modal title={modal === "nuevo" ? "Nuevo gasto" : "Editar gasto"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
+          <Field label="Nombre *">
+            <input style={inputStyle} value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Alquiler, IVA..." />
+          </Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Categoría">
+              <select style={selectStyle} value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>
+                {Object.entries(GASTOS_CATEGORIAS).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Frecuencia">
+              <select style={selectStyle} value={form.frecuencia} onChange={e => setForm(f => ({ ...f, frecuencia: e.target.value }))}>
+                <option value="mensual">Mensual</option>
+                <option value="bimestral">Bimestral</option>
+                <option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option>
+                <option value="anual">Anual</option>
+                <option value="unica">Única vez</option>
+              </select>
+            </Field>
+            <Field label="Importe ($)">
+              <input type="number" style={inputStyle} value={form.importe} onChange={e => setForm(f => ({ ...f, importe: e.target.value }))} placeholder="Monto estimado" />
+            </Field>
+            <Field label="Día de vencimiento">
+              <input type="number" min="1" max="31" style={inputStyle} value={form.dia_vencimiento} onChange={e => setForm(f => ({ ...f, dia_vencimiento: e.target.value }))} placeholder="Ej: 10, 15, 25..." />
+            </Field>
+          </div>
+          <Field label="Notas">
+            <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} />
+          </Field>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+            <button onClick={() => { setModal(null); setForm(FORM_VACIO); }} style={btnSecondary}>Cancelar</button>
+            <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
 function AppInner() {
   const [autenticado, setAutenticado] = useState(() => sessionStorage.getItem("sonara_auth") === "1");
   const [usuarioActual, setUsuarioActual] = useState(() => {
@@ -6512,6 +6979,7 @@ function AppInner() {
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
         {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
+        {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
       <UndoButton db={db} />
     </div>
