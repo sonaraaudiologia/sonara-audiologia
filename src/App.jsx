@@ -3636,7 +3636,7 @@ function Ventas({ data, db, usuario }) {
     if (!v) return;
     await db.actualizarVenta({ ...v, estado: nuevoEstado });
     // Si se aprueba y no tiene stock vinculado, preguntar si pedir a BS AS
-    if (nuevoEstado === "aprobado" && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
+    if (["aprobado","señado","facturado_os"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
       const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
                     v.marca_izq && v.modelo_izq ? `${v.marca_izq} ${v.modelo_izq} (oído izq.)` : null]
                    .filter(Boolean).join(" + ");
@@ -3998,7 +3998,7 @@ function Ventas({ data, db, usuario }) {
                   return (
                     <button key={s.key} onClick={async () => {
                       await db.actualizarVenta({ ...ventaActualOS, estado: s.key });
-                      if (s.key === "aprobado" && !ventaActualOS.stock_der_id && !ventaActualOS.stock_izq_id && (ventaActualOS.marca_der || ventaActualOS.marca_izq)) {
+                      if (["aprobado","señado","facturado_os"].includes(s.key) && !ventaActualOS.stock_der_id && !ventaActualOS.stock_izq_id && (ventaActualOS.marca_der || ventaActualOS.marca_izq)) {
                         const desc = [ventaActualOS.marca_der && ventaActualOS.modelo_der ? `${ventaActualOS.marca_der} ${ventaActualOS.modelo_der} (oído der.)` : null,
                                       ventaActualOS.marca_izq && ventaActualOS.modelo_izq ? `${ventaActualOS.marca_izq} ${ventaActualOS.modelo_izq} (oído izq.)` : null]
                                      .filter(Boolean).join(" + ");
