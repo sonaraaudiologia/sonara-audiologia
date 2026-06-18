@@ -3578,6 +3578,30 @@ function Ventas({ data, db, usuario }) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
     await db.actualizarVenta({ ...v, estado: nuevoEstado });
+    // Si se aprueba y no tiene stock vinculado, preguntar si pedir a BS AS
+    if (nuevoEstado === "aprobado" && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
+      const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
+                    v.marca_izq && v.modelo_izq ? `${v.marca_izq} ${v.modelo_izq} (oído izq.)` : null]
+                   .filter(Boolean).join(" + ");
+      if (desc && window.confirm(`Este presupuesto se aprobó y no tiene audífono vinculado en stock.\n\n${desc}\n\n¿Agregar a "Pedido a Buenos Aires" en Stock?`)) {
+        const pac = data.pacientes.find(p => p.id === v.paciente_id);
+        const nombrePac = pac ? `${pac.apellido}, ${pac.nombre}` : "";
+        if (v.marca_der && v.modelo_der) {
+          await supabase.from("stock").insert({
+            marca: v.marca_der, modelo: v.modelo_der, oido: v.marca_izq && v.modelo_izq ? "derecho" : "bilateral",
+            estado: "pedido_ba", paciente_id: v.paciente_id, fecha_ingreso: today(),
+            notas: `Pedido por venta aprobada · ${nombrePac}`, creado_por: window.__sonaraUsuario || "",
+          });
+        }
+        if (v.marca_izq && v.modelo_izq && (v.marca_izq !== v.marca_der || v.modelo_izq !== v.modelo_der)) {
+          await supabase.from("stock").insert({
+            marca: v.marca_izq, modelo: v.modelo_izq, oido: "izquierdo",
+            estado: "pedido_ba", paciente_id: v.paciente_id, fecha_ingreso: today(),
+            notas: `Pedido por venta aprobada · ${nombrePac}`, creado_por: window.__sonaraUsuario || "",
+          });
+        }
+      }
+    }
   }
 
   const TIPOS_SEG = ["Llamada", "Email", "WhatsApp", "Visita", "Nota interna", "Reunión"];
@@ -3915,7 +3939,31 @@ function Ventas({ data, db, usuario }) {
                   const cv = COLORES_VENTA[s.key];
                   const actual = ventaActualOS.estado === s.key;
                   return (
-                    <button key={s.key} onClick={() => db.actualizarVenta({ ...ventaActualOS, estado: s.key })}
+                    <button key={s.key} onClick={async () => {
+                      await db.actualizarVenta({ ...ventaActualOS, estado: s.key });
+                      if (s.key === "aprobado" && !ventaActualOS.stock_der_id && !ventaActualOS.stock_izq_id && (ventaActualOS.marca_der || ventaActualOS.marca_izq)) {
+                        const desc = [ventaActualOS.marca_der && ventaActualOS.modelo_der ? `${ventaActualOS.marca_der} ${ventaActualOS.modelo_der} (oído der.)` : null,
+                                      ventaActualOS.marca_izq && ventaActualOS.modelo_izq ? `${ventaActualOS.marca_izq} ${ventaActualOS.modelo_izq} (oído izq.)` : null]
+                                     .filter(Boolean).join(" + ");
+                        const osNombre = ventaActualOS.obra_social_directa || (ventaActualOS.observaciones||"").split(" · ")[0];
+                        if (desc && window.confirm(`Este presupuesto se aprobó y no tiene audífono vinculado en stock.\n\n${desc}\n\n¿Agregar a "Pedido a Buenos Aires" en Stock?`)) {
+                          if (ventaActualOS.marca_der && ventaActualOS.modelo_der) {
+                            await supabase.from("stock").insert({
+                              marca: ventaActualOS.marca_der, modelo: ventaActualOS.modelo_der, oido: ventaActualOS.marca_izq && ventaActualOS.modelo_izq ? "derecho" : "bilateral",
+                              estado: "pedido_ba", paciente_id: null, fecha_ingreso: today(),
+                              notas: `Pedido por presupuesto OS aprobado · ${osNombre}`, creado_por: window.__sonaraUsuario || "",
+                            });
+                          }
+                          if (ventaActualOS.marca_izq && ventaActualOS.modelo_izq && (ventaActualOS.marca_izq !== ventaActualOS.marca_der || ventaActualOS.modelo_izq !== ventaActualOS.modelo_der)) {
+                            await supabase.from("stock").insert({
+                              marca: ventaActualOS.marca_izq, modelo: ventaActualOS.modelo_izq, oido: "izquierdo",
+                              estado: "pedido_ba", paciente_id: null, fecha_ingreso: today(),
+                              notas: `Pedido por presupuesto OS aprobado · ${osNombre}`, creado_por: window.__sonaraUsuario || "",
+                            });
+                          }
+                        }
+                      }
+                    }}
                       style={{ background: actual ? cv.color : cv.bg, color: actual ? "#fff" : cv.color, border: `1.5px solid ${cv.color}`, borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: actual ? 800 : 600, cursor: "pointer" }}>
                       {s.icon} {s.label}
                     </button>
@@ -4023,7 +4071,7 @@ function Ventas({ data, db, usuario }) {
               setForm(f => ({ ...f, stock_der_id: id, ...(item ? { marca_der: item.marca || f.marca_der, modelo_der: item.modelo || f.modelo_der } : {}) }));
             }}>
               <option value="">— Sin vincular —</option>
-              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.id === form.stock_der_id).map(s => (
+              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.estado === "pedido_ba" || s.id === form.stock_der_id).map(s => (
                 <option key={s.id} value={s.id}>{s.marca} {s.modelo} · {s.numero_serie || "S/N"} · {ESTADOS_STOCK[s.estado]?.label}</option>
               ))}
             </select>
@@ -4040,7 +4088,7 @@ function Ventas({ data, db, usuario }) {
               setForm(f => ({ ...f, stock_izq_id: id, ...(item ? { marca_izq: item.marca || f.marca_izq, modelo_izq: item.modelo || f.modelo_izq } : {}) }));
             }}>
               <option value="">— Sin vincular —</option>
-              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.id === form.stock_izq_id).map(s => (
+              {(data.stock||[]).filter(s => s.estado === "disponible" || s.estado === "reservado" || s.estado === "pedido_ba" || s.id === form.stock_izq_id).map(s => (
                 <option key={s.id} value={s.id}>{s.marca} {s.modelo} · {s.numero_serie || "S/N"} · {ESTADOS_STOCK[s.estado]?.label}</option>
               ))}
             </select>
@@ -6122,6 +6170,7 @@ function useStock() {
 }
 
 const ESTADOS_STOCK = {
+  pedido_ba:   { label: "Pedido a BS AS", bg: "#FFF7ED", color: "#C2410C" },
   disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
   reservado:   { label: "Reservado",     bg: "#FEF3C7", color: "#92400E" },
   vendido:     { label: "Vendido",       bg: "#DBEAFE", color: "#1E40AF" },
