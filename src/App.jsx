@@ -1339,10 +1339,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           if (profKey) {
             const disp = isDisponible(fecha, h, profKey);
             if (disp === true) {
-              bgBase = esM ? "#F0FAF0" : "#E8F7E8"; // verde pastel
+              bgBase = esM ? "#D4F4D4" : "#BFEFBF"; // verde mas contrastado
               bgHover = "#D0F0D0";
             } else if (disp === false) {
-              bgBase = esM ? "#F2F2F2" : "#EBEBEB"; // gris sombreado
+              bgBase = esM ? "#D1D1D1" : "#C4C4C4"; // gris mas contrastado
               bgHover = "#DCDCDC";
             }
           }
@@ -1603,9 +1603,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                               // Color solo por disponibilidad — el bloqueo no tiñe el fondo
                               let bgBase;
                               if (disp === true) {
-                                bgBase = esM ? "#F0FAF0" : "#E8F7E8"; // verde pastel
+                                bgBase = esM ? "#D4F4D4" : "#BFEFBF"; // verde mas contrastado
                               } else if (disp === false) {
-                                bgBase = esM ? "#F2F2F2" : "#EBEBEB"; // gris sombreado
+                                bgBase = esM ? "#D1D1D1" : "#C4C4C4"; // gris mas contrastado
                               } else {
                                 bgBase = esM ? "#FAFAFA" : "#fff"; // sin config = blanco
                               }
@@ -4131,16 +4131,38 @@ function Ventas({ data, db, usuario }) {
 function Compras({ data, db, usuario }) {
   const [modal, setModal] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [filtroPac, setFiltroPac] = useState("");
+  const [busquedaPac, setBusquedaPac] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
-  const [form, setForm] = useState({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
+  const [form, setForm] = useState({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "", pagos: [] });
   const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [verDetalleCompra, setVerDetalleCompra] = useState(null);
+  const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
+
+  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
 
   const compras = data.compras
     .filter(c => !filtroEstado || c.estado === filtroEstado)
-    .filter(c => !filtroPac || c.paciente_id === filtroPac);
+    .filter(c => !busquedaPac || pacNombre(c.paciente_id).toLowerCase().includes(busquedaPac.toLowerCase()));
 
-  const pacNombre = (id) => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
+  function saldoCompra(c) {
+    const pagos = Array.isArray(c.pagos) ? c.pagos : [];
+    const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    // Migración: si tiene seña vieja sin pagos registrados, la cuenta como un pago implícito
+    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
+  }
+
+  async function agregarPagoCompra(compraId) {
+    if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) return alert("Ingresá un monto válido.");
+    const c = data.compras.find(x => x.id === compraId);
+    if (!c) return;
+    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoForm, id: uid() }];
+    const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
+    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    setPagoForm({ fecha: today(), monto: "", descripcion: "" });
+    if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
+  }
 
   function agregarInsumo() {
     if (!insumoActual.nombre) return;
@@ -4198,42 +4220,71 @@ function Compras({ data, db, usuario }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <select style={{ ...inputStyle, width: "auto", fontSize: 13 }} value={filtroPac} onChange={e => setFiltroPac(e.target.value)}>
-            <option value="">Todos los pacientes</option>
-            {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-          </select>
+          <input style={{ ...inputStyle, width: 220, fontSize: 13 }} placeholder="🔍 Buscar paciente..." value={busquedaPac} onChange={e => setBusquedaPac(e.target.value)} />
           <button onClick={() => setFiltroEstado("")} style={{ ...btnSecondary, background: filtroEstado === "" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Todos</button>
           <button onClick={() => setFiltroEstado("pendiente")} style={{ ...btnSecondary, background: filtroEstado === "pendiente" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "pendiente" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Pendientes</button>
           <button onClick={() => setFiltroEstado("pagado")} style={{ ...btnSecondary, background: filtroEstado === "pagado" ? "#1a1a2e" : "#F3F4F6", color: filtroEstado === "pagado" ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>Pagados</button>
         </div>
-        <button onClick={() => { setForm({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" }); setModal("nuevo"); }} style={btnPrimary}>+ Nueva compra</button>
+        <button onClick={() => { setForm({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "", pagos: [] }); setModal("nuevo"); }} style={btnPrimary}>+ Nueva compra</button>
       </div>
       {compras.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>🛍️</div><div>No hay compras registradas</div></div>
         : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {compras.map(c => {
-            const saldo = (parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0);
+            const saldo = saldoCompra(c);
+            const pagos = Array.isArray(c.pagos) ? c.pagos : [];
+            const activo = verDetalleCompra === c.id;
             return (
-              <div key={c.id} style={{ background: "#fff", border: `1.5px solid ${saldo > 0 ? "#FDE68A" : "#D1FAE5"}`, borderRadius: 12, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{pacNombre(c.paciente_id)}</div>
-                  <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>
-                    {(c.insumos || []).map(i => `${i.nombre}${i.cantidad > 1 ? ` x${i.cantidad}` : ""}`).join(" · ")}
+              <div key={c.id}>
+                <div onClick={() => setVerDetalleCompra(activo ? null : c.id)} style={{ background: "#fff", border: `1.5px solid ${activo ? "#1a6b6b" : saldo > 0 ? "#FDE68A" : "#D1FAE5"}`, borderRadius: activo ? "12px 12px 0 0" : 12, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, cursor: "pointer" }}>
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{pacNombre(c.paciente_id)}</div>
+                    <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>
+                      {(c.insumos || []).map(i => `${i.nombre}${i.cantidad > 1 ? ` x${i.cantidad}` : ""}`).join(" · ")}
+                    </div>
+                    <div style={{ fontSize: 13, marginTop: 4, display: "flex", gap: 12 }}>
+                      <span style={{ color: "#374151" }}>Total: <b>${(parseFloat(c.total) || 0).toLocaleString("es-AR")}</b></span>
+                      {pagos.length > 0 && <span style={{ color: "#059669" }}>{pagos.length} pago{pagos.length !== 1 ? "s" : ""} registrado{pagos.length !== 1 ? "s" : ""}</span>}
+                      {saldo > 0 && <span style={{ color: "#DC2626", fontWeight: 700 }}>Debe: ${saldo.toLocaleString("es-AR")}</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{formatFecha(c.fecha)}</div>
                   </div>
-                  <div style={{ fontSize: 13, marginTop: 4, display: "flex", gap: 12 }}>
-                    <span style={{ color: "#374151" }}>Total: <b>${(parseFloat(c.total) || 0).toLocaleString("es-AR")}</b></span>
-                    {parseFloat(c.seña) > 0 && <span style={{ color: "#059669" }}>Seña: <b>${(parseFloat(c.seña) || 0).toLocaleString("es-AR")}</b></span>}
-                    {saldo > 0 && <span style={{ color: "#DC2626", fontWeight: 700 }}>Debe: ${saldo.toLocaleString("es-AR")}</span>}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ background: saldo > 0 ? "#FEF3C7" : "#D1FAE5", color: saldo > 0 ? "#92400E" : "#065F46", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
+                      {saldo > 0 ? "Pendiente" : "Pagado"}
+                    </span>
+                    <button onClick={e => { e.stopPropagation(); editar(c); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 13 }}>Editar</button>
+                    <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) db.eliminarCompra(c.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}>✕</button>
                   </div>
-                  <div style={{ fontSize: 12, color: "#aaa", marginTop: 2 }}>{formatFecha(c.fecha)}</div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ background: saldo > 0 ? "#FEF3C7" : "#D1FAE5", color: saldo > 0 ? "#92400E" : "#065F46", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 700 }}>
-                    {saldo > 0 ? "Pendiente" : "Pagado"}
-                  </span>
-                  <button onClick={() => editar(c)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 13 }}>Editar</button>
-                  <button onClick={() => { if (window.confirm("¿Eliminar?")) db.eliminarCompra(c.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 13, cursor: "pointer" }}>✕</button>
-                </div>
+                {/* Panel de pagos expandido */}
+                {activo && (
+                  <div style={{ background: "#F8FAFC", border: "1.5px solid #1a6b6b", borderTop: "none", borderRadius: "0 0 12px 12px", padding: "14px 18px" }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8 }}>💰 Historial de pagos</div>
+                    {pagos.length === 0
+                      ? <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Sin pagos registrados aún</div>
+                      : <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+                        {pagos.map(p => (
+                          <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "5px 12px", fontSize: 12 }}>
+                            <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
+                            <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
+                            <span style={{ color: "#555" }}>{p.descripcion || "Pago"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    }
+                    {saldo > 0 && (
+                      <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 6, alignItems: "end" }}>
+                          <Field label="Fecha"><input type="date" style={inputStyle} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                          <Field label="Monto $"><input type="number" style={inputStyle} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} /></Field>
+                          <Field label="Descripción"><input style={inputStyle} value={pagoForm.descripcion} onChange={e => setPagoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Seña, Saldo final..." /></Field>
+                          <button onClick={() => agregarPagoCompra(c.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px", marginBottom: 14 }}>✓</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
