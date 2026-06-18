@@ -2266,6 +2266,27 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   // Insumos state
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
   const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [verDetalleInsumo, setVerDetalleInsumo] = useState(null);
+  const [pagoInsumoForm, setPagoInsumoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
+
+  function saldoCompraFicha(c) {
+    const pagos = Array.isArray(c.pagos) ? c.pagos : [];
+    const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
+  }
+
+  async function agregarPagoInsumo(compraId) {
+    if (!pagoInsumoForm.monto || parseFloat(pagoInsumoForm.monto) <= 0) return alert("Ingresá un monto válido.");
+    const c = data.compras.find(x => x.id === compraId);
+    if (!c) return;
+    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoInsumoForm, id: uid() }];
+    const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
+    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    setPagoInsumoForm({ fecha: today(), monto: "", descripcion: "" });
+    if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
+  }
 
   // Venta state
   const [ventaModal, setVentaModal] = useState(false);
@@ -2482,19 +2503,55 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {comprasPac.length === 0
                 ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin insumos registrados</div>
                 : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {data.compras.filter(c => c.paciente_id === pacienteId).sort((a,b) => b.fecha.localeCompare(a.fecha)).map(c => (
-                    <div key={c.id} style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700 }}>{c.estado === "pagado" ? "✅ Pagado" : "🛍️ Pendiente"}</span>
-                        <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(c.fecha)}</span>
+                  {data.compras.filter(c => c.paciente_id === pacienteId).sort((a,b) => b.fecha.localeCompare(a.fecha)).map(c => {
+                    const saldo = saldoCompraFicha(c);
+                    const pagos = Array.isArray(c.pagos) ? c.pagos : [];
+                    const activo = verDetalleInsumo === c.id;
+                    return (
+                      <div key={c.id}>
+                        <div onClick={() => setVerDetalleInsumo(activo ? null : c.id)}
+                          style={{ background: "#FEF3C7", border: `1.5px solid ${activo ? "#92400E" : "#FDE68A"}`, borderRadius: activo ? "8px 8px 0 0" : 8, padding: "10px 14px", cursor: "pointer" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700 }}>{saldo <= 0 ? "✅ Pagado" : "🛍️ Pendiente"}</span>
+                            <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(c.fecha)}</span>
+                          </div>
+                          <div style={{ fontSize: 13 }}>{(c.insumos||[]).map(i => `${i.nombre} x${i.cantidad}`).join(", ")}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginTop: 4 }}>
+                            Total: ${(parseFloat(c.total)||0).toLocaleString("es-AR")}
+                            {pagos.length > 0 && ` · ${pagos.length} pago${pagos.length !== 1 ? "s" : ""}`}
+                            {saldo > 0 && <span style={{ color: "#DC2626" }}> · Debe: ${saldo.toLocaleString("es-AR")}</span>}
+                          </div>
+                        </div>
+                        {activo && (
+                          <div style={{ background: "#FFFBEB", border: "1.5px solid #92400E", borderTop: "none", borderRadius: "0 0 8px 8px", padding: "12px 14px" }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 8 }}>💰 Historial de pagos</div>
+                            {pagos.length === 0
+                              ? <div style={{ fontSize: 12, color: "#aaa", marginBottom: 10 }}>Sin pagos registrados aún</div>
+                              : <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+                                {pagos.map(p => (
+                                  <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "5px 12px", fontSize: 12 }}>
+                                    <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
+                                    <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
+                                    <span style={{ color: "#555" }}>{p.descripcion || "Pago"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            }
+                            {saldo > 0 && (
+                              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px" }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 6, alignItems: "end" }}>
+                                  <Field label="Fecha"><input type="date" style={inputStyle} value={pagoInsumoForm.fecha} onChange={e => setPagoInsumoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                                  <Field label="Monto $"><input type="number" style={inputStyle} value={pagoInsumoForm.monto} onChange={e => setPagoInsumoForm(f => ({ ...f, monto: e.target.value }))} /></Field>
+                                  <Field label="Descripción"><input style={inputStyle} value={pagoInsumoForm.descripcion} onChange={e => setPagoInsumoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Seña, Saldo final..." /></Field>
+                                  <button onClick={() => agregarPagoInsumo(c.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px", marginBottom: 14 }}>✓</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ fontSize: 13 }}>{(c.insumos||[]).map(i => `${i.nombre} x${i.cantidad}`).join(", ")}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginTop: 4 }}>
-                        Total: ${(parseFloat(c.total)||0).toLocaleString("es-AR")}
-                        {parseFloat(c.seña) > 0 && ` · Señado: $${parseFloat(c.seña).toLocaleString("es-AR")}`}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               }
             </div>
