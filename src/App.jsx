@@ -964,6 +964,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
 
 function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente }) {
   const { getDisp } = useDisponibilidad();
+  const { fechas: fechasEspeciales } = useFechasEspeciales();
   const [vista, setVista] = useState("semana");
   const [mostrarCancelados, setMostrarCancelados] = useState(false);
   const [mostrarNuevoPacEntrada, setMostrarNuevoPacEntrada] = useState(false);
@@ -973,6 +974,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
+  const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -987,6 +989,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // HC desde agenda
   const [verHCTurno, setVerHCTurno] = useState(null);
   const [fichaPacienteId, setFichaPacienteId] = useState(null);
+
+  // ── Cumpleaños del día (pacientes + profesionales/derivadores) ───────────────
+  function cumplesDelDia(fecha) {
+    const d = new Date(fecha + "T12:00:00");
+    const dia = d.getDate();
+    const mes = d.getMonth() + 1;
+    const cumplesFechas = (fechasEspeciales || [])
+      .filter(f => f.tipo === "cumpleaños" && f.fecha_dia === dia && f.fecha_mes === mes)
+      .map(f => ({ nombre: f.nombre, tipo: "Derivador", id: f.id, _kind: "fecha" }));
+    const cumplesPacientes = (data.pacientes || [])
+      .filter(p => {
+        const fn = p.fechaNac || p.fecha_nac;
+        if (!fn) return false;
+        const [, m, dd] = fn.split("-");
+        return parseInt(dd, 10) === dia && parseInt(m, 10) === mes;
+      })
+      .map(p => ({ nombre: `${p.apellido}, ${p.nombre}`, tipo: "Paciente", id: p.id, _kind: "paciente" }));
+    return [...cumplesFechas, ...cumplesPacientes];
+  }
+
 
   // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
@@ -1559,9 +1581,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
                   const bGV = entsProfFecha("Lic. Graciela Valles", fecha).filter(e => e._kind === "bloqueo").length > 0;
                   const algoBloq = bCM || bGV;
+                  const cumples = cumplesDelDia(fecha);
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB" }}>
+                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
+                      {cumples.length > 0 && (
+                        <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
+                          title="Ver cumpleaños"
+                          style={{ position: "absolute", top: 2, right: 2, fontSize: 13, cursor: "pointer", zIndex: 5 }}>
+                          🎂
+                        </span>
+                      )}
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
                       <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
                       <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 2 }}>
@@ -1826,6 +1856,41 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       {/* ── Modal bloqueo ─────────────────────────────────────────────────────── */}
       {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
+
+      {/* ── Modal cumpleaños del día ──────────────────────────────────────────── */}
+      {verCumpleDia && (() => {
+        const cumples = cumplesDelDia(verCumpleDia);
+        return (
+          <Modal title={`🎂 Cumpleaños — ${formatFecha(verCumpleDia)}`} onClose={() => setVerCumpleDia(null)}>
+            {cumples.length === 0
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin cumpleaños este día</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {cumples.map(c => (
+                  <div key={c.id} onClick={() => {
+                      if (c._kind === "paciente") {
+                        setFichaPacienteId(c.id);
+                        setVerCumpleDia(null);
+                      }
+                    }}
+                    style={{
+                      background: c._kind === "paciente" ? "#FFF7ED" : "#EEF2FF",
+                      border: `1.5px solid ${c._kind === "paciente" ? "#FED7AA" : "#C7D2FE"}`,
+                      borderRadius: 10, padding: "12px 16px",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      cursor: c._kind === "paciente" ? "pointer" : "default"
+                    }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15 }}>🎉 {c.nombre}</div>
+                      <div style={{ fontSize: 12, color: "#888" }}>{c.tipo}</div>
+                    </div>
+                    {c._kind === "paciente" && <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>}
+                  </div>
+                ))}
+              </div>
+            }
+          </Modal>
+        );
+      })()}
 
       {fichaPacienteId && (
         <FichaPaciente
