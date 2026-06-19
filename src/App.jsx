@@ -997,7 +997,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     const mes = d.getMonth() + 1;
     const cumplesFechas = (fechasEspeciales || [])
       .filter(f => f.tipo === "cumpleaños" && f.fecha_dia === dia && f.fecha_mes === mes)
-      .map(f => ({ nombre: f.nombre, tipo: "Derivador", id: f.id, _kind: "fecha" }));
+      .map(f => ({ nombre: f.nombre, tipo: "Derivador", id: f.id, _kind: "fecha", fecha }));
     const cumplesPacientes = (data.pacientes || [])
       .filter(p => {
         const fn = p.fechaNac || p.fecha_nac;
@@ -1005,8 +1005,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const [, m, dd] = fn.split("-");
         return parseInt(dd, 10) === dia && parseInt(m, 10) === mes;
       })
-      .map(p => ({ nombre: `${p.apellido}, ${p.nombre}`, tipo: "Paciente", id: p.id, _kind: "paciente" }));
+      .map(p => ({ nombre: `${p.apellido}, ${p.nombre}`, tipo: "Paciente", id: p.id, _kind: "paciente", fecha }));
     return [...cumplesFechas, ...cumplesPacientes];
+  }
+
+  // Cumpleaños de toda la semana (lunes a domingo), usado para el resumen del lunes
+  function cumplesDeLaSemana(lunes) {
+    const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
+    return dias.flatMap(f => cumplesDelDia(f));
   }
 
 
@@ -1576,20 +1582,21 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               {/* Header días sticky top */}
               <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
-                {diasSemana.map(fecha => {
+                {diasSemana.map((fecha, idxDia) => {
                   const hoy = fecha === today();
                   const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
                   const bGV = entsProfFecha("Lic. Graciela Valles", fecha).filter(e => e._kind === "bloqueo").length > 0;
                   const algoBloq = bCM || bGV;
-                  const cumples = cumplesDelDia(fecha);
+                  const esLunes = idxDia === 0;
+                  const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
                       style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
-                      {cumples.length > 0 && (
+                      {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
-                          title="Ver cumpleaños"
-                          style={{ position: "absolute", top: 2, right: 2, fontSize: 13, cursor: "pointer", zIndex: 5 }}>
-                          🎂
+                          title="Ver cumpleaños de la semana"
+                          style={{ position: "absolute", top: 2, right: 2, fontSize: 13, cursor: "pointer", zIndex: 5, display: "flex", alignItems: "center", gap: 1 }}>
+                          🎂{cumplesSemana.length > 1 && <span style={{ fontSize: 9, fontWeight: 800, background: "#fff", color: "#92400E", borderRadius: 8, padding: "0 3px" }}>{cumplesSemana.length}</span>}
                         </span>
                       )}
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
@@ -1857,16 +1864,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       {/* ── Modal bloqueo ─────────────────────────────────────────────────────── */}
       {modalBloqueo && <ModalBloqueo onClose={() => setModalBloqueo(false)} db={db} fechaInicial={vista === "dia" ? filtroFecha : today()} />}
 
-      {/* ── Modal cumpleaños del día ──────────────────────────────────────────── */}
+      {/* ── Modal cumpleaños de la semana ─────────────────────────────────────── */}
       {verCumpleDia && (() => {
-        const cumples = cumplesDelDia(verCumpleDia);
+        const cumples = cumplesDeLaSemana(verCumpleDia);
+        const finSemana = addDays(verCumpleDia, 6);
         return (
-          <Modal title={`🎂 Cumpleaños — ${formatFecha(verCumpleDia)}`} onClose={() => setVerCumpleDia(null)}>
+          <Modal title={`🎂 Cumpleaños de la semana — ${formatFecha(verCumpleDia)} al ${formatFecha(finSemana)}`} onClose={() => setVerCumpleDia(null)}>
             {cumples.length === 0
-              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin cumpleaños este día</div>
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin cumpleaños esta semana</div>
               : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {cumples.map(c => (
-                  <div key={c.id} onClick={() => {
+                  <div key={c.id + c.fecha} onClick={() => {
                       if (c._kind === "paciente") {
                         setFichaPacienteId(c.id);
                         setVerCumpleDia(null);
@@ -1881,7 +1889,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 15 }}>🎉 {c.nombre}</div>
-                      <div style={{ fontSize: 12, color: "#888" }}>{c.tipo}</div>
+                      <div style={{ fontSize: 12, color: "#888" }}>{c.tipo} · {nombreDia(c.fecha)} {numDia(c.fecha)}</div>
                     </div>
                     {c._kind === "paciente" && <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>}
                   </div>
