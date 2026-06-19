@@ -1411,29 +1411,31 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       <div style={{
         height: alturaFija,
         overflow: "hidden",
-        padding: recs.length > 0 ? "6px 6px 4px" : 0,
+        padding: recs.length > 0 ? "4px 6px 4px" : 0,
         background: esAntes ? "#FFFBEB" : "#F9FAFB",
         borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
         borderBottom: esAntes ? "2px dashed #FDE68A" : "none",
         position: "relative",
         zIndex: 6,
         boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
       }}>
         {recs.length > 0 && (
-          <div style={{ fontSize: 9, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, paddingLeft: 2 }}>
-            {esAntes ? "☀️ Antes de empezar" : "🌙 Al terminar"}
+          <div style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3, paddingLeft: 2, flexShrink: 0 }}>
+            {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0 }}>
           {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 6px", borderRadius: 5, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 20 }}>
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0 }}>
               <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
-                style={{ width: 12, height: 12, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0, fontSize: 11, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.titulo}
               </div>
               <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
-                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 12, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
+                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
         </div>
@@ -1578,20 +1580,55 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       </div>
 
       {/* ── Vista DÍA ─────────────────────────────────────────────────────────── */}
-      {vista === "dia" && (
-        <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
-          <div style={{ display: "flex", minWidth: 320 }}>
-            <div style={{ position: "sticky", left: 0, zIndex: 10, background: "#F8FAFC", flexShrink: 0, borderRight: "1.5px solid #E5E7EB" }}>
-              <ColumnaHoras slotH={SLOT_H_DIA} />
+      {vista === "dia" && (() => {
+        const recsAntesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "antes");
+        const recsDespuesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "despues");
+        const ItemRec = ({ r }) => (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB" }}>
+            <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+              style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{r.titulo}</span>
+            {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
+            <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+              style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
+          </div>
+        );
+        return (
+        <div>
+          {/* Recordatorios "antes de empezar" — siempre visibles arriba, sin scroll */}
+          {recsAntesDia.length > 0 && (
+            <div style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "8px 10px", marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>☀️ Antes de empezar</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {recsAntesDia.map(r => <ItemRec key={r.id} r={r} />)}
+              </div>
             </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
-                profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
+          )}
+
+          <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 280px)", WebkitOverflowScrolling: "touch" }}>
+            <div style={{ display: "flex", minWidth: 320 }}>
+              <div style={{ position: "sticky", left: 0, zIndex: 10, background: "#F8FAFC", flexShrink: 0, borderRight: "1.5px solid #E5E7EB" }}>
+                <ColumnaHoras slotH={SLOT_H_DIA} />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
+                  profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
+              </div>
             </div>
           </div>
-          <RecordatoriosPie fecha={filtroFecha} profKeys={[filtroProfesional !== "todas" ? filtroProfesional : "todas"]} />
+
+          {/* Recordatorios "al terminar" — siempre visibles abajo, sin scroll */}
+          {recsDespuesDia.length > 0 && (
+            <div style={{ background: "#F9FAFB", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "8px 10px", marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>🌙 Al terminar</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {recsDespuesDia.map(r => <ItemRec key={r.id} r={r} />)}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Vista SEMANA ──────────────────────────────────────────────────────── */}
       {vista === "semana" && (() => {
@@ -1663,9 +1700,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
                 const maxAntes = Math.max(...recsAntesPorDia, 0);
                 const maxDespues = Math.max(...recsDespuesPorDia, 0);
-                // Altura fija: header (16px) + N items de 20px + gap de 3px entre ellos + padding (10px)
-                const altAntes = maxAntes > 0 ? 16 + maxAntes * 20 + (maxAntes - 1) * 3 + 10 : 0;
-                const altDespues = maxDespues > 0 ? 16 + maxDespues * 20 + (maxDespues - 1) * 3 + 10 : 0;
+                // Mostramos hasta 4 ítems de alto; si hay más, queda scrolleable dentro del bloque
+                const CAP_ITEMS = 4;
+                const itemsAntes = Math.min(maxAntes, CAP_ITEMS);
+                const itemsDespues = Math.min(maxDespues, CAP_ITEMS);
+                // Altura fija: header (12px) + N items de 18px + gap de 2px entre ellos + padding (8px)
+                const altAntes = maxAntes > 0 ? 12 + itemsAntes * 18 + (itemsAntes - 1) * 2 + 8 : 0;
+                const altDespues = maxDespues > 0 ? 12 + itemsDespues * 18 + (itemsDespues - 1) * 2 + 8 : 0;
                 return (
               <div style={{ display: "flex" }}>
                 {/* Columna horas sticky left */}
