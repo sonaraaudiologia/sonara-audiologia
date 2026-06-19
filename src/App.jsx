@@ -1413,6 +1413,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         background: esAntes ? "#FFFBEB" : "#F9FAFB",
         borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
         borderBottom: esAntes ? "2px dashed #FDE68A" : "none",
+        position: "relative",
+        zIndex: 6,
       }}>
         <div style={{ fontSize: 9, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, paddingLeft: 2 }}>
           {esAntes ? "☀️ Antes de empezar" : "🌙 Al terminar"}
@@ -1687,7 +1689,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         const totalH = TOTAL_SLOTS * SLOT_H_SEM;
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
                         return (
-                          <div key={prof.key} style={{ position: "relative", height: totalH, borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
+                          <div key={prof.key} style={{ position: "relative", height: totalH, overflow: "hidden", borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
                             {/* Líneas fondo con disponibilidad */}
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
