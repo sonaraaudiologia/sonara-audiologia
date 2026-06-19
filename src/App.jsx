@@ -715,6 +715,7 @@ function useSupabase() {
       titulo: r.titulo || "", fecha: r.fecha, hora: r.hora || "09:00",
       tipo: r.tipo || "seguimiento", paciente_id: r.paciente_id || null,
       descripcion: r.descripcion || "", completado: r.completado || false,
+      momento: r.momento || "despues",
     };
   }
 
@@ -1173,6 +1174,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           paciente_id: formEntrada.paciente_id || null,
           descripcion: formEntrada.notas || "",
           completado: false,
+          momento: formEntrada.momento || "despues",
         };
         if (esNueva) await db.agregarRecordatorio(rec);
         else await db.actualizarRecordatorio({ ...rec, id: modalEntrada.editando.id });
@@ -1400,6 +1402,40 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // ── Columna de horas ─────────────────────────────────────────────────────────
 
   // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
+  function RecordatoriosBloque({ fecha, momento }) {
+    const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento);
+    if (recs.length === 0) return null;
+    const esAntes = momento === "antes";
+
+    return (
+      <div style={{
+        padding: "6px 6px 8px",
+        background: esAntes ? "#FFFBEB" : "#F9FAFB",
+        borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
+        borderBottom: esAntes ? "2px dashed #FDE68A" : "none",
+      }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6, paddingLeft: 2 }}>
+          {esAntes ? "☀️ Antes de empezar" : "🌙 Al terminar"}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {recs.sort((a,b) => (a.hora||"").localeCompare(b.hora||"")).map(r => (
+            <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "4px 6px", borderRadius: 6, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}` }}>
+              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+                style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0, marginTop: 1 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151", lineHeight: 1.3, wordBreak: "break-word" }}>
+                  {r.hora ? <span style={{ color: "#9CA3AF", marginRight: 3, fontSize: 10 }}>{r.hora.slice(0,5)}</span> : null}{r.titulo}
+                </div>
+              </div>
+              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function RecordatoriosPie({ fecha, profKeys }) {
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado);
     if (recs.length === 0) return null;
@@ -1615,10 +1651,23 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </div>
 
               {/* Cuerpo: cada día dividido en 2 sub-columnas */}
+              {(() => {
+                // Calcular altura máxima de recordatorios "antes" y "después" en toda la semana,
+                // para que la franja horaria quede alineada entre todos los días.
+                const recsAntesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "antes").length);
+                const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
+                const maxAntes = Math.max(...recsAntesPorDia, 0);
+                const maxDespues = Math.max(...recsDespuesPorDia, 0);
+                // Altura estimada: header (18px) + N items de ~26px cada uno + padding, si hay al menos 1
+                const altAntes = maxAntes > 0 ? 24 + maxAntes * 26 : 0;
+                const altDespues = maxDespues > 0 ? 24 + maxDespues * 26 : 0;
+                return (
               <div style={{ display: "flex" }}>
                 {/* Columna horas sticky left */}
-                <div style={{ position: "sticky", left: 0, zIndex: 15, flexShrink: 0, background: "#F8FAFC" }}>
+                <div style={{ position: "sticky", left: 0, zIndex: 15, flexShrink: 0, background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
+                  {altAntes > 0 && <div style={{ height: altAntes, borderBottom: "2px dashed #FDE68A", background: "#FFFBEB" }} />}
                   <ColumnaHoras slotH={SLOT_H_SEM} />
+                  {altDespues > 0 && <div style={{ height: altDespues, borderTop: "2px dashed #E5E7EB", background: "#F9FAFB" }} />}
                 </div>
 
                 {/* 6 días */}
@@ -1626,7 +1675,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                      {/* Recordatorios "antes de empezar" — altura uniforme para alinear la grilla */}
+                      <div style={{ minHeight: altAntes }}>
+                        <RecordatoriosBloque fecha={fecha} momento="antes" />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
                         const conCols = asignarCols(ents);
@@ -1719,15 +1773,18 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                           </div>
                         );
                       })}
-                      {/* Recordatorios al pie — se muestran una sola vez por día */}
-                      <div style={{ gridColumn: "1 / -1", borderTop: "2px dashed #E5E7EB" }}>
-                        <RecordatoriosPie fecha={fecha} profKeys={profsFilt.map(p => p.key)} />
+                      </div>
+                      {/* Recordatorios "al terminar" — altura uniforme para alinear la grilla */}
+                      <div style={{ minHeight: altDespues }}>
+                        <RecordatoriosBloque fecha={fecha} momento="despues" />
                       </div>
                     </div>
                     );
                   })}
                 </div>
                 </div>
+                );
+              })()}
               </div>
             </div>
         );
@@ -2139,6 +2196,18 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   <option value="">— General —</option>
                   {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
                 </select>
+              </Field>
+              <Field label="¿Cuándo mostrarlo en la agenda?">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" onClick={() => setFormEntrada(f => ({ ...f, momento: "antes" }))}
+                    style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${(formEntrada.momento || "despues") === "antes" ? "#1a6b6b" : "#E5E7EB"}`, background: (formEntrada.momento || "despues") === "antes" ? "#e0f4f4" : "#fff", color: (formEntrada.momento || "despues") === "antes" ? "#1a6b6b" : "#888", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    ☀️ Antes de empezar
+                  </button>
+                  <button type="button" onClick={() => setFormEntrada(f => ({ ...f, momento: "despues" }))}
+                    style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${(formEntrada.momento || "despues") === "despues" ? "#1a6b6b" : "#E5E7EB"}`, background: (formEntrada.momento || "despues") === "despues" ? "#e0f4f4" : "#fff", color: (formEntrada.momento || "despues") === "despues" ? "#1a6b6b" : "#888", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                    🌙 Al terminar
+                  </button>
+                </div>
               </Field>
             </>
           )}
