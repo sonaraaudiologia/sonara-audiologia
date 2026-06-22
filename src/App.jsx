@@ -1014,6 +1014,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
+  const [recPopover, setRecPopover] = useState(null); // { fecha, momento } | null — popover recordatorios vista semana
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -1440,17 +1441,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // ── Columna de horas ─────────────────────────────────────────────────────────
 
   // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
-  function RecordatoriosBloque({ fecha, momento, alturaFija, capItems = 2 }) {
+  function RecordatoriosBloque({ fecha, momento, alturaFija }) {
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento);
     const esAntes = momento === "antes";
     if (alturaFija === 0) return null;
-    const extras = recs.length - capItems;
+    const n = recs.length;
 
     return (
       <div style={{
         height: alturaFija,
         overflow: "hidden",
-        padding: recs.length > 0 ? "4px 6px 4px" : 0,
+        padding: n > 0 ? "4px 5px" : 0,
         background: esAntes ? "#FFFBEB" : "#F9FAFB",
         borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
         borderBottom: esAntes ? "2px dashed #FDE68A" : "none",
@@ -1458,33 +1459,27 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         zIndex: 6,
         boxSizing: "border-box",
         display: "flex",
-        flexDirection: "column",
+        alignItems: "center",
+        minWidth: 0,
       }}>
-        {recs.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3, flexShrink: 0 }}>
-            <span style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, paddingLeft: 2 }}>
-              {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
+        {n > 0 && (
+          <button type="button"
+            onClick={(e) => { e.stopPropagation(); setRecPopover({ fecha, momento }); }}
+            title={recs.map(r => r.titulo).join(" · ")}
+            style={{
+              display: "flex", alignItems: "center", gap: 4, width: "100%", minWidth: 0,
+              padding: "2px 6px", borderRadius: 5, cursor: "pointer",
+              background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`,
+              fontSize: 10, fontWeight: 700, color: esAntes ? "#B45309" : "#4B5563",
+              boxSizing: "border-box", lineHeight: 1.2,
+            }}>
+            <span style={{ flexShrink: 0 }}>{esAntes ? "☀️" : "🌙"}</span>
+            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
+              {n === 1 ? "Recordatorio" : `${n} recordatorios`}
             </span>
-            {extras > 0 && (
-              <span style={{ fontSize: 8, fontWeight: 800, color: esAntes ? "#B45309" : "#6B7280", background: esAntes ? "#FDE68A" : "#E5E7EB", borderRadius: 6, padding: "0 5px", flexShrink: 0 }}>
-                +{extras}
-              </span>
-            )}
-          </div>
+            <span style={{ flexShrink: 0, fontSize: 9, color: "#9CA3AF" }}>›</span>
+          </button>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0 }}>
-          {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0 }}>
-              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
-                style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {r.titulo}
-              </div>
-              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
-                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
-            </div>
-          ))}
-        </div>
       </div>
     );
   }
@@ -1746,14 +1741,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
                 const maxAntes = Math.max(...recsAntesPorDia, 0);
                 const maxDespues = Math.max(...recsDespuesPorDia, 0);
-                // Mostramos hasta 2 ítems de alto; si hay más, queda scrolleable dentro del bloque.
-                // Tope bajo para que el bloque NUNCA alargue la columna del día ni desalinee la grilla.
-                const CAP_ITEMS = 2;
-                const itemsAntes = Math.min(maxAntes, CAP_ITEMS);
-                const itemsDespues = Math.min(maxDespues, CAP_ITEMS);
-                // Altura fija: header (12px) + N items de 18px + gap de 2px entre ellos + padding (8px)
-                const altAntes = maxAntes > 0 ? 12 + itemsAntes * 18 + (itemsAntes - 1) * 2 + 8 : 0;
-                const altDespues = maxDespues > 0 ? 12 + itemsDespues * 18 + (itemsDespues - 1) * 2 + 8 : 0;
+                // La franja es una sola píldora colapsada (alto fijo, no depende de la cantidad).
+                // Así la columna nunca se ensancha ni se alarga; el detalle se ve en un popover al tocar.
+                const FRANJA_H = 26;
+                const altAntes = maxAntes > 0 ? FRANJA_H : 0;
+                const altDespues = maxDespues > 0 ? FRANJA_H : 0;
                 return (
               <div style={{ display: "flex" }}>
                 {/* Columna horas sticky left */}
@@ -1764,13 +1756,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0 }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
-                      <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} capItems={CAP_ITEMS} />
+                      <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
@@ -1866,7 +1858,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       })}
                       </div>
                       {/* Recordatorios "al terminar" — altura fija igual en todos los días */}
-                      <RecordatoriosBloque fecha={fecha} momento="despues" alturaFija={altDespues} capItems={CAP_ITEMS} />
+                      <RecordatoriosBloque fecha={fecha} momento="despues" alturaFija={altDespues} />
                     </div>
                     );
                   })}
@@ -2038,6 +2030,44 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <div style={{ fontSize: 12, color: "#888" }}>{c.tipo} · {nombreDia(c.fecha)} {numDia(c.fecha)}</div>
                     </div>
                     {c._kind === "paciente" && <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>}
+                  </div>
+                ))}
+              </div>
+            }
+          </Modal>
+        );
+      })()}
+
+      {/* ── Popover recordatorios (vista semana) ──────────────────────────────── */}
+      {recPopover && (() => {
+        const { fecha, momento } = recPopover;
+        const esAntes = momento === "antes";
+        const recs = data.recordatorios
+          .filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento)
+          .sort((a, b) => (a.titulo || "").localeCompare(b.titulo || ""));
+        return (
+          <Modal
+            title={`${esAntes ? "☀️ Antes de empezar" : "🌙 Al terminar"} — ${formatFecha(fecha)}`}
+            onClose={() => setRecPopover(null)}
+          >
+            {recs.length === 0
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin recordatorios</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {recs.map(r => (
+                  <div key={r.id} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10,
+                    background: esAntes ? "#FFFBEB" : "#F9FAFB",
+                    border: `1.5px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`,
+                  }}>
+                    <input type="checkbox" checked={r.completado}
+                      onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+                      style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: "#374151" }}>
+                      {r.titulo}
+                    </div>
+                    <button type="button"
+                      onClick={() => db.eliminarRecordatorio(r.id)}
+                      style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 18, padding: "0 4px", flexShrink: 0, lineHeight: 1 }}>×</button>
                   </div>
                 ))}
               </div>
