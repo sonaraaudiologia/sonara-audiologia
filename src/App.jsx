@@ -570,17 +570,26 @@ function useSupabase() {
     undoStack.current = undoStack.current.slice(1);
     window.__sonaraUndo = undoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
+
+    // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
+    function transformar(tabla, rows) {
+      if (tabla === "ventas") return rows.map(fromDBVenta);
+      if (tabla === "pacientes") return rows.map(fromDB);
+      return rows;
+    }
+
     try {
       if (accion.tipo === "eliminar") {
         await supabase.from(accion.tabla).insert({ ...accion.item });
         const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: rows }));
+        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
       } else if (accion.tipo === "crear") {
         await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
         setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
       } else if (accion.tipo === "actualizar") {
         await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? accion.itemAnterior : x) }));
+        const itemTransformado = transformar(accion.tabla, [accion.itemAnterior])[0];
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? itemTransformado : x) }));
       }
       alert(`↩ Deshecho: ${accion.descripcion}`);
     } catch(e) { alert("Error al deshacer: " + e.message); }
@@ -738,7 +747,7 @@ function useSupabase() {
     const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
     if (!error) {
       setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload) } : p) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: toDB(itemAnterior), descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
     }
   }, [data.pacientes]);
 
@@ -800,15 +809,22 @@ function useSupabase() {
   // ── CRUD Ventas ───────────────────────────────────────────────────────────
   const agregarVenta = useCallback(async (venta) => {
     const { data: row } = await supabase.from("ventas").insert(toDBVenta(venta)).select().single();
-    if (row) setData(d => ({ ...d, ventas: [fromDBVenta(row), ...d.ventas] }));
+    if (row) {
+      setData(d => ({ ...d, ventas: [fromDBVenta(row), ...d.ventas] }));
+      pushUndo({ tipo: "crear", tabla: "ventas", item: row, descripcion: `Venta/presupuesto creado` });
+    }
     return row;
   }, []);
 
   const actualizarVenta = useCallback(async (venta) => {
+    const itemAnterior = data.ventas.find(v => v.id === venta.id);
     const payload = { ...toDBVenta(venta), id: venta.id };
     const { error } = await supabase.from("ventas").update(payload).eq("id", venta.id);
-    if (!error) setData(d => ({ ...d, ventas: d.ventas.map(v => v.id === venta.id ? { ...v, ...fromDBVenta(payload) } : v) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, ventas: d.ventas.map(v => v.id === venta.id ? { ...v, ...fromDBVenta(payload) } : v) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "ventas", item: payload, itemAnterior: { ...toDBVenta(itemAnterior), id: itemAnterior.id }, descripcion: `Venta editada` });
+    }
+  }, [data.ventas]);
 
   const eliminarVenta = useCallback(async (id) => {
     const item = data.ventas.find(v => v.id === id);
@@ -828,41 +844,63 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
-    if (row) setData(d => ({ ...d, compras: [row, ...d.compras] }));
+    if (row) {
+      setData(d => ({ ...d, compras: [row, ...d.compras] }));
+      pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
+    }
     return row;
   }, []);
 
   const actualizarCompra = useCallback(async (compra) => {
+    const itemAnterior = data.compras.find(c => c.id === compra.id);
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
-    if (!error) setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
+    }
+  }, [data.compras]);
 
   const eliminarCompra = useCallback(async (id) => {
+    const item = data.compras.find(c => c.id === id);
     const { error } = await supabase.from("compras").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
+      if (item) pushUndo({ tipo: "eliminar", tabla: "compras", item, descripcion: `Insumo eliminado` });
+    }
+  }, [data.compras]);
 
   // ── CRUD Recordatorios ────────────────────────────────────────────────────
   const agregarRecordatorio = useCallback(async (rec) => {
     const { data: row } = await supabase.from("recordatorios").insert(toDBRec(rec)).select().single();
-    if (row) setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
+    if (row) {
+      setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
+      pushUndo({ tipo: "crear", tabla: "recordatorios", item: row, descripcion: `Recordatorio "${row.titulo}" creado` });
+    }
     return row;
   }, []);
 
   const actualizarRecordatorio = useCallback(async (rec) => {
+    const itemAnterior = data.recordatorios.find(r => r.id === rec.id);
     const payload = { ...toDBRec(rec), id: rec.id };
     const { error } = await supabase.from("recordatorios").update(payload).eq("id", rec.id);
-    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? { ...r, ...payload } : r) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => r.id === rec.id ? { ...r, ...payload } : r) }));
+      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "recordatorios", item: payload, itemAnterior, descripcion: `Recordatorio "${rec.titulo || itemAnterior.titulo}" editado` });
+    }
+  }, [data.recordatorios]);
 
   const eliminarRecordatorio = useCallback(async (id) => {
+    const item = data.recordatorios.find(r => r.id === id);
     const { error } = await supabase.from("recordatorios").delete().eq("id", id);
-    if (!error) setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
-  }, []);
+    if (!error) {
+      setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => r.id !== id) }));
+      if (item) pushUndo({ tipo: "eliminar", tabla: "recordatorios", item, descripcion: `Recordatorio "${item.titulo}" eliminado` });
+    }
+  }, [data.recordatorios]);
 
   return {
     data, loading, error,
@@ -1402,10 +1440,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // ── Columna de horas ─────────────────────────────────────────────────────────
 
   // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
-  function RecordatoriosBloque({ fecha, momento, alturaFija }) {
+  function RecordatoriosBloque({ fecha, momento, alturaFija, capItems = 2 }) {
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento);
     const esAntes = momento === "antes";
     if (alturaFija === 0) return null;
+    const extras = recs.length - capItems;
 
     return (
       <div style={{
@@ -1422,8 +1461,15 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         flexDirection: "column",
       }}>
         {recs.length > 0 && (
-          <div style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3, paddingLeft: 2, flexShrink: 0 }}>
-            {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3, flexShrink: 0 }}>
+            <span style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, paddingLeft: 2 }}>
+              {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
+            </span>
+            {extras > 0 && (
+              <span style={{ fontSize: 8, fontWeight: 800, color: esAntes ? "#B45309" : "#6B7280", background: esAntes ? "#FDE68A" : "#E5E7EB", borderRadius: 6, padding: "0 5px", flexShrink: 0 }}>
+                +{extras}
+              </span>
+            )}
           </div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0 }}>
@@ -1700,8 +1746,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
                 const maxAntes = Math.max(...recsAntesPorDia, 0);
                 const maxDespues = Math.max(...recsDespuesPorDia, 0);
-                // Mostramos hasta 4 ítems de alto; si hay más, queda scrolleable dentro del bloque
-                const CAP_ITEMS = 4;
+                // Mostramos hasta 2 ítems de alto; si hay más, queda scrolleable dentro del bloque.
+                // Tope bajo para que el bloque NUNCA alargue la columna del día ni desalinee la grilla.
+                const CAP_ITEMS = 2;
                 const itemsAntes = Math.min(maxAntes, CAP_ITEMS);
                 const itemsDespues = Math.min(maxDespues, CAP_ITEMS);
                 // Altura fija: header (12px) + N items de 18px + gap de 2px entre ellos + padding (8px)
@@ -1723,7 +1770,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     return (
                     <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
-                      <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
+                      <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} capItems={CAP_ITEMS} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
@@ -1819,7 +1866,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       })}
                       </div>
                       {/* Recordatorios "al terminar" — altura fija igual en todos los días */}
-                      <RecordatoriosBloque fecha={fecha} momento="despues" alturaFija={altDespues} />
+                      <RecordatoriosBloque fecha={fecha} momento="despues" alturaFija={altDespues} capItems={CAP_ITEMS} />
                     </div>
                     );
                   })}
