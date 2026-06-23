@@ -646,6 +646,7 @@ function useSupabase() {
       nombre: pac.nombre || "", apellido: pac.apellido || "",
       dni: pac.dni || "", fecha_nac: (pac.fechaNac || pac.fecha_nac) ? (pac.fechaNac || pac.fecha_nac) : null,
       telefono: pac.telefono || "", email: pac.email || "",
+      direccion: pac.direccion || "", localidad: pac.localidad || "",
       obra_social: pac.obraSocial || pac.obra_social || "",
       nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
       diagnostico: pac.diagnostico || "", antecedentes: pac.antecedentes || "",
@@ -664,6 +665,8 @@ function useSupabase() {
     return {
       ...row,
       fechaNac: row.fecha_nac || "",
+      direccion: row.direccion || "",
+      localidad: row.localidad || "",
       obraSocial: row.obra_social || "",
       nroAfiliado: row.nro_afiliado || "",
       derivadoPor: row.derivado_por || "",
@@ -912,7 +915,7 @@ function useSupabase() {
   };
 }
 
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
 
 
 function SelectorPracticas({ seleccionadas = [], onChange }) {
@@ -1014,7 +1017,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
-  const [recPopover, setRecPopover] = useState(null); // { fecha, momento } | null — popover recordatorios vista semana
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -1445,13 +1447,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento);
     const esAntes = momento === "antes";
     if (alturaFija === 0) return null;
-    const n = recs.length;
 
     return (
       <div style={{
         height: alturaFija,
         overflow: "hidden",
-        padding: n > 0 ? "4px 5px" : 0,
+        padding: recs.length > 0 ? "4px 6px 4px" : 0,
         background: esAntes ? "#FFFBEB" : "#F9FAFB",
         borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
         borderBottom: esAntes ? "2px dashed #FDE68A" : "none",
@@ -1459,27 +1460,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         zIndex: 6,
         boxSizing: "border-box",
         display: "flex",
-        alignItems: "center",
-        minWidth: 0,
+        flexDirection: "column",
       }}>
-        {n > 0 && (
-          <button type="button"
-            onClick={(e) => { e.stopPropagation(); setRecPopover({ fecha, momento }); }}
-            title={recs.map(r => r.titulo).join(" · ")}
-            style={{
-              display: "flex", alignItems: "center", gap: 4, width: "100%", minWidth: 0,
-              padding: "2px 6px", borderRadius: 5, cursor: "pointer",
-              background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`,
-              fontSize: 10, fontWeight: 700, color: esAntes ? "#B45309" : "#4B5563",
-              boxSizing: "border-box", lineHeight: 1.2,
-            }}>
-            <span style={{ flexShrink: 0 }}>{esAntes ? "☀️" : "🌙"}</span>
-            <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
-              {n === 1 ? "Recordatorio" : `${n} recordatorios`}
-            </span>
-            <span style={{ flexShrink: 0, fontSize: 9, color: "#9CA3AF" }}>›</span>
-          </button>
+        {recs.length > 0 && (
+          <div style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3, paddingLeft: 2, flexShrink: 0 }}>
+            {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
+          </div>
         )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0 }}>
+          {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0 }}>
+              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+                style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {r.titulo}
+              </div>
+              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+                style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -1741,11 +1741,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
                 const maxAntes = Math.max(...recsAntesPorDia, 0);
                 const maxDespues = Math.max(...recsDespuesPorDia, 0);
-                // La franja es una sola píldora colapsada (alto fijo, no depende de la cantidad).
-                // Así la columna nunca se ensancha ni se alarga; el detalle se ve en un popover al tocar.
-                const FRANJA_H = 26;
-                const altAntes = maxAntes > 0 ? FRANJA_H : 0;
-                const altDespues = maxDespues > 0 ? FRANJA_H : 0;
+                // Mostramos hasta 4 ítems de alto; si hay más, queda scrolleable dentro del bloque
+                const CAP_ITEMS = 4;
+                const itemsAntes = Math.min(maxAntes, CAP_ITEMS);
+                const itemsDespues = Math.min(maxDespues, CAP_ITEMS);
+                // Altura fija: header (12px) + N items de 18px + gap de 2px entre ellos + padding (8px)
+                const altAntes = maxAntes > 0 ? 12 + itemsAntes * 18 + (itemsAntes - 1) * 2 + 8 : 0;
+                const altDespues = maxDespues > 0 ? 12 + itemsDespues * 18 + (itemsDespues - 1) * 2 + 8 : 0;
                 return (
               <div style={{ display: "flex" }}>
                 {/* Columna horas sticky left */}
@@ -1756,11 +1758,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))" }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0 }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
@@ -2038,44 +2040,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         );
       })()}
 
-      {/* ── Popover recordatorios (vista semana) ──────────────────────────────── */}
-      {recPopover && (() => {
-        const { fecha, momento } = recPopover;
-        const esAntes = momento === "antes";
-        const recs = data.recordatorios
-          .filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento)
-          .sort((a, b) => (a.titulo || "").localeCompare(b.titulo || ""));
-        return (
-          <Modal
-            title={`${esAntes ? "☀️ Antes de empezar" : "🌙 Al terminar"} — ${formatFecha(fecha)}`}
-            onClose={() => setRecPopover(null)}
-          >
-            {recs.length === 0
-              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin recordatorios</div>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {recs.map(r => (
-                  <div key={r.id} style={{
-                    display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10,
-                    background: esAntes ? "#FFFBEB" : "#F9FAFB",
-                    border: `1.5px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`,
-                  }}>
-                    <input type="checkbox" checked={r.completado}
-                      onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
-                      style={{ width: 18, height: 18, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-                    <div style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 600, color: "#374151" }}>
-                      {r.titulo}
-                    </div>
-                    <button type="button"
-                      onClick={() => db.eliminarRecordatorio(r.id)}
-                      style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 18, padding: "0 4px", flexShrink: 0, lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-              </div>
-            }
-          </Modal>
-        );
-      })()}
-
       {fichaPacienteId && (
         <FichaPaciente
           pacienteId={fichaPacienteId}
@@ -2263,6 +2227,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <Field label="Apellido *"><input style={inputStyle} value={formNuevoPac.apellido} onChange={e => setFormNuevoPac(f => ({ ...f, apellido: e.target.value }))} /></Field>
                       <Field label="DNI"><input style={inputStyle} value={formNuevoPac.dni} onChange={e => setFormNuevoPac(f => ({ ...f, dni: e.target.value }))} /></Field>
                       <Field label="Teléfono"><input style={inputStyle} value={formNuevoPac.telefono} onChange={e => setFormNuevoPac(f => ({ ...f, telefono: e.target.value }))} /></Field>
+                      <Field label="Dirección"><input style={inputStyle} value={formNuevoPac.direccion} onChange={e => setFormNuevoPac(f => ({ ...f, direccion: e.target.value }))} /></Field>
+                      <Field label="Localidad"><input style={inputStyle} value={formNuevoPac.localidad} onChange={e => setFormNuevoPac(f => ({ ...f, localidad: e.target.value }))} /></Field>
                       <Field label="Obra social"><input style={inputStyle} value={formNuevoPac.obraSocial} onChange={e => setFormNuevoPac(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
                       <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formNuevoPac.fechaNac} onChange={e => setFormNuevoPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
                     </div>
@@ -2929,13 +2895,14 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", direccion: pac.direccion||"", localidad: pac.localidad||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
                       ["Nombre", pac.nombre], ["Apellido", pac.apellido],
                       ["DNI", pac.dni], ["Teléfono", pac.telefono],
-                      ["Email", pac.email], ["Obra social", pac.obraSocial || pac.obra_social],
+                      ["Email", pac.email], ["Dirección", pac.direccion],
+                      ["Localidad", pac.localidad], ["Obra social", pac.obraSocial || pac.obra_social],
                       ["Nro. afiliado", pac.nroAfiliado || pac.nro_afiliado],
                       ["Fecha nac.", pac.fechaNac || pac.fecha_nac ? `${formatFecha(pac.fechaNac || pac.fecha_nac)} (${calcEdad(pac.fechaNac || pac.fecha_nac)} años)` : "—"],
                       ["Derivado por", pac.derivadoPor || pac.derivado_por],
@@ -2977,6 +2944,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                     <Field label="DNI"><input style={inputStyle} value={form.dni||""} onChange={e => setForm(f => ({...f, dni: e.target.value}))} /></Field>
                     <Field label="Teléfono"><input style={inputStyle} value={form.telefono||""} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} /></Field>
                     <Field label="Email"><input style={inputStyle} value={form.email||""} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></Field>
+                    <Field label="Dirección"><input style={inputStyle} value={form.direccion||""} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} /></Field>
+                    <Field label="Localidad"><input style={inputStyle} value={form.localidad||""} onChange={e => setForm(f => ({...f, localidad: e.target.value}))} /></Field>
                     <Field label="Fecha nac."><input type="date" style={inputStyle} value={form.fechaNac||form.fecha_nac||""} onChange={e => setForm(f => ({...f, fechaNac: e.target.value}))} /></Field>
                     <Field label="Obra social"><input style={inputStyle} value={form.obraSocial||form.obra_social||""} onChange={e => setForm(f => ({...f, obraSocial: e.target.value}))} /></Field>
                     <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado||form.nro_afiliado||""} onChange={e => setForm(f => ({...f, nroAfiliado: e.target.value}))} /></Field>
@@ -3033,6 +3002,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
+    direccion: "", localidad: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     derivadoPor: "", audifono: "",
     audifono_der: "", audifono_der_anio: "", audifono_izq: "", audifono_izq_anio: "",
@@ -3077,7 +3047,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   function editar(p) {
     setForm({
       nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || p.fecha_nac || "",
-      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || p.obra_social || "",
+      telefono: p.telefono || "", email: p.email || "", direccion: p.direccion || "", localidad: p.localidad || "", obraSocial: p.obraSocial || p.obra_social || "",
       nroAfiliado: p.nroAfiliado || p.nro_afiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
       derivadoPor: p.derivadoPor || p.derivado_por || "",
@@ -3196,7 +3166,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           </div>
         </div>
         <button onClick={() => {
-          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
@@ -3333,6 +3303,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
             <Field label="Fecha de nacimiento"><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
             <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ejemplo@mail.com" /></Field>
+            <Field label="Dirección"><input style={inputStyle} value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} /></Field>
+            <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e => setForm(f => ({ ...f, localidad: e.target.value }))} /></Field>
           </div>
 
           {/* ── Cobertura ── */}
@@ -3438,6 +3410,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                 {pacienteHC.email && <CopyButton text={pacienteHC.email} label="email" />}
               </div>
               <div><b>Obra social:</b> {pacienteHC.obraSocial || "Particular"}</div>
+              {(pacienteHC.direccion || pacienteHC.localidad) && <div style={{ gridColumn: "span 2" }}><b>Dirección:</b> {[pacienteHC.direccion, pacienteHC.localidad].filter(Boolean).join(", ") || "—"}</div>}
               {pacienteHC.diagnostico && <div style={{ gridColumn: "span 2" }}><b>Diagnóstico:</b> {pacienteHC.diagnostico}</div>}
             </div>
             {(pacienteHC.etiquetas || []).length > 0 && (
