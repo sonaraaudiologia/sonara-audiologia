@@ -843,7 +843,8 @@ function useSupabase() {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
+    const { saldo, ...limpio } = compra;
+    const { data: row } = await supabase.from("compras").insert({ ...limpio, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -857,7 +858,9 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    // 'saldo' es una columna generada en Supabase: no se puede actualizar, hay que excluirla
+    const { saldo, ...payload } = updated;
+    const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
     if (error) { console.error("Error actualizarCompra:", error); alert("Error al guardar el pago: " + error.message); return; }
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
