@@ -27,6 +27,10 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+function normalizar(str) {
+  return (str || "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
 function calcEdad(fechaNac) {
   if (!fechaNac) return null;
   try {
@@ -438,9 +442,9 @@ function Dashboard({ data, onNavigate }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
   const busquedaResultados = busqueda.length > 1 ? [
-    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
-    ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
-    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
+    ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
+    ...data.turnos.filter(t => t.fecha >= hoy && normalizar(t.motivo).includes(normalizar(busqueda))).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
+    ...data.recordatorios.filter(r => normalizar(r.titulo).includes(normalizar(busqueda))).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
   ] : [];
 
   const hoyDia = new Date().getDate();
@@ -842,9 +846,7 @@ function useSupabase() {
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
-    const pagosArr = Array.isArray(compra.pagos) ? compra.pagos : [];
-    const totalPagado = seña + pagosArr.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    const estadoAuto = total > 0 && totalPagado >= total ? "pagado" : (compra.estado || "pendiente");
+    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
@@ -857,9 +859,7 @@ function useSupabase() {
     const itemAnterior = data.compras.find(c => c.id === compra.id);
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
-    const pagosArr = Array.isArray(compra.pagos) ? compra.pagos : [];
-    const totalPagado = seña + pagosArr.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    const estadoAuto = total > 0 && totalPagado >= total ? "pagado" : (compra.estado || "pendiente");
+    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
     if (!error) {
@@ -1759,14 +1759,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", minWidth: 0 }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
-                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "minmax(0, 1fr)" : "minmax(0, 1fr) minmax(0, 1fr)", minWidth: 0 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
                         const conCols = asignarCols(ents);
@@ -2192,12 +2192,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         value={busquedaEntrada} onChange={e => setBusquedaEntrada(e.target.value)} />
                       {busquedaEntrada.length > 1 && (
                         <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
-                          {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).length === 0
+                          {pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).length === 0
                             ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado.
                                 <button type="button" onClick={() => setMostrarNuevoPacEntrada(true)}
                                   style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button>
                               </div>
-                            : pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).map(p => (
+                            : pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).map(p => (
                               <div key={p.id} onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: p.id })); setBusquedaEntrada(""); }}
                                 style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
                                 onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
@@ -2499,24 +2499,18 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   function saldoCompraFicha(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
     const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    const seña = parseFloat(c.seña) || 0;
-    return (parseFloat(c.total)||0) - totalPagado - seña;
+    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
   }
 
   async function agregarPagoInsumo(compraId) {
     if (!pagoInsumoForm.monto || parseFloat(pagoInsumoForm.monto) <= 0) return alert("Ingresá un monto válido.");
     const c = data.compras.find(x => x.id === compraId);
     if (!c) return;
-    const pagosPrevios = Array.isArray(c.pagos) ? c.pagos : [];
-    const señaVieja = pagosPrevios.length === 0 ? (parseFloat(c.seña)||0) : 0;
-    // Migrar la seña vieja a un pago real para que el cálculo de saldo sea consistente
-    const pagosBase = señaVieja > 0
-      ? [{ id: uid(), fecha: c.fecha || today(), monto: señaVieja, descripcion: "Seña inicial" }, ...pagosPrevios]
-      : pagosPrevios;
-    const pagos = [...pagosBase, { ...pagoInsumoForm, id: uid() }];
+    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoInsumoForm, id: uid() }];
     const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
-    await db.actualizarCompra({ ...c, pagos, seña: 0, estado: nuevoEstado });
+    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
     setPagoInsumoForm({ fecha: today(), monto: "", descripcion: "" });
     if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
   }
@@ -3024,7 +3018,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
 
   const pacientes = data.pacientes.filter(p => {
-    const matchBusqueda = busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     return matchBusqueda && matchEtiqueta;
   });
@@ -3179,7 +3173,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
             const abierto = verRapido === p.id;
             const turnosPac = data.turnos.filter(t => t.paciente_id === p.id).sort((a,b) => (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
             const proximoTurno = data.turnos.filter(t => t.paciente_id === p.id && t.fecha >= today()).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
-            const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0) - (Array.isArray(c.pagos) ? c.pagos.reduce((a,pg) => a + (parseFloat(pg.monto)||0), 0) : 0)), 0);
+            const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0)), 0);
             return (
             <div key={p.id} style={{ background: "#fff", border: `1.5px solid ${abierto ? "#6366F1" : "#F0F0F0"}`, borderRadius: 12, overflow: "hidden", transition: "border-color 0.15s" }}>
               {/* Header siempre visible — click para expandir */}
@@ -3766,16 +3760,16 @@ function Ventas({ data, db, usuario }) {
   const ventas = ventasConPaciente.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = !busqueda || normalizar(pacNombre(v.paciente_id)).includes(normalizar(busqueda)) ||
+      normalizar(v.marca_der).includes(normalizar(busqueda)) ||
+      normalizar(v.modelo_der).includes(normalizar(busqueda));
     return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
   // Presupuestos OS filtrados
   const presupOSFiltrados = presupuestosOS.filter(v => {
-    const matchBusq = !busqueda || (v.obra_social_directa||v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = !busqueda || normalizar(v.obra_social_directa||v.observaciones).includes(normalizar(busqueda)) ||
+      normalizar(v.marca_der).includes(normalizar(busqueda));
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
     return matchBusq && matchMes;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
@@ -4480,29 +4474,24 @@ function Compras({ data, db, usuario }) {
 
   const compras = data.compras
     .filter(c => !filtroEstado || c.estado === filtroEstado)
-    .filter(c => !busquedaPac || pacNombre(c.paciente_id).toLowerCase().includes(busquedaPac.toLowerCase()));
+    .filter(c => !busquedaPac || normalizar(pacNombre(c.paciente_id)).includes(normalizar(busquedaPac)));
 
   function saldoCompra(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
     const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    const seña = parseFloat(c.seña) || 0;
-    return (parseFloat(c.total)||0) - totalPagado - seña;
+    // Migración: si tiene seña vieja sin pagos registrados, la cuenta como un pago implícito
+    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
   }
 
   async function agregarPagoCompra(compraId) {
     if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) return alert("Ingresá un monto válido.");
     const c = data.compras.find(x => x.id === compraId);
     if (!c) return;
-    const pagosPrevios = Array.isArray(c.pagos) ? c.pagos : [];
-    const señaVieja = pagosPrevios.length === 0 ? (parseFloat(c.seña)||0) : 0;
-    // Migrar la seña vieja a un pago real para que el cálculo de saldo sea consistente
-    const pagosBase = señaVieja > 0
-      ? [{ id: uid(), fecha: c.fecha || today(), monto: señaVieja, descripcion: "Seña inicial" }, ...pagosPrevios]
-      : pagosPrevios;
-    const pagos = [...pagosBase, { ...pagoForm, id: uid() }];
+    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoForm, id: uid() }];
     const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
-    await db.actualizarCompra({ ...c, pagos, seña: 0, estado: nuevoEstado });
+    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
     setPagoForm({ fecha: today(), monto: "", descripcion: "" });
     if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
   }
@@ -4531,7 +4520,7 @@ function Compras({ data, db, usuario }) {
     if (form.insumos.length === 0) return alert("Agregá al menos un insumo.");
     setSaving(true);
     try {
-      const compra = { ...form, total: parseFloat(form.total) || 0, seña: parseFloat(form.seña) || 0, pagos: Array.isArray(form.pagos) ? form.pagos : [] };
+      const compra = { ...form, total: parseFloat(form.total) || 0, seña: parseFloat(form.seña) || 0 };
       if (modal === "nuevo") await db.agregarCompra({ ...compra, creado_por: usuario?.nombre || "" });
       else await db.actualizarCompra({ ...compra, id: modal });
       setModal(null);
@@ -4539,11 +4528,11 @@ function Compras({ data, db, usuario }) {
   }
 
   function editar(c) {
-    setForm({ paciente_id: c.paciente_id || "", fecha: c.fecha, insumos: c.insumos || [], total: c.total || "", seña: c.seña || "", estado: c.estado, notas: c.notas || "", pagos: Array.isArray(c.pagos) ? c.pagos : [] });
+    setForm({ paciente_id: c.paciente_id || "", fecha: c.fecha, insumos: c.insumos || [], total: c.total || "", seña: c.seña || "", estado: c.estado, notas: c.notas || "" });
     setModal(c.id);
   }
 
-  const totalPendiente = data.compras.filter(c => c.estado === "pendiente").reduce((s, c) => s + saldoCompra(c), 0);
+  const totalPendiente = data.compras.filter(c => c.estado === "pendiente").reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
 
   return (
     <div>
@@ -4667,29 +4656,13 @@ function Compras({ data, db, usuario }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Total ($)"><input type="number" style={inputStyle} value={form.total} onChange={e => setForm(f => ({ ...f, total: e.target.value }))} /></Field>
-            <Field label="Seña inicial ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+            <Field label="Seña / pagado ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
           </div>
-          {(() => {
-            const pagosArr = Array.isArray(form.pagos) ? form.pagos : [];
-            const totalPagosArr = pagosArr.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
-            const pagadoTotal = (parseFloat(form.seña) || 0) + totalPagosArr;
-            const saldoReal = (parseFloat(form.total) || 0) - pagadoTotal;
-            return (
-              <>
-                {totalPagosArr > 0 && (
-                  <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12, color: "#1E40AF" }}>
-                    💰 Pagos en historial: ${totalPagosArr.toLocaleString("es-AR")}. La "Seña inicial" es aparte; no la dupliques con esos pagos.
-                  </div>
-                )}
-                {(parseFloat(form.total) > 0) && (
-                  <div style={{ background: saldoReal > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: saldoReal > 0 ? "#92400E" : "#065F46" }}>
-                    Saldo a cobrar: ${saldoReal.toLocaleString("es-AR")}
-                    {saldoReal <= 0 && parseFloat(form.total) > 0 && " · ✅ Saldado"}
-                  </div>
-                )}
-              </>
-            );
-          })()}
+          {(parseFloat(form.total) > 0) && (
+            <div style={{ background: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#92400E" : "#065F46" }}>
+              Saldo a cobrar: ${((parseFloat(form.total) || 0) - (parseFloat(form.seña) || 0)).toLocaleString("es-AR")}
+            </div>
+          )}
           <Field label="Estado">
             <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
               <option value="pendiente">Pendiente de pago</option>
@@ -5076,7 +5049,7 @@ function Estadisticas({ data }) {
           const conDerivaciones = profs.map(p => ({
             ...p,
             pacientes: data.pacientes.filter(pac =>
-              (pac.derivado_por || pac.derivadoPor || "").toLowerCase().includes(p.nombre.toLowerCase())
+              normalizar(pac.derivado_por || pac.derivadoPor).includes(normalizar(p.nombre))
             )
           })).filter(p => p.pacientes.length > 0).sort((a, b) => b.pacientes.length - a.pacientes.length);
           if (conDerivaciones.length === 0) return null;
@@ -5241,7 +5214,7 @@ function Profesionales({ data }) {
   const profesionales = items.filter(x => x.tipo !== "obra_social");
   const obrasSociales = items.filter(x => x.tipo === "obra_social");
   const lista = (subTab === "profesionales" ? profesionales : obrasSociales)
-    .filter(p => busqueda === "" || `${p.nombre} ${p.especialidad||""} ${p.institucion||""}`.toLowerCase().includes(busqueda.toLowerCase()));
+    .filter(p => busqueda === "" || normalizar(`${p.nombre} ${p.especialidad||""} ${p.institucion||""}`).includes(normalizar(busqueda)));
 
   // Stats
   const hoy = new Date();
@@ -5266,7 +5239,7 @@ function Profesionales({ data }) {
   const bgV = pctV>=100?"#D1FAE5":pctV>=60?"#e0f4f4":pctV>=30?"#FEF3C7":"#FEE2E2";
 
   function pacientesPorProf(nombre) {
-    return data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").toLowerCase().includes(nombre.toLowerCase()));
+    return data.pacientes.filter(p => normalizar(p.derivado_por||p.derivadoPor).includes(normalizar(nombre)));
   }
   function derivCount(nombre) { return pacientesPorProf(nombre).length; }
 
@@ -6220,7 +6193,7 @@ function FechasEspeciales({ usuario }) {
   function esPróximo(dia, mes) { const d = diasHastaCumple(dia, mes); return d <= 7 && d > 0; }
 
   const cumpleanos = fechas
-    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || f.nombre.toLowerCase().includes(busqueda.toLowerCase())))
+    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || normalizar(f.nombre).includes(normalizar(busqueda))))
     .sort((a, b) => diasHastaCumple(a.fecha_dia, a.fecha_mes) - diasHastaCumple(b.fecha_dia, b.fecha_mes));
 
   // Solo festivos de Supabase (todos editables)
@@ -6576,7 +6549,7 @@ function Stock({ data, usuario }) {
 
   const lista = items.filter(i => {
     const matchEstado = !filtroEstado || i.estado === filtroEstado;
-    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = !busqueda || normalizar(`${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`).includes(normalizar(busqueda));
     return matchEstado && matchBusq;
   });
 
@@ -6734,7 +6707,7 @@ function Auditoria({ db }) {
   const lista = logs.filter(l => {
     const mu = !filtroUsuario || l.usuario === filtroUsuario;
     const ma = !filtroAccion || l.accion === filtroAccion;
-    const mb = !busqueda || l.descripcion.toLowerCase().includes(busqueda.toLowerCase()) || l.usuario.toLowerCase().includes(busqueda.toLowerCase());
+    const mb = !busqueda || normalizar(l.descripcion).includes(normalizar(busqueda)) || normalizar(l.usuario).includes(normalizar(busqueda));
     return mu && ma && mb;
   });
 
@@ -7368,7 +7341,7 @@ function AppInner() {
 
   const saldoPaciente = (pacId) => data.compras
     .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
-    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0) - (Array.isArray(c.pagos) ? c.pagos.reduce((a, pg) => a + (parseFloat(pg.monto) || 0), 0) : 0)), 0);
+    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40, minWidth: 0 }}>
