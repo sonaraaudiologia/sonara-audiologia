@@ -1551,7 +1551,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function ColumnaHoras({ slotH }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     return (
-      <div style={{ width: 44, flexShrink: 0, position: "relative", height: totalHeight, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }}>
+      <div style={{ width: 44, boxSizing: "border-box", flexShrink: 0, position: "relative", height: totalHeight, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }}>
         {HORAS.map((h, i) => {
           const esM = i % 2 !== 0;
           return (
@@ -1703,9 +1703,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         return (
           <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflow: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
             <div style={{ minWidth: totalGridW }}>
-              {/* Header días sticky top */}
-              <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
-                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
+              {/* Header días sticky top — misma estructura flex que el cuerpo para alinear columnas */}
+              <div style={{ display: "flex", borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
+                <div style={{ width: 44, boxSizing: "border-box", flexShrink: 0, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                 {diasSemana.map((fecha, idxDia) => {
                   const hoy = fecha === today();
                   const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
@@ -1715,7 +1716,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
+                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative", minWidth: 0, boxSizing: "border-box" }}>
                       {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
                           title="Ver cumpleaños de la semana"
@@ -1736,6 +1737,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     </div>
                   );
                 })}
+                </div>
               </div>
 
               {/* Cuerpo: cada día dividido en 2 sub-columnas */}
@@ -1767,7 +1769,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden", boxSizing: "border-box" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
