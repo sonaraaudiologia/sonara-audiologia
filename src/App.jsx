@@ -843,7 +843,9 @@ function useSupabase() {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { saldo, ...limpio } = compra;
+    const COLS = ["fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "paciente_id", "creado_por"];
+    const limpio = {};
+    for (const k of COLS) if (k in compra) limpio[k] = compra[k];
     const { data: row } = await supabase.from("compras").insert({ ...limpio, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
@@ -858,8 +860,10 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    // 'saldo' es una columna generada en Supabase: no se puede actualizar, hay que excluirla
-    const { saldo, ...payload } = updated;
+    // Solo mandamos columnas reales; 'saldo' es generada en Supabase y no se puede actualizar
+    const COLS = ["fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "paciente_id", "creado_por"];
+    const payload = {};
+    for (const k of COLS) if (k in updated) payload[k] = updated[k];
     const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
     if (error) { console.error("Error actualizarCompra:", error); alert("Error al guardar el pago: " + error.message); return; }
     if (!error) {
