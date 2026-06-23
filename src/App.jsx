@@ -27,10 +27,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-function normalizar(str) {
-  return (str || "").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
 function calcEdad(fechaNac) {
   if (!fechaNac) return null;
   try {
@@ -442,9 +438,9 @@ function Dashboard({ data, onNavigate }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
   const busquedaResultados = busqueda.length > 1 ? [
-    ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
-    ...data.turnos.filter(t => t.fecha >= hoy && normalizar(t.motivo).includes(normalizar(busqueda))).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
-    ...data.recordatorios.filter(r => normalizar(r.titulo).includes(normalizar(busqueda))).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
+    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
+    ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
+    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
   ] : [];
 
   const hoyDia = new Date().getDate();
@@ -1690,15 +1686,15 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           return turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" }));
         }
 
-        const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
-
-        const numProfs = filtroProfesional === "todas" ? 2 : 1;
-        const minColW = 90;
-        const totalGridW = 44 + diasSemana.length * numProfs * minColW;
+        // Ancho fijo por columna de día — idéntico en header y cuerpo para que nunca se desalineen
+        const HORAS_COL_W = 44;
+        const DIA_COL_W = 132;
+        const totalCols = `${HORAS_COL_W}px repeat(6, ${DIA_COL_W}px)`;
+        const totalGridW = HORAS_COL_W + diasSemana.length * DIA_COL_W;
 
         return (
           <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflow: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
-            <div style={{ minWidth: totalGridW }}>
+            <div style={{ width: totalGridW }}>
               {/* Header días sticky top */}
               <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
@@ -1759,7 +1755,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: `repeat(6, ${DIA_COL_W}px)` }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
@@ -2192,12 +2188,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         value={busquedaEntrada} onChange={e => setBusquedaEntrada(e.target.value)} />
                       {busquedaEntrada.length > 1 && (
                         <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
-                          {pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).length === 0
+                          {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).length === 0
                             ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado.
                                 <button type="button" onClick={() => setMostrarNuevoPacEntrada(true)}
                                   style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button>
                               </div>
-                            : pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).map(p => (
+                            : pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).map(p => (
                               <div key={p.id} onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: p.id })); setBusquedaEntrada(""); }}
                                 style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
                                 onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
@@ -3018,7 +3014,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
 
   const pacientes = data.pacientes.filter(p => {
-    const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
+    const matchBusqueda = busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase());
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     return matchBusqueda && matchEtiqueta;
   });
@@ -3760,16 +3756,16 @@ function Ventas({ data, db, usuario }) {
   const ventas = ventasConPaciente.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || normalizar(pacNombre(v.paciente_id)).includes(normalizar(busqueda)) ||
-      normalizar(v.marca_der).includes(normalizar(busqueda)) ||
-      normalizar(v.modelo_der).includes(normalizar(busqueda));
+    const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
   // Presupuestos OS filtrados
   const presupOSFiltrados = presupuestosOS.filter(v => {
-    const matchBusq = !busqueda || normalizar(v.obra_social_directa||v.observaciones).includes(normalizar(busqueda)) ||
-      normalizar(v.marca_der).includes(normalizar(busqueda));
+    const matchBusq = !busqueda || (v.obra_social_directa||v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase());
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
     return matchBusq && matchMes;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
@@ -4474,7 +4470,7 @@ function Compras({ data, db, usuario }) {
 
   const compras = data.compras
     .filter(c => !filtroEstado || c.estado === filtroEstado)
-    .filter(c => !busquedaPac || normalizar(pacNombre(c.paciente_id)).includes(normalizar(busquedaPac)));
+    .filter(c => !busquedaPac || pacNombre(c.paciente_id).toLowerCase().includes(busquedaPac.toLowerCase()));
 
   function saldoCompra(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
@@ -5049,7 +5045,7 @@ function Estadisticas({ data }) {
           const conDerivaciones = profs.map(p => ({
             ...p,
             pacientes: data.pacientes.filter(pac =>
-              normalizar(pac.derivado_por || pac.derivadoPor).includes(normalizar(p.nombre))
+              (pac.derivado_por || pac.derivadoPor || "").toLowerCase().includes(p.nombre.toLowerCase())
             )
           })).filter(p => p.pacientes.length > 0).sort((a, b) => b.pacientes.length - a.pacientes.length);
           if (conDerivaciones.length === 0) return null;
@@ -5214,7 +5210,7 @@ function Profesionales({ data }) {
   const profesionales = items.filter(x => x.tipo !== "obra_social");
   const obrasSociales = items.filter(x => x.tipo === "obra_social");
   const lista = (subTab === "profesionales" ? profesionales : obrasSociales)
-    .filter(p => busqueda === "" || normalizar(`${p.nombre} ${p.especialidad||""} ${p.institucion||""}`).includes(normalizar(busqueda)));
+    .filter(p => busqueda === "" || `${p.nombre} ${p.especialidad||""} ${p.institucion||""}`.toLowerCase().includes(busqueda.toLowerCase()));
 
   // Stats
   const hoy = new Date();
@@ -5239,7 +5235,7 @@ function Profesionales({ data }) {
   const bgV = pctV>=100?"#D1FAE5":pctV>=60?"#e0f4f4":pctV>=30?"#FEF3C7":"#FEE2E2";
 
   function pacientesPorProf(nombre) {
-    return data.pacientes.filter(p => normalizar(p.derivado_por||p.derivadoPor).includes(normalizar(nombre)));
+    return data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").toLowerCase().includes(nombre.toLowerCase()));
   }
   function derivCount(nombre) { return pacientesPorProf(nombre).length; }
 
@@ -6193,7 +6189,7 @@ function FechasEspeciales({ usuario }) {
   function esPróximo(dia, mes) { const d = diasHastaCumple(dia, mes); return d <= 7 && d > 0; }
 
   const cumpleanos = fechas
-    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || normalizar(f.nombre).includes(normalizar(busqueda))))
+    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || f.nombre.toLowerCase().includes(busqueda.toLowerCase())))
     .sort((a, b) => diasHastaCumple(a.fecha_dia, a.fecha_mes) - diasHastaCumple(b.fecha_dia, b.fecha_mes));
 
   // Solo festivos de Supabase (todos editables)
@@ -6549,7 +6545,7 @@ function Stock({ data, usuario }) {
 
   const lista = items.filter(i => {
     const matchEstado = !filtroEstado || i.estado === filtroEstado;
-    const matchBusq = !busqueda || normalizar(`${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`).includes(normalizar(busqueda));
+    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchBusq;
   });
 
@@ -6707,7 +6703,7 @@ function Auditoria({ db }) {
   const lista = logs.filter(l => {
     const mu = !filtroUsuario || l.usuario === filtroUsuario;
     const ma = !filtroAccion || l.accion === filtroAccion;
-    const mb = !busqueda || normalizar(l.descripcion).includes(normalizar(busqueda)) || normalizar(l.usuario).includes(normalizar(busqueda));
+    const mb = !busqueda || l.descripcion.toLowerCase().includes(busqueda.toLowerCase()) || l.usuario.toLowerCase().includes(busqueda.toLowerCase());
     return mu && ma && mb;
   });
 
