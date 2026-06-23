@@ -842,7 +842,9 @@ function useSupabase() {
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
-    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
+    const pagosArr = Array.isArray(compra.pagos) ? compra.pagos : [];
+    const totalPagado = seña + pagosArr.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const estadoAuto = total > 0 && totalPagado >= total ? "pagado" : (compra.estado || "pendiente");
     const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
@@ -855,7 +857,9 @@ function useSupabase() {
     const itemAnterior = data.compras.find(c => c.id === compra.id);
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
-    const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
+    const pagosArr = Array.isArray(compra.pagos) ? compra.pagos : [];
+    const totalPagado = seña + pagosArr.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
+    const estadoAuto = total > 0 && totalPagado >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
     if (!error) {
@@ -2495,8 +2499,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   function saldoCompraFicha(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
     const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
-    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
+    const seña = parseFloat(c.seña) || 0;
+    return (parseFloat(c.total)||0) - totalPagado - seña;
   }
 
   async function agregarPagoInsumo(compraId) {
@@ -3175,7 +3179,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
             const abierto = verRapido === p.id;
             const turnosPac = data.turnos.filter(t => t.paciente_id === p.id).sort((a,b) => (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
             const proximoTurno = data.turnos.filter(t => t.paciente_id === p.id && t.fecha >= today()).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
-            const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0)), 0);
+            const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0) - (Array.isArray(c.pagos) ? c.pagos.reduce((a,pg) => a + (parseFloat(pg.monto)||0), 0) : 0)), 0);
             return (
             <div key={p.id} style={{ background: "#fff", border: `1.5px solid ${abierto ? "#6366F1" : "#F0F0F0"}`, borderRadius: 12, overflow: "hidden", transition: "border-color 0.15s" }}>
               {/* Header siempre visible — click para expandir */}
@@ -4481,9 +4485,8 @@ function Compras({ data, db, usuario }) {
   function saldoCompra(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
     const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
-    // Migración: si tiene seña vieja sin pagos registrados, la cuenta como un pago implícito
-    const señaVieja = pagos.length === 0 ? (parseFloat(c.seña)||0) : 0;
-    return (parseFloat(c.total)||0) - totalPagado - señaVieja;
+    const seña = parseFloat(c.seña) || 0;
+    return (parseFloat(c.total)||0) - totalPagado - seña;
   }
 
   async function agregarPagoCompra(compraId) {
@@ -4528,7 +4531,7 @@ function Compras({ data, db, usuario }) {
     if (form.insumos.length === 0) return alert("Agregá al menos un insumo.");
     setSaving(true);
     try {
-      const compra = { ...form, total: parseFloat(form.total) || 0, seña: parseFloat(form.seña) || 0 };
+      const compra = { ...form, total: parseFloat(form.total) || 0, seña: parseFloat(form.seña) || 0, pagos: Array.isArray(form.pagos) ? form.pagos : [] };
       if (modal === "nuevo") await db.agregarCompra({ ...compra, creado_por: usuario?.nombre || "" });
       else await db.actualizarCompra({ ...compra, id: modal });
       setModal(null);
@@ -4536,11 +4539,11 @@ function Compras({ data, db, usuario }) {
   }
 
   function editar(c) {
-    setForm({ paciente_id: c.paciente_id || "", fecha: c.fecha, insumos: c.insumos || [], total: c.total || "", seña: c.seña || "", estado: c.estado, notas: c.notas || "" });
+    setForm({ paciente_id: c.paciente_id || "", fecha: c.fecha, insumos: c.insumos || [], total: c.total || "", seña: c.seña || "", estado: c.estado, notas: c.notas || "", pagos: Array.isArray(c.pagos) ? c.pagos : [] });
     setModal(c.id);
   }
 
-  const totalPendiente = data.compras.filter(c => c.estado === "pendiente").reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
+  const totalPendiente = data.compras.filter(c => c.estado === "pendiente").reduce((s, c) => s + saldoCompra(c), 0);
 
   return (
     <div>
@@ -4664,13 +4667,29 @@ function Compras({ data, db, usuario }) {
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Total ($)"><input type="number" style={inputStyle} value={form.total} onChange={e => setForm(f => ({ ...f, total: e.target.value }))} /></Field>
-            <Field label="Seña / pagado ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
+            <Field label="Seña inicial ($)"><input type="number" style={inputStyle} value={form.seña} onChange={e => setForm(f => ({ ...f, seña: e.target.value }))} /></Field>
           </div>
-          {(parseFloat(form.total) > 0) && (
-            <div style={{ background: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: (parseFloat(form.total) - parseFloat(form.seña || 0)) > 0 ? "#92400E" : "#065F46" }}>
-              Saldo a cobrar: ${((parseFloat(form.total) || 0) - (parseFloat(form.seña) || 0)).toLocaleString("es-AR")}
-            </div>
-          )}
+          {(() => {
+            const pagosArr = Array.isArray(form.pagos) ? form.pagos : [];
+            const totalPagosArr = pagosArr.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+            const pagadoTotal = (parseFloat(form.seña) || 0) + totalPagosArr;
+            const saldoReal = (parseFloat(form.total) || 0) - pagadoTotal;
+            return (
+              <>
+                {totalPagosArr > 0 && (
+                  <div style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "8px 12px", marginBottom: 8, fontSize: 12, color: "#1E40AF" }}>
+                    💰 Pagos en historial: ${totalPagosArr.toLocaleString("es-AR")}. La "Seña inicial" es aparte; no la dupliques con esos pagos.
+                  </div>
+                )}
+                {(parseFloat(form.total) > 0) && (
+                  <div style={{ background: saldoReal > 0 ? "#FEF3C7" : "#D1FAE5", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 14, fontWeight: 600, color: saldoReal > 0 ? "#92400E" : "#065F46" }}>
+                    Saldo a cobrar: ${saldoReal.toLocaleString("es-AR")}
+                    {saldoReal <= 0 && parseFloat(form.total) > 0 && " · ✅ Saldado"}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           <Field label="Estado">
             <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
               <option value="pendiente">Pendiente de pago</option>
@@ -7349,7 +7368,7 @@ function AppInner() {
 
   const saldoPaciente = (pacId) => data.compras
     .filter(c => c.paciente_id === pacId && c.estado === "pendiente")
-    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
+    .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0) - (Array.isArray(c.pagos) ? c.pagos.reduce((a, pg) => a + (parseFloat(pg.monto) || 0), 0) : 0)), 0);
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40, minWidth: 0 }}>
