@@ -646,7 +646,6 @@ function useSupabase() {
       nombre: pac.nombre || "", apellido: pac.apellido || "",
       dni: pac.dni || "", fecha_nac: (pac.fechaNac || pac.fecha_nac) ? (pac.fechaNac || pac.fecha_nac) : null,
       telefono: pac.telefono || "", email: pac.email || "",
-      direccion: pac.direccion || "", localidad: pac.localidad || "",
       obra_social: pac.obraSocial || pac.obra_social || "",
       nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
       diagnostico: pac.diagnostico || "", antecedentes: pac.antecedentes || "",
@@ -665,8 +664,6 @@ function useSupabase() {
     return {
       ...row,
       fechaNac: row.fecha_nac || "",
-      direccion: row.direccion || "",
-      localidad: row.localidad || "",
       obraSocial: row.obra_social || "",
       nroAfiliado: row.nro_afiliado || "",
       derivadoPor: row.derivado_por || "",
@@ -861,6 +858,7 @@ function useSupabase() {
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    if (error) { console.error("Error actualizarCompra:", error); alert("Error al guardar el pago: " + error.message); return; }
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
@@ -915,7 +913,7 @@ function useSupabase() {
   };
 }
 
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
 
 
 function SelectorPracticas({ seleccionadas = [], onChange }) {
@@ -1452,7 +1450,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       <div style={{
         height: alturaFija,
         overflow: "hidden",
-        minWidth: 0,
         padding: recs.length > 0 ? "4px 6px 4px" : 0,
         background: esAntes ? "#FFFBEB" : "#F9FAFB",
         borderTop: esAntes ? "none" : "2px dashed #E5E7EB",
@@ -1759,21 +1756,21 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))" }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
-                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr", minWidth: 0 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
                         const conCols = asignarCols(ents);
                         const totalH = TOTAL_SLOTS * SLOT_H_SEM;
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
                         return (
-                          <div key={prof.key} style={{ position: "relative", height: totalH, overflow: "hidden", minWidth: 0, borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
+                          <div key={prof.key} style={{ position: "relative", height: totalH, overflow: "hidden", borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
                             {/* Líneas fondo con disponibilidad */}
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
@@ -2228,8 +2225,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <Field label="Apellido *"><input style={inputStyle} value={formNuevoPac.apellido} onChange={e => setFormNuevoPac(f => ({ ...f, apellido: e.target.value }))} /></Field>
                       <Field label="DNI"><input style={inputStyle} value={formNuevoPac.dni} onChange={e => setFormNuevoPac(f => ({ ...f, dni: e.target.value }))} /></Field>
                       <Field label="Teléfono"><input style={inputStyle} value={formNuevoPac.telefono} onChange={e => setFormNuevoPac(f => ({ ...f, telefono: e.target.value }))} /></Field>
-                      <Field label="Dirección"><input style={inputStyle} value={formNuevoPac.direccion} onChange={e => setFormNuevoPac(f => ({ ...f, direccion: e.target.value }))} /></Field>
-                      <Field label="Localidad"><input style={inputStyle} value={formNuevoPac.localidad} onChange={e => setFormNuevoPac(f => ({ ...f, localidad: e.target.value }))} /></Field>
                       <Field label="Obra social"><input style={inputStyle} value={formNuevoPac.obraSocial} onChange={e => setFormNuevoPac(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
                       <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formNuevoPac.fechaNac} onChange={e => setFormNuevoPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
                     </div>
@@ -2896,14 +2891,13 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", direccion: pac.direccion||"", localidad: pac.localidad||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
                       ["Nombre", pac.nombre], ["Apellido", pac.apellido],
                       ["DNI", pac.dni], ["Teléfono", pac.telefono],
-                      ["Email", pac.email], ["Dirección", pac.direccion],
-                      ["Localidad", pac.localidad], ["Obra social", pac.obraSocial || pac.obra_social],
+                      ["Email", pac.email], ["Obra social", pac.obraSocial || pac.obra_social],
                       ["Nro. afiliado", pac.nroAfiliado || pac.nro_afiliado],
                       ["Fecha nac.", pac.fechaNac || pac.fecha_nac ? `${formatFecha(pac.fechaNac || pac.fecha_nac)} (${calcEdad(pac.fechaNac || pac.fecha_nac)} años)` : "—"],
                       ["Derivado por", pac.derivadoPor || pac.derivado_por],
@@ -2945,8 +2939,6 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                     <Field label="DNI"><input style={inputStyle} value={form.dni||""} onChange={e => setForm(f => ({...f, dni: e.target.value}))} /></Field>
                     <Field label="Teléfono"><input style={inputStyle} value={form.telefono||""} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} /></Field>
                     <Field label="Email"><input style={inputStyle} value={form.email||""} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></Field>
-                    <Field label="Dirección"><input style={inputStyle} value={form.direccion||""} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} /></Field>
-                    <Field label="Localidad"><input style={inputStyle} value={form.localidad||""} onChange={e => setForm(f => ({...f, localidad: e.target.value}))} /></Field>
                     <Field label="Fecha nac."><input type="date" style={inputStyle} value={form.fechaNac||form.fecha_nac||""} onChange={e => setForm(f => ({...f, fechaNac: e.target.value}))} /></Field>
                     <Field label="Obra social"><input style={inputStyle} value={form.obraSocial||form.obra_social||""} onChange={e => setForm(f => ({...f, obraSocial: e.target.value}))} /></Field>
                     <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado||form.nro_afiliado||""} onChange={e => setForm(f => ({...f, nroAfiliado: e.target.value}))} /></Field>
@@ -3003,7 +2995,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
-    direccion: "", localidad: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     derivadoPor: "", audifono: "",
     audifono_der: "", audifono_der_anio: "", audifono_izq: "", audifono_izq_anio: "",
@@ -3048,7 +3039,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   function editar(p) {
     setForm({
       nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || p.fecha_nac || "",
-      telefono: p.telefono || "", email: p.email || "", direccion: p.direccion || "", localidad: p.localidad || "", obraSocial: p.obraSocial || p.obra_social || "",
+      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || p.obra_social || "",
       nroAfiliado: p.nroAfiliado || p.nro_afiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
       derivadoPor: p.derivadoPor || p.derivado_por || "",
@@ -3167,7 +3158,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           </div>
         </div>
         <button onClick={() => {
-          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
@@ -3210,22 +3201,22 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               {/* Panel expandido con todos los datos */}
               {abierto && (
                 <div style={{ borderTop: "1px solid #F0F0F0", padding: "14px 16px", background: "#FAFBFF" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 12, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12, alignItems: "start" }}>
                     {/* Contacto */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Contacto</div>
-                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, marginBottom: 3, wordBreak: "break-word" }}>
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
                         📞 {p.telefono || "—"} {p.telefono && <CopyButton text={p.telefono} label="tel" />}
                       </div>
-                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, wordBreak: "break-word", minWidth: 0 }}>
-                        ✉️ <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.email || "—"}</span> {p.email && <CopyButton text={p.email} label="email" />}
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4 }}>
+                        ✉️ {p.email || "—"} {p.email && <CopyButton text={p.email} label="email" />}
                       </div>
                     </div>
                     {/* Cobertura */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Cobertura</div>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
-                      {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888", wordBreak: "break-word" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
+                      <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
+                      {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
                       {(p.fechaNac || p.fecha_nac) && (
                         <div style={{ fontSize: 12, color: "#888" }}>
                           Nac: {formatFecha(p.fechaNac || p.fecha_nac)}
@@ -3234,23 +3225,21 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                       )}
                     </div>
                     {/* Clínico */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Clínico</div>
-                      {p.diagnostico && <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>🩺 {p.diagnostico}</div>}
-                      {p.audifono && <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>👂 {p.audifono}</div>}
-                      {(p.derivadoPor || p.derivado_por) && <div style={{ fontSize: 12, color: "#888", wordBreak: "break-word" }}>Derivado: {p.derivadoPor || p.derivado_por}</div>}
+                      {p.diagnostico && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🩺 {p.diagnostico}</div>}
+                      {p.audifono && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>👂 {p.audifono}</div>}
+                      {(p.derivadoPor || p.derivado_por) && <div style={{ fontSize: 12, color: "#888" }}>Derivado: {p.derivadoPor || p.derivado_por}</div>}
                       {!p.diagnostico && !p.audifono && <div style={{ fontSize: 12, color: "#aaa" }}>Sin datos clínicos</div>}
                     </div>
                     {/* Turnos */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Turnos ({turnosPac.length})</div>
-                      <div style={{ maxHeight: 120, overflowY: "auto" }}>
-                        {turnosPac.map(t => (
-                          <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>
-                            <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
-                          </div>
-                        ))}
-                      </div>
+                      {turnosPac.slice(0,3).map(t => (
+                        <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
+                          <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
+                        </div>
+                      ))}
                       {turnosPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin turnos</div>}
                     </div>
                   </div>
@@ -3306,8 +3295,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
             <Field label="Fecha de nacimiento"><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
             <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ejemplo@mail.com" /></Field>
-            <Field label="Dirección"><input style={inputStyle} value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} /></Field>
-            <Field label="Localidad"><input style={inputStyle} value={form.localidad} onChange={e => setForm(f => ({ ...f, localidad: e.target.value }))} /></Field>
           </div>
 
           {/* ── Cobertura ── */}
@@ -3413,7 +3400,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                 {pacienteHC.email && <CopyButton text={pacienteHC.email} label="email" />}
               </div>
               <div><b>Obra social:</b> {pacienteHC.obraSocial || "Particular"}</div>
-              {(pacienteHC.direccion || pacienteHC.localidad) && <div style={{ gridColumn: "span 2" }}><b>Dirección:</b> {[pacienteHC.direccion, pacienteHC.localidad].filter(Boolean).join(", ") || "—"}</div>}
               {pacienteHC.diagnostico && <div style={{ gridColumn: "span 2" }}><b>Diagnóstico:</b> {pacienteHC.diagnostico}</div>}
             </div>
             {(pacienteHC.etiquetas || []).length > 0 && (
