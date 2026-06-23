@@ -3209,22 +3209,22 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               {/* Panel expandido con todos los datos */}
               {abierto && (
                 <div style={{ borderTop: "1px solid #F0F0F0", padding: "14px 16px", background: "#FAFBFF" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12, alignItems: "start" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginBottom: 12, alignItems: "start" }}>
                     {/* Contacto */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Contacto</div>
-                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, marginBottom: 3, wordBreak: "break-word" }}>
                         📞 {p.telefono || "—"} {p.telefono && <CopyButton text={p.telefono} label="tel" />}
                       </div>
-                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4 }}>
-                        ✉️ {p.email || "—"} {p.email && <CopyButton text={p.email} label="email" />}
+                      <div style={{ fontSize: 13, color: "#555", display: "flex", alignItems: "center", gap: 4, wordBreak: "break-word", minWidth: 0 }}>
+                        ✉️ <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.email || "—"}</span> {p.email && <CopyButton text={p.email} label="email" />}
                       </div>
                     </div>
                     {/* Cobertura */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Cobertura</div>
-                      <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
-                      {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
+                      <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>🏥 {p.obraSocial || p.obra_social || "Particular"}</div>
+                      {(p.nroAfiliado || p.nro_afiliado) && <div style={{ fontSize: 12, color: "#888", wordBreak: "break-word" }}>Nro: {p.nroAfiliado || p.nro_afiliado}</div>}
                       {(p.fechaNac || p.fecha_nac) && (
                         <div style={{ fontSize: 12, color: "#888" }}>
                           Nac: {formatFecha(p.fechaNac || p.fecha_nac)}
@@ -3233,21 +3233,23 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                       )}
                     </div>
                     {/* Clínico */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Clínico</div>
-                      {p.diagnostico && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>🩺 {p.diagnostico}</div>}
-                      {p.audifono && <div style={{ fontSize: 13, color: "#555", marginBottom: 3 }}>👂 {p.audifono}</div>}
-                      {(p.derivadoPor || p.derivado_por) && <div style={{ fontSize: 12, color: "#888" }}>Derivado: {p.derivadoPor || p.derivado_por}</div>}
+                      {p.diagnostico && <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>🩺 {p.diagnostico}</div>}
+                      {p.audifono && <div style={{ fontSize: 13, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>👂 {p.audifono}</div>}
+                      {(p.derivadoPor || p.derivado_por) && <div style={{ fontSize: 12, color: "#888", wordBreak: "break-word" }}>Derivado: {p.derivadoPor || p.derivado_por}</div>}
                       {!p.diagnostico && !p.audifono && <div style={{ fontSize: 12, color: "#aaa" }}>Sin datos clínicos</div>}
                     </div>
                     {/* Turnos */}
-                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                    <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0", minWidth: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Turnos ({turnosPac.length})</div>
-                      {turnosPac.slice(0,3).map(t => (
-                        <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
-                          <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
-                        </div>
-                      ))}
+                      <div style={{ maxHeight: 120, overflowY: "auto" }}>
+                        {turnosPac.map(t => (
+                          <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3, wordBreak: "break-word" }}>
+                            <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
+                          </div>
+                        ))}
+                      </div>
                       {turnosPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin turnos</div>}
                     </div>
                   </div>
