@@ -843,10 +843,7 @@ function useSupabase() {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const COLS = ["fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "paciente_id", "creado_por"];
-    const limpio = {};
-    for (const k of COLS) if (k in compra) limpio[k] = compra[k];
-    const { data: row } = await supabase.from("compras").insert({ ...limpio, estado: estadoAuto }).select().single();
+    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -860,12 +857,7 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    // Solo mandamos columnas reales; 'saldo' es generada en Supabase y no se puede actualizar
-    const COLS = ["fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "paciente_id", "creado_por"];
-    const payload = {};
-    for (const k of COLS) if (k in updated) payload[k] = updated[k];
-    const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
-    if (error) { console.error("Error actualizarCompra:", error); alert("Error al guardar el pago: " + error.message); return; }
+    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
@@ -1551,7 +1543,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function ColumnaHoras({ slotH }) {
     const totalHeight = TOTAL_SLOTS * slotH;
     return (
-      <div style={{ width: 44, boxSizing: "border-box", flexShrink: 0, position: "relative", height: totalHeight, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }}>
+      <div style={{ width: 44, flexShrink: 0, position: "relative", height: totalHeight, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }}>
         {HORAS.map((h, i) => {
           const esM = i % 2 !== 0;
           return (
@@ -1703,10 +1695,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         return (
           <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflow: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
             <div style={{ minWidth: totalGridW }}>
-              {/* Header días sticky top — misma estructura flex que el cuerpo para alinear columnas */}
-              <div style={{ display: "flex", borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
-                <div style={{ width: 44, boxSizing: "border-box", flexShrink: 0, background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
+              {/* Header días sticky top */}
+              <div style={{ display: "grid", gridTemplateColumns: totalCols, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff" }}>
+                <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
                 {diasSemana.map((fecha, idxDia) => {
                   const hoy = fecha === today();
                   const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
@@ -1716,7 +1707,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative", minWidth: 0, boxSizing: "border-box" }}>
+                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
                       {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
                           title="Ver cumpleaños de la semana"
@@ -1737,7 +1728,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     </div>
                   );
                 })}
-                </div>
               </div>
 
               {/* Cuerpo: cada día dividido en 2 sub-columnas */}
@@ -1769,7 +1759,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden", boxSizing: "border-box" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
@@ -2513,10 +2503,16 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
     if (!pagoInsumoForm.monto || parseFloat(pagoInsumoForm.monto) <= 0) return alert("Ingresá un monto válido.");
     const c = data.compras.find(x => x.id === compraId);
     if (!c) return;
-    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoInsumoForm, id: uid() }];
+    const pagosPrevios = Array.isArray(c.pagos) ? c.pagos : [];
+    const señaVieja = pagosPrevios.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    // Migrar la seña vieja a un pago real para que el cálculo de saldo sea consistente
+    const pagosBase = señaVieja > 0
+      ? [{ id: uid(), fecha: c.fecha || today(), monto: señaVieja, descripcion: "Seña inicial" }, ...pagosPrevios]
+      : pagosPrevios;
+    const pagos = [...pagosBase, { ...pagoInsumoForm, id: uid() }];
     const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
-    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    await db.actualizarCompra({ ...c, pagos, seña: 0, estado: nuevoEstado });
     setPagoInsumoForm({ fecha: today(), monto: "", descripcion: "" });
     if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
   }
@@ -4494,10 +4490,16 @@ function Compras({ data, db, usuario }) {
     if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) return alert("Ingresá un monto válido.");
     const c = data.compras.find(x => x.id === compraId);
     if (!c) return;
-    const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoForm, id: uid() }];
+    const pagosPrevios = Array.isArray(c.pagos) ? c.pagos : [];
+    const señaVieja = pagosPrevios.length === 0 ? (parseFloat(c.seña)||0) : 0;
+    // Migrar la seña vieja a un pago real para que el cálculo de saldo sea consistente
+    const pagosBase = señaVieja > 0
+      ? [{ id: uid(), fecha: c.fecha || today(), monto: señaVieja, descripcion: "Seña inicial" }, ...pagosPrevios]
+      : pagosPrevios;
+    const pagos = [...pagosBase, { ...pagoForm, id: uid() }];
     const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
-    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    await db.actualizarCompra({ ...c, pagos, seña: 0, estado: nuevoEstado });
     setPagoForm({ fecha: today(), monto: "", descripcion: "" });
     if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
   }
