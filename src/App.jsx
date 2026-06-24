@@ -1747,20 +1747,19 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const altAntes = maxAntes > 0 ? 12 + itemsAntes * 18 + (itemsAntes - 1) * 2 + 8 : 0;
                 const altDespues = maxDespues > 0 ? 12 + itemsDespues * 18 + (itemsDespues - 1) * 2 + 8 : 0;
                 return (
-              <div style={{ display: "flex" }}>
-                {/* Columna horas sticky left */}
-                <div style={{ position: "sticky", left: 0, zIndex: 15, flexShrink: 0, background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "grid", gridTemplateColumns: totalCols }}>
+                {/* Columna horas sticky left — celda del mismo grid que el header */}
+                <div style={{ position: "sticky", left: 0, zIndex: 15, minWidth: 0, background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
                   {altAntes > 0 && <div style={{ height: altAntes, borderBottom: "2px dashed #FDE68A", background: "#FFFBEB" }} />}
                   <ColumnaHoras slotH={SLOT_H_SEM} />
                   {altDespues > 0 && <div style={{ height: altDespues, borderTop: "2px dashed #E5E7EB", background: "#F9FAFB" }} />}
                 </div>
 
-                {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
-                  {diasSemana.map(fecha => {
+                {/* 6 días — cada uno es una celda directa del grid de 7 columnas (no un grid anidado aparte) */}
+                {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ minWidth: 0, borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
@@ -1862,7 +1861,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     </div>
                     );
                   })}
-                </div>
                 </div>
                 );
               })()}
