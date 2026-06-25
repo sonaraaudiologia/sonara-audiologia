@@ -439,6 +439,7 @@ function ModalReparacion({ pacienteId, db, usuario, onClose }) {
         tipo: "Audífono en reparación",
         descripcion: `${desc}${form.numero_serie ? ` · N° serie ${form.numero_serie}` : ""} · ${oidoTxt}${form.notas ? ` · ${form.notas}` : ""}`,
         profesional: usuario?.nombre || "",
+        resuelto: false,
       });
       onClose();
     } finally { setSaving(false); }
@@ -825,6 +826,14 @@ function useSupabase() {
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
   }, [data.pacientes]);
 
+  const actualizarEntradaHC = useCallback(async (pacId, entradaId, cambios) => {
+    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pac) return;
+    const historia = (pac.historia || []).map(e => e.id === entradaId ? { ...e, ...cambios } : e);
+    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+  }, [data.pacientes]);
+
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
   const agregarTurno = useCallback(async (turno) => {
     const payload = toDBTurno(turno);
@@ -957,7 +966,7 @@ function useSupabase() {
 
   return {
     data, loading, error,
-    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC,
+    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC,
     agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -2647,6 +2656,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   }));
   const todaHC = [...historia.map(e => ({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
+  const hayReparacionActiva = historia.some(e => e.tipo === "Audífono en reparación" && !e.resuelto);
 
   async function agregarEvento() {
     if (!evForm.descripcion) return alert("Escribí una descripción.");
@@ -2736,7 +2746,9 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           {tab === "hc" && (
             <div>
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                <button onClick={() => setRepModal(true)} style={{ ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>
+                <button onClick={() => setRepModal(true)} style={hayReparacionActiva
+                  ? { ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }
+                  : { ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#F3F4F6", color: "#9CA3AF", border: "1.5px solid #E5E7EB" }}>
                   🔧 Audífono en reparación
                 </button>
                 <button onClick={() => setEvModal(!evModal)} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>
@@ -2770,14 +2782,21 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                 : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {todaHC.map(ev => {
                     const c = coloresHC[ev._tipo] || coloresHC.hc;
+                    const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
                     return (
-                      <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                      <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 8, padding: "10px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                          <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46", fontWeight: 700 }}> · ✓ Devuelto</span>}</span>
                           <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
                         </div>
                         <div style={{ fontSize: 13, color: "#374151" }}>{ev.descripcion}</div>
                         {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
+                        {esReparacionActiva && (
+                          <button onClick={() => db.actualizarEntradaHC(pacienteId, ev.id, { resuelto: true })}
+                            style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                            ✓ Marcar como devuelto
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -3531,7 +3550,9 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <button onClick={() => { editar(data.pacientes.find(p => p.id === verHC)); setEditPacModal(true); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE" }}>✏️ Editar paciente</button>
               <button onClick={() => setVentaModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#D1FAE5", color: "#065F46", border: "1.5px solid #A7F3D0" }}>🛒 Cargar venta</button>
               <button onClick={() => setInsumoModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A" }}>🛍️ Cargar insumo</button>
-              <button onClick={() => setRepModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>🔧 Reparación</button>
+              <button onClick={() => setRepModal(true)} style={(pacienteHC.historia||[]).some(e => e.tipo === "Audífono en reparación" && !e.resuelto)
+                ? { ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }
+                : { ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#F3F4F6", color: "#9CA3AF", border: "1.5px solid #E5E7EB" }}>🔧 Reparación</button>
               <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Entrada</button>
             </div>
           </div>
@@ -3562,14 +3583,21 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {todo.map(ev => {
                   const c = colores[ev._tipo] || colores.hc;
+                  const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
                   return (
-                    <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                    <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 10, padding: "10px 14px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46" }}> · ✓ Devuelto</span>}</span>
                         <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
                       </div>
                       <p style={{ margin: 0, fontSize: 14 }}>{ev.descripcion}</p>
                       {ev.profesional && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{ev.profesional}</div>}
+                      {esReparacionActiva && (
+                        <button onClick={() => db.actualizarEntradaHC(pacienteHC.id, ev.id, { resuelto: true })}
+                          style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                          ✓ Marcar como devuelto
+                        </button>
+                      )}
                     </div>
                   );
                 })}
