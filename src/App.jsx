@@ -6645,7 +6645,7 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
             <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""}
-              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado })}>
+              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? (item.estado === "disponible" ? "vendido" : item.estado) : item.estado })}>
               <option value="">— Sin asignar —</option>
               {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
             </select>
@@ -6686,31 +6686,43 @@ function Stock({ data, db, usuario }) {
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
   // Al asignar/actualizar un item de stock: si queda vinculado a un paciente (nuevo o distinto al anterior),
-  // registramos una entrada en su Historia Clínica y actualizamos los datos de audífono del paciente.
+  // o si un item que ya tenía paciente pasa a "En reparación", registramos una entrada en su Historia Clínica.
+  // Si es una entrega/venta también actualizamos los datos de audífono del paciente; si es reparación, solo
+  // se registra el ingreso (no se tocan esos datos).
   async function actualizarConVinculo(itemNuevo) {
     const itemAnterior = items.find(i => i.id === itemNuevo.id);
     const huboNuevaAsignacion = itemNuevo.paciente_id && itemNuevo.paciente_id !== itemAnterior?.paciente_id;
+    const pasaAReparacion = itemNuevo.paciente_id && itemNuevo.estado === "reparacion" && itemAnterior?.estado !== "reparacion" && !huboNuevaAsignacion;
     await actualizar(itemNuevo);
-    if (huboNuevaAsignacion && db) {
+    if ((huboNuevaAsignacion || pasaAReparacion) && db) {
       const pac = data.pacientes.find(p => p.id === itemNuevo.paciente_id);
       const desc = [itemNuevo.marca, itemNuevo.modelo].filter(Boolean).join(" ") || "Audífono";
       const oidoTxt = itemNuevo.oido === "derecho" ? "oído derecho" : itemNuevo.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
-      await db.agregarEntradaHC(itemNuevo.paciente_id, {
-        fecha: today(),
-        tipo: "Entrega de audífono",
-        descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}`,
-        profesional: usuario?.nombre || "",
-      });
-      if (pac) {
-        const anio = String(new Date().getFullYear());
-        const cambios = {};
-        if (itemNuevo.oido === "derecho" || itemNuevo.oido === "bilateral") {
-          cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
+      if (itemNuevo.estado === "reparacion") {
+        await db.agregarEntradaHC(itemNuevo.paciente_id, {
+          fecha: today(),
+          tipo: "Audífono en reparación",
+          descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}${itemNuevo.notas ? ` · ${itemNuevo.notas}` : ""}`,
+          profesional: usuario?.nombre || "",
+        });
+      } else {
+        await db.agregarEntradaHC(itemNuevo.paciente_id, {
+          fecha: today(),
+          tipo: "Entrega de audífono",
+          descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}`,
+          profesional: usuario?.nombre || "",
+        });
+        if (pac) {
+          const anio = String(new Date().getFullYear());
+          const cambios = {};
+          if (itemNuevo.oido === "derecho" || itemNuevo.oido === "bilateral") {
+            cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
+          }
+          if (itemNuevo.oido === "izquierdo" || itemNuevo.oido === "bilateral") {
+            cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
+          }
+          await db.actualizarPaciente({ ...pac, ...cambios });
         }
-        if (itemNuevo.oido === "izquierdo" || itemNuevo.oido === "bilateral") {
-          cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
-        }
-        await db.actualizarPaciente({ ...pac, ...cambios });
       }
     }
   }
