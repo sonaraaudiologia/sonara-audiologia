@@ -834,6 +834,14 @@ function useSupabase() {
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
   }, [data.pacientes]);
 
+  const eliminarEntradaHC = useCallback(async (pacId, entradaId) => {
+    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pac) return;
+    const historia = (pac.historia || []).filter(e => e.id !== entradaId);
+    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+  }, [data.pacientes]);
+
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
   const agregarTurno = useCallback(async (turno) => {
     const payload = toDBTurno(turno);
@@ -966,7 +974,7 @@ function useSupabase() {
 
   return {
     data, loading, error,
-    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC,
+    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
     agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -2784,8 +2792,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                     const c = coloresHC[ev._tipo] || coloresHC.hc;
                     const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
                     return (
-                      <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 8, padding: "10px 14px" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                      <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 8, padding: "10px 14px", position: "relative" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingRight: ev._tipo === "hc" ? 20 : 0 }}>
                           <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46", fontWeight: 700 }}> · ✓ Devuelto</span>}</span>
                           <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
                         </div>
@@ -2796,6 +2804,11 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                             style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                             ✓ Marcar como devuelto
                           </button>
+                        )}
+                        {ev._tipo === "hc" && (
+                          <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteId, ev.id); }}
+                            title="Eliminar entrada"
+                            style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 15, padding: 2, lineHeight: 1 }}>×</button>
                         )}
                       </div>
                     );
@@ -3585,8 +3598,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                   const c = colores[ev._tipo] || colores.hc;
                   const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
                   return (
-                    <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 10, padding: "10px 14px" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 10, padding: "10px 14px", position: "relative" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingRight: ev._tipo === "hc" ? 20 : 0 }}>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46" }}> · ✓ Devuelto</span>}</span>
                         <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
                       </div>
@@ -3597,6 +3610,11 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                           style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                           ✓ Marcar como devuelto
                         </button>
+                      )}
+                      {ev._tipo === "hc" && (
+                        <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteHC.id, ev.id); }}
+                          title="Eliminar entrada"
+                          style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 15, padding: 2, lineHeight: 1 }}>×</button>
                       )}
                     </div>
                   );
