@@ -422,6 +422,53 @@ function Field({ label, children }) {
   );
 }
 
+// Registra un audífono dejado en reparación como una entrada de Historia Clínica del paciente.
+// No toca la tabla de stock: las reparaciones no forman parte del inventario.
+function ModalReparacion({ pacienteId, db, usuario, onClose }) {
+  const [form, setForm] = useState({ marca: "", modelo: "", numero_serie: "", oido: "bilateral", notas: "" });
+  const [saving, setSaving] = useState(false);
+
+  async function guardar() {
+    if (!form.marca && !form.modelo) return alert("Completá al menos la marca o el modelo.");
+    setSaving(true);
+    try {
+      const desc = [form.marca, form.modelo].filter(Boolean).join(" ") || "Audífono";
+      const oidoTxt = form.oido === "derecho" ? "oído derecho" : form.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
+      await db.agregarEntradaHC(pacienteId, {
+        fecha: today(),
+        tipo: "Audífono en reparación",
+        descripcion: `${desc}${form.numero_serie ? ` · N° serie ${form.numero_serie}` : ""} · ${oidoTxt}${form.notas ? ` · ${form.notas}` : ""}`,
+        profesional: usuario?.nombre || "",
+      });
+      onClose();
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title="🔧 Audífono en reparación" onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+        <Field label="Modelo"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} /></Field>
+        <Field label="Oído">
+          <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
+            <option value="bilateral">Bilateral</option>
+            <option value="derecho">Derecho</option>
+            <option value="izquierdo">Izquierdo</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} placeholder="Motivo de la reparación, observaciones..." /></Field>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+        <button onClick={onClose} style={btnSecondary}>Cancelar</button>
+        <button onClick={guardar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#DC2626,#991B1B)" }}>{saving ? "Guardando..." : "Guardar"}</button>
+      </div>
+    </Modal>
+  );
+}
+
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -2544,6 +2591,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   // HC state
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
+  const [repModal, setRepModal] = useState(false);
 
   // Insumos state
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
@@ -2684,7 +2732,10 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           {/* ── HISTORIA CLÍNICA ── */}
           {tab === "hc" && (
             <div>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+                <button onClick={() => setRepModal(true)} style={{ ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>
+                  🔧 Audífono en reparación
+                </button>
                 <button onClick={() => setEvModal(!evModal)} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>
                   {evModal ? "▲ Cerrar" : "+ Nueva evolución"}
                 </button>
@@ -3037,6 +3088,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           )}
         </div>
       </div>
+      {repModal && <ModalReparacion pacienteId={pacienteId} db={db} usuario={usuario} onClose={() => setRepModal(false)} />}
     </div>
   );
 }
@@ -3060,6 +3112,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+  const [repModal, setRepModal] = useState(false);
   const [insumoModal, setInsumoModal] = useState(false);
   const [ventaModal, setVentaModal] = useState(false);
   const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
@@ -3475,6 +3528,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <button onClick={() => { editar(data.pacientes.find(p => p.id === verHC)); setEditPacModal(true); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE" }}>✏️ Editar paciente</button>
               <button onClick={() => setVentaModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#D1FAE5", color: "#065F46", border: "1.5px solid #A7F3D0" }}>🛒 Cargar venta</button>
               <button onClick={() => setInsumoModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A" }}>🛍️ Cargar insumo</button>
+              <button onClick={() => setRepModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }}>🔧 Reparación</button>
               <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Entrada</button>
             </div>
           </div>
@@ -3666,6 +3720,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           )}
         </Modal>
       )}
+      {repModal && verHC && <ModalReparacion pacienteId={verHC} db={db} usuario={usuario} onClose={() => setRepModal(false)} />}
     </div>
   );
 }
@@ -6579,9 +6634,8 @@ const ESTADOS_STOCK = {
   pedido_ba:   { label: "Pedido a BS AS", bg: "#FFF7ED", color: "#C2410C" },
   disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
   reservado:   { label: "Reservado",     bg: "#FEF3C7", color: "#92400E" },
+  prestado:    { label: "Prestado",      bg: "#E0F2FE", color: "#075985" },
   vendido:     { label: "Vendido",       bg: "#DBEAFE", color: "#1E40AF" },
-  devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
-  reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
 };
 
 function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
@@ -6685,59 +6739,48 @@ function Stock({ data, db, usuario }) {
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
-  // Registra en Historia Clínica (y, si corresponde, actualiza datos de audífono del paciente)
-  // un item de stock que queda vinculado a un paciente. Reutilizable tanto al crear un item nuevo
-  // como al editar uno existente.
+  // Registra en Historia Clínica y actualiza los datos de audífono del paciente cuando un item de stock
+  // queda vinculado a un paciente con estado "vendido". Otros estados (reservado, prestado, etc.) no
+  // generan entrada en HC ni tocan los datos de audífono, ya que no son una entrega definitiva.
   async function registrarVinculoStock(item) {
-    if (!item.paciente_id || !db) return;
+    if (!item.paciente_id || !db || item.estado !== "vendido") return;
     const pac = data.pacientes.find(p => p.id === item.paciente_id);
     const desc = [item.marca, item.modelo].filter(Boolean).join(" ") || "Audífono";
     const oidoTxt = item.oido === "derecho" ? "oído derecho" : item.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
-    if (item.estado === "reparacion") {
-      await db.agregarEntradaHC(item.paciente_id, {
-        fecha: today(),
-        tipo: "Audífono en reparación",
-        descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}${item.notas ? ` · ${item.notas}` : ""}`,
-        profesional: usuario?.nombre || "",
-      });
-    } else {
-      await db.agregarEntradaHC(item.paciente_id, {
-        fecha: today(),
-        tipo: "Entrega de audífono",
-        descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}`,
-        profesional: usuario?.nombre || "",
-      });
-      if (pac) {
-        const anio = String(new Date().getFullYear());
-        const cambios = {};
-        if (item.oido === "derecho" || item.oido === "bilateral") {
-          cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
-        }
-        if (item.oido === "izquierdo" || item.oido === "bilateral") {
-          cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
-        }
-        await db.actualizarPaciente({ ...pac, ...cambios });
+    await db.agregarEntradaHC(item.paciente_id, {
+      fecha: today(),
+      tipo: "Entrega de audífono",
+      descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}`,
+      profesional: usuario?.nombre || "",
+    });
+    if (pac) {
+      const anio = String(new Date().getFullYear());
+      const cambios = {};
+      if (item.oido === "derecho" || item.oido === "bilateral") {
+        cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
       }
+      if (item.oido === "izquierdo" || item.oido === "bilateral") {
+        cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
+      }
+      await db.actualizarPaciente({ ...pac, ...cambios });
     }
   }
 
-  // Alta de un item de stock: si ya viene con paciente asignado (ej. audífono ingresado directamente
-  // como "En reparación" para un paciente), registramos el vínculo en Historia Clínica.
+  // Alta de un item de stock: si ya viene con paciente asignado y estado "vendido", registramos el vínculo.
   async function agregarConVinculo(payload) {
     const row = await agregar(payload);
     if (payload.paciente_id) await registrarVinculoStock({ ...payload, id: row?.id });
   }
 
-  // Edición de un item de stock: si queda vinculado a un paciente (nuevo o distinto al anterior),
-  // o si un item que ya tenía paciente pasa a "En reparación", registramos una entrada en su Historia Clínica.
-  // Si es una entrega/venta también actualizamos los datos de audífono del paciente; si es reparación, solo
-  // se registra el ingreso (no se tocan esos datos).
+  // Edición de un item de stock: si queda vinculado a un paciente nuevo (o distinto al anterior) con
+  // estado "vendido", registramos el vínculo. También cubre el caso de un item que ya tenía paciente
+  // y recién ahora pasa a "vendido".
   async function actualizarConVinculo(itemNuevo) {
     const itemAnterior = items.find(i => i.id === itemNuevo.id);
     const huboNuevaAsignacion = itemNuevo.paciente_id && itemNuevo.paciente_id !== itemAnterior?.paciente_id;
-    const pasaAReparacion = itemNuevo.paciente_id && itemNuevo.estado === "reparacion" && itemAnterior?.estado !== "reparacion" && !huboNuevaAsignacion;
+    const pasaAVendido = itemNuevo.paciente_id && itemNuevo.estado === "vendido" && itemAnterior?.estado !== "vendido" && !huboNuevaAsignacion;
     await actualizar(itemNuevo);
-    if (huboNuevaAsignacion || pasaAReparacion) await registrarVinculoStock(itemNuevo);
+    if (huboNuevaAsignacion || pasaAVendido) await registrarVinculoStock(itemNuevo);
   }
 
   async function guardar() {
