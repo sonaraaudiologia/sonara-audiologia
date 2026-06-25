@@ -373,6 +373,7 @@ const PRACTICAS_LISTA = [
   "Rendimiento de IC",
   "Rendimiento de OTA",
   "Toma de impresión para molde",
+  "Retira molde",
   "Entrega de Molde",
   "Selección de audífonos",
   "Entrega de audífonos",
@@ -381,8 +382,6 @@ const PRACTICAS_LISTA = [
   "Reparación",
   "Cambio de spaguetti",
   "Reunión con profesional / Visita",
-  "Consulta telefónica/WhatsApp",
-  "Firmar documentación / Traer documentación",
   "Otro",
 ];
 
@@ -1747,19 +1746,20 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 const altAntes = maxAntes > 0 ? 12 + itemsAntes * 18 + (itemsAntes - 1) * 2 + 8 : 0;
                 const altDespues = maxDespues > 0 ? 12 + itemsDespues * 18 + (itemsDespues - 1) * 2 + 8 : 0;
                 return (
-              <div style={{ display: "grid", gridTemplateColumns: totalCols }}>
-                {/* Columna horas sticky left — celda del mismo grid que el header */}
-                <div style={{ position: "sticky", left: 0, zIndex: 15, minWidth: 0, background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex" }}>
+                {/* Columna horas sticky left */}
+                <div style={{ position: "sticky", left: 0, zIndex: 15, flexShrink: 0, background: "#F8FAFC", display: "flex", flexDirection: "column" }}>
                   {altAntes > 0 && <div style={{ height: altAntes, borderBottom: "2px dashed #FDE68A", background: "#FFFBEB" }} />}
                   <ColumnaHoras slotH={SLOT_H_SEM} />
                   {altDespues > 0 && <div style={{ height: altDespues, borderTop: "2px dashed #E5E7EB", background: "#F9FAFB" }} />}
                 </div>
 
-                {/* 6 días — cada uno es una celda directa del grid de 7 columnas (no un grid anidado aparte) */}
-                {diasSemana.map(fecha => {
+                {/* 6 días */}
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
+                  {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ minWidth: 0, borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
@@ -1861,6 +1861,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                     </div>
                     );
                   })}
+                </div>
                 </div>
                 );
               })()}
@@ -3822,6 +3823,10 @@ function Ventas({ data, db, usuario }) {
         if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
         if (form.stock_izq_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_izq_id);
       }
+      // Recién vendido (no lo estaba antes): registrar en Historia Clínica y actualizar datos de audífono del paciente
+      const recienVendida = (form.estado === "vendido" || form.estado === "facturado_os")
+        && !["vendido", "facturado_os"].includes(ventaAnterior?.estado);
+      if (recienVendida && (form.marca_der || form.marca_izq)) await registrarEntregaAudifono(form);
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
@@ -3853,10 +3858,37 @@ function Ventas({ data, db, usuario }) {
     if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
   }
 
+  // Registra en Historia Clínica y actualiza los datos de audífono del paciente cuando una venta pasa a vendido/facturado_os
+  async function registrarEntregaAudifono(v) {
+    const desc = [
+      (v.marca_der || v.modelo_der) ? `Der: ${[v.marca_der, v.modelo_der].filter(Boolean).join(" ")}` : null,
+      (v.marca_izq || v.modelo_izq) ? `Izq: ${[v.marca_izq, v.modelo_izq].filter(Boolean).join(" ")}` : null,
+    ].filter(Boolean).join(" · ") || "Audífono";
+    await db.agregarEntradaHC(v.paciente_id, {
+      fecha: v.fecha || today(),
+      tipo: "Entrega de audífono",
+      descripcion: `${desc} · $${(parseFloat(v.precio) || 0).toLocaleString("es-AR")}`,
+      profesional: usuario?.nombre || "",
+    });
+    const pac = data.pacientes.find(p => p.id === v.paciente_id);
+    if (pac) {
+      const anio = String((v.fecha || today()).slice(0, 4));
+      const cambios = {};
+      if (v.marca_der || v.modelo_der) { cambios.audifono_der = [v.marca_der, v.modelo_der].filter(Boolean).join(" "); cambios.audifono_der_anio = anio; }
+      if (v.marca_izq || v.modelo_izq) { cambios.audifono_izq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" "); cambios.audifono_izq_anio = anio; }
+      if (Object.keys(cambios).length) await db.actualizarPaciente({ ...pac, ...cambios });
+    }
+  }
+
   async function cambiarEstado(ventaId, nuevoEstado) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
     await db.actualizarVenta({ ...v, estado: nuevoEstado });
+    // Recién vendida (no lo estaba antes): registrar en Historia Clínica y actualizar datos de audífono
+    const recienVendida = ["vendido","facturado_os"].includes(nuevoEstado) && !["vendido","facturado_os"].includes(v.estado);
+    if (recienVendida && v.paciente_id && (v.marca_der || v.marca_izq)) {
+      await registrarEntregaAudifono({ ...v, estado: nuevoEstado });
+    }
     // Si se aprueba y no tiene stock vinculado, preguntar si pedir a BS AS
     if (["aprobado","señado","facturado_os"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
       const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
@@ -3909,7 +3941,7 @@ function Ventas({ data, db, usuario }) {
         </button>
         <button onClick={() => { setSubTab("presupuestos_os"); setVerDetalle(null); setVerDetalleOS(null); }}
           style={{ background: subTab === "presupuestos_os" ? "#4338CA" : "transparent", color: subTab === "presupuestos_os" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          🏥 Presupuestos OS {presupuestosOS.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{presupuestosOS.length}</span>}
+          🏥 Presupuestos Pedidos {presupuestosOS.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{presupuestosOS.length}</span>}
         </button>
       </div>
 
@@ -6529,7 +6561,7 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
   );
 }
 
-function Stock({ data, usuario }) {
+function Stock({ data, db, usuario }) {
   const { items, loading, agregar, actualizar, eliminar } = useStock();
   const [modal, setModal] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -6558,13 +6590,43 @@ function Stock({ data, usuario }) {
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
+  // Al asignar/actualizar un item de stock: si queda vinculado a un paciente (nuevo o distinto al anterior),
+  // registramos una entrada en su Historia Clínica y actualizamos los datos de audífono del paciente.
+  async function actualizarConVinculo(itemNuevo) {
+    const itemAnterior = items.find(i => i.id === itemNuevo.id);
+    const huboNuevaAsignacion = itemNuevo.paciente_id && itemNuevo.paciente_id !== itemAnterior?.paciente_id;
+    await actualizar(itemNuevo);
+    if (huboNuevaAsignacion && db) {
+      const pac = data.pacientes.find(p => p.id === itemNuevo.paciente_id);
+      const desc = [itemNuevo.marca, itemNuevo.modelo].filter(Boolean).join(" ") || "Audífono";
+      const oidoTxt = itemNuevo.oido === "derecho" ? "oído derecho" : itemNuevo.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
+      await db.agregarEntradaHC(itemNuevo.paciente_id, {
+        fecha: today(),
+        tipo: "Entrega de audífono",
+        descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}`,
+        profesional: usuario?.nombre || "",
+      });
+      if (pac) {
+        const anio = String(new Date().getFullYear());
+        const cambios = {};
+        if (itemNuevo.oido === "derecho" || itemNuevo.oido === "bilateral") {
+          cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
+        }
+        if (itemNuevo.oido === "izquierdo" || itemNuevo.oido === "bilateral") {
+          cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
+        }
+        await db.actualizarPaciente({ ...pac, ...cambios });
+      }
+    }
+  }
+
   async function guardar() {
     if (!form.marca && !form.modelo) return alert("Completá al menos el modelo.");
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
       if (modal === "nuevo") await agregar(payload);
-      else await actualizar({ ...payload, id: modal });
+      else await actualizarConVinculo({ ...payload, id: modal });
       setModal(null);
       setForm(FORM_VACIO);
     } finally { setSaving(false); }
@@ -6626,7 +6688,7 @@ function Stock({ data, usuario }) {
               </div>
               {modeloItems.map(item => (
                 <StockItem key={item.id} item={item} pacientes={data.pacientes}
-                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizar} />
+                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizarConVinculo} />
               ))}
             </div>
           ))}
@@ -7366,7 +7428,7 @@ function AppInner() {
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
-        {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
+        {tab === "stock"          && <Stock data={data} db={db} usuario={usuarioActual} />}
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
