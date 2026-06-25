@@ -1020,6 +1020,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
+  const [verEspecialDia, setVerEspecialDia] = useState(null); // fecha del día a mostrar días especiales
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -1058,6 +1059,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function cumplesDeLaSemana(lunes) {
     const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
     return dias.flatMap(f => cumplesDelDia(f));
+  }
+
+  // ── Días especiales / efemérides del día y de la semana ──────────────────────
+  function especialesDelDia(fecha) {
+    const d = new Date(fecha + "T12:00:00");
+    const dia = d.getDate();
+    const mes = d.getMonth() + 1;
+    return (fechasEspeciales || [])
+      .filter(f => f.tipo === "festivo" && f.fecha_dia === dia && f.fecha_mes === mes)
+      .map(f => ({ nombre: f.nombre, descripcion: f.descripcion || "", id: f.id, fecha }));
+  }
+
+  // Días especiales de toda la semana (lunes a domingo), usado para el resumen del lunes
+  function especialesDeLaSemana(lunes) {
+    const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
+    return dias.flatMap(f => especialesDelDia(f));
   }
 
 
@@ -1711,9 +1728,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const algoBloq = bCM || bGV;
                   const esLunes = idxDia === 0;
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
+                  const especialesSemana = esLunes ? especialesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
                       style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
+                      {esLunes && especialesSemana.length > 0 && (
+                        <span onClick={e => { e.stopPropagation(); setVerEspecialDia(fecha); }}
+                          title="Ver días especiales de la semana"
+                          style={{ position: "absolute", top: 2, left: 2, fontSize: 13, cursor: "pointer", zIndex: 5, display: "flex", alignItems: "center", gap: 1 }}>
+                          📅{especialesSemana.length > 1 && <span style={{ fontSize: 9, fontWeight: 800, background: "#fff", color: "#1E40AF", borderRadius: 8, padding: "0 3px" }}>{especialesSemana.length}</span>}
+                        </span>
+                      )}
                       {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
                           title="Ver cumpleaños de la semana"
@@ -2042,6 +2067,34 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           </Modal>
         );
       })()}
+
+      {/* ── Modal días especiales de la semana ────────────────────────────────── */}
+      {verEspecialDia && (() => {
+        const especiales = especialesDeLaSemana(verEspecialDia);
+        const finSemana = addDays(verEspecialDia, 6);
+        return (
+          <Modal title={`📅 Días especiales de la semana — ${formatFecha(verEspecialDia)} al ${formatFecha(finSemana)}`} onClose={() => setVerEspecialDia(null)}>
+            {especiales.length === 0
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin días especiales esta semana</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {especiales.map(e => (
+                  <div key={e.id + e.fecha}
+                    style={{
+                      background: "#EFF6FF",
+                      border: "1.5px solid #BFDBFE",
+                      borderRadius: 10, padding: "12px 16px",
+                    }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>📌 {e.nombre}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{nombreDia(e.fecha)} {numDia(e.fecha)}</div>
+                    {e.descripcion && <div style={{ fontSize: 13, color: "#555", marginTop: 4 }}>{e.descripcion}</div>}
+                  </div>
+                ))}
+              </div>
+            }
+          </Modal>
+        );
+      })()}
+
 
       {fichaPacienteId && (
         <FichaPaciente
