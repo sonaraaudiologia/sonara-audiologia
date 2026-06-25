@@ -6685,7 +6685,50 @@ function Stock({ data, db, usuario }) {
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
-  // Al asignar/actualizar un item de stock: si queda vinculado a un paciente (nuevo o distinto al anterior),
+  // Registra en Historia Clínica (y, si corresponde, actualiza datos de audífono del paciente)
+  // un item de stock que queda vinculado a un paciente. Reutilizable tanto al crear un item nuevo
+  // como al editar uno existente.
+  async function registrarVinculoStock(item) {
+    if (!item.paciente_id || !db) return;
+    const pac = data.pacientes.find(p => p.id === item.paciente_id);
+    const desc = [item.marca, item.modelo].filter(Boolean).join(" ") || "Audífono";
+    const oidoTxt = item.oido === "derecho" ? "oído derecho" : item.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
+    if (item.estado === "reparacion") {
+      await db.agregarEntradaHC(item.paciente_id, {
+        fecha: today(),
+        tipo: "Audífono en reparación",
+        descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}${item.notas ? ` · ${item.notas}` : ""}`,
+        profesional: usuario?.nombre || "",
+      });
+    } else {
+      await db.agregarEntradaHC(item.paciente_id, {
+        fecha: today(),
+        tipo: "Entrega de audífono",
+        descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}`,
+        profesional: usuario?.nombre || "",
+      });
+      if (pac) {
+        const anio = String(new Date().getFullYear());
+        const cambios = {};
+        if (item.oido === "derecho" || item.oido === "bilateral") {
+          cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
+        }
+        if (item.oido === "izquierdo" || item.oido === "bilateral") {
+          cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
+        }
+        await db.actualizarPaciente({ ...pac, ...cambios });
+      }
+    }
+  }
+
+  // Alta de un item de stock: si ya viene con paciente asignado (ej. audífono ingresado directamente
+  // como "En reparación" para un paciente), registramos el vínculo en Historia Clínica.
+  async function agregarConVinculo(payload) {
+    const row = await agregar(payload);
+    if (payload.paciente_id) await registrarVinculoStock({ ...payload, id: row?.id });
+  }
+
+  // Edición de un item de stock: si queda vinculado a un paciente (nuevo o distinto al anterior),
   // o si un item que ya tenía paciente pasa a "En reparación", registramos una entrada en su Historia Clínica.
   // Si es una entrega/venta también actualizamos los datos de audífono del paciente; si es reparación, solo
   // se registra el ingreso (no se tocan esos datos).
@@ -6694,37 +6737,7 @@ function Stock({ data, db, usuario }) {
     const huboNuevaAsignacion = itemNuevo.paciente_id && itemNuevo.paciente_id !== itemAnterior?.paciente_id;
     const pasaAReparacion = itemNuevo.paciente_id && itemNuevo.estado === "reparacion" && itemAnterior?.estado !== "reparacion" && !huboNuevaAsignacion;
     await actualizar(itemNuevo);
-    if ((huboNuevaAsignacion || pasaAReparacion) && db) {
-      const pac = data.pacientes.find(p => p.id === itemNuevo.paciente_id);
-      const desc = [itemNuevo.marca, itemNuevo.modelo].filter(Boolean).join(" ") || "Audífono";
-      const oidoTxt = itemNuevo.oido === "derecho" ? "oído derecho" : itemNuevo.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
-      if (itemNuevo.estado === "reparacion") {
-        await db.agregarEntradaHC(itemNuevo.paciente_id, {
-          fecha: today(),
-          tipo: "Audífono en reparación",
-          descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}${itemNuevo.notas ? ` · ${itemNuevo.notas}` : ""}`,
-          profesional: usuario?.nombre || "",
-        });
-      } else {
-        await db.agregarEntradaHC(itemNuevo.paciente_id, {
-          fecha: today(),
-          tipo: "Entrega de audífono",
-          descripcion: `${desc}${itemNuevo.numero_serie ? ` · N° serie ${itemNuevo.numero_serie}` : ""} · ${oidoTxt}`,
-          profesional: usuario?.nombre || "",
-        });
-        if (pac) {
-          const anio = String(new Date().getFullYear());
-          const cambios = {};
-          if (itemNuevo.oido === "derecho" || itemNuevo.oido === "bilateral") {
-            cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
-          }
-          if (itemNuevo.oido === "izquierdo" || itemNuevo.oido === "bilateral") {
-            cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
-          }
-          await db.actualizarPaciente({ ...pac, ...cambios });
-        }
-      }
-    }
+    if (huboNuevaAsignacion || pasaAReparacion) await registrarVinculoStock(itemNuevo);
   }
 
   async function guardar() {
@@ -6732,7 +6745,7 @@ function Stock({ data, db, usuario }) {
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
-      if (modal === "nuevo") await agregar(payload);
+      if (modal === "nuevo") await agregarConVinculo(payload);
       else await actualizarConVinculo({ ...payload, id: modal });
       setModal(null);
       setForm(FORM_VACIO);
