@@ -1763,11 +1763,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
