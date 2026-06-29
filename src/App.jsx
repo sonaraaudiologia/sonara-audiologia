@@ -47,10 +47,6 @@ function formatFecha(str) {
 }
 function today() { return new Date().toISOString().split("T")[0]; }
 function uid() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11); }
-// Quita tildes/acentos y pasa a minúsculas, para que las búsquedas no dependan de si el usuario tipea con o sin tilde.
-function normalizar(str) {
-  return (str || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
 function getLunes(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
   const day = d.getDay();
@@ -422,54 +418,6 @@ function Field({ label, children }) {
   );
 }
 
-// Registra un audífono dejado en reparación como una entrada de Historia Clínica del paciente.
-// No toca la tabla de stock: las reparaciones no forman parte del inventario.
-function ModalReparacion({ pacienteId, db, usuario, onClose }) {
-  const [form, setForm] = useState({ marca: "", modelo: "", numero_serie: "", oido: "bilateral", notas: "" });
-  const [saving, setSaving] = useState(false);
-
-  async function guardar() {
-    if (!form.marca && !form.modelo) return alert("Completá al menos la marca o el modelo.");
-    setSaving(true);
-    try {
-      const desc = [form.marca, form.modelo].filter(Boolean).join(" ") || "Audífono";
-      const oidoTxt = form.oido === "derecho" ? "oído derecho" : form.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
-      await db.agregarEntradaHC(pacienteId, {
-        fecha: today(),
-        tipo: "Audífono en reparación",
-        descripcion: `${desc}${form.numero_serie ? ` · N° serie ${form.numero_serie}` : ""} · ${oidoTxt}${form.notas ? ` · ${form.notas}` : ""}`,
-        profesional: usuario?.nombre || "",
-        resuelto: false,
-      });
-      onClose();
-    } finally { setSaving(false); }
-  }
-
-  return (
-    <Modal title="🔧 Audífono en reparación" onClose={onClose}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
-        <Field label="Modelo"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} /></Field>
-        <Field label="Oído">
-          <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
-            <option value="bilateral">Bilateral</option>
-            <option value="derecho">Derecho</option>
-            <option value="izquierdo">Izquierdo</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} placeholder="Motivo de la reparación, observaciones..." /></Field>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
-        <button onClick={onClose} style={btnSecondary}>Cancelar</button>
-        <button onClick={guardar} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#DC2626,#991B1B)" }}>{saving ? "Guardando..." : "Guardar"}</button>
-      </div>
-    </Modal>
-  );
-}
-
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -490,9 +438,9 @@ function Dashboard({ data, onNavigate }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
   const busquedaResultados = busqueda.length > 1 ? [
-    ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
-    ...data.turnos.filter(t => t.fecha >= hoy && normalizar(t.motivo||"").includes(normalizar(busqueda))).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
-    ...data.recordatorios.filter(r => normalizar(r.titulo||"").includes(normalizar(busqueda))).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
+    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
+    ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
+    ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
   ] : [];
 
   const hoyDia = new Date().getDate();
@@ -757,7 +705,6 @@ function useSupabase() {
         : (v.observaciones || ""),
       pagos: Array.isArray(v.pagos) ? v.pagos : [],
       seguimiento: Array.isArray(v.seguimiento) ? v.seguimiento : [],
-      derivado_por: v.derivadoPor || v.derivado_por || "",
     };
   }
 
@@ -768,7 +715,6 @@ function useSupabase() {
       saldoPaciente: row.saldo_paciente || "",
       marca_der: row.marca_der || "", modelo_der: row.modelo_der || "",
       pagos: Array.isArray(row.pagos) ? row.pagos : [],
-      derivadoPor: row.derivado_por || "",
       seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
     };
   }
@@ -829,17 +775,9 @@ function useSupabase() {
   const actualizarEntradaHC = useCallback(async (pacId, entradaId, cambios) => {
     const pac = data.pacientes.find(p => p.id === pacId);
     if (!pac) return;
-    const historia = (pac.historia || []).map(e => e.id === entradaId ? { ...e, ...cambios } : e);
-    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
-    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
-  }, [data.pacientes]);
-
-  const eliminarEntradaHC = useCallback(async (pacId, entradaId) => {
-    const pac = data.pacientes.find(p => p.id === pacId);
-    if (!pac) return;
-    const historia = (pac.historia || []).filter(e => e.id !== entradaId);
-    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
-    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+    const historia = (pac.historia || []).map(h => h.id === entradaId ? { ...h, ...cambios, id: h.id } : h);
+    const { error } = await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    if (!error) setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
   }, [data.pacientes]);
 
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
@@ -974,7 +912,7 @@ function useSupabase() {
 
   return {
     data, loading, error,
-    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
+    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC,
     agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -1084,7 +1022,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
-  const [verEspecialDia, setVerEspecialDia] = useState(null); // fecha del día a mostrar días especiales
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -1123,22 +1060,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function cumplesDeLaSemana(lunes) {
     const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
     return dias.flatMap(f => cumplesDelDia(f));
-  }
-
-  // ── Días especiales / efemérides del día y de la semana ──────────────────────
-  function especialesDelDia(fecha) {
-    const d = new Date(fecha + "T12:00:00");
-    const dia = d.getDate();
-    const mes = d.getMonth() + 1;
-    return (fechasEspeciales || [])
-      .filter(f => f.tipo === "festivo" && f.fecha_dia === dia && f.fecha_mes === mes)
-      .map(f => ({ nombre: f.nombre, descripcion: f.descripcion || "", id: f.id, fecha }));
-  }
-
-  // Días especiales de toda la semana (lunes a domingo), usado para el resumen del lunes
-  function especialesDeLaSemana(lunes) {
-    const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
-    return dias.flatMap(f => especialesDelDia(f));
   }
 
 
@@ -1255,7 +1176,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     setTipoEntrada(tipo);
     setColorEntrada(entrada.color_custom || "");
     if (tipo === "recordatorio") {
-      setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5), notas: entrada.descripcion || "" });
+      setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5) });
     } else if (tipo === "visita") {
       setFormEntrada({
         ...entrada,
@@ -1556,8 +1477,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0 }}>
               <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
                 style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-              <div onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })} title={r.titulo}
-                style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer" }}>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.titulo}
               </div>
               <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
@@ -1586,7 +1506,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 8px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
               <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
                 style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0, marginTop: 2 }} />
-              <div onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", lineHeight: 1.4, wordBreak: "break-word" }}>
                   {r.hora ? <span style={{ color: "#9CA3AF", marginRight: 4, fontSize: 11 }}>{r.hora.slice(0,5)}</span> : null}{r.titulo}
                 </div>
@@ -1713,7 +1633,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB" }}>
             <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
               style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-            <span onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })} style={{ fontSize: 12, fontWeight: 600, color: "#374151", cursor: "pointer" }}>{r.titulo}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{r.titulo}</span>
             {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
             <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
               style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
@@ -1793,17 +1713,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const algoBloq = bCM || bGV;
                   const esLunes = idxDia === 0;
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
-                  const especialesSemana = esLunes ? especialesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
                       style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
-                      {esLunes && especialesSemana.length > 0 && (
-                        <span onClick={e => { e.stopPropagation(); setVerEspecialDia(fecha); }}
-                          title="Ver días especiales de la semana"
-                          style={{ position: "absolute", top: 2, left: 2, fontSize: 13, cursor: "pointer", zIndex: 5, display: "flex", alignItems: "center", gap: 1 }}>
-                          📅{especialesSemana.length > 1 && <span style={{ fontSize: 9, fontWeight: 800, background: "#fff", color: "#1E40AF", borderRadius: 8, padding: "0 3px" }}>{especialesSemana.length}</span>}
-                        </span>
-                      )}
                       {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
                           title="Ver cumpleaños de la semana"
@@ -1851,14 +1763,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))", minWidth: 0 }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
-                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr", minWidth: 0 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
                         const conCols = asignarCols(ents);
@@ -2133,34 +2045,6 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         );
       })()}
 
-      {/* ── Modal días especiales de la semana ────────────────────────────────── */}
-      {verEspecialDia && (() => {
-        const especiales = especialesDeLaSemana(verEspecialDia);
-        const finSemana = addDays(verEspecialDia, 6);
-        return (
-          <Modal title={`📅 Días especiales de la semana — ${formatFecha(verEspecialDia)} al ${formatFecha(finSemana)}`} onClose={() => setVerEspecialDia(null)}>
-            {especiales.length === 0
-              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin días especiales esta semana</div>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {especiales.map(e => (
-                  <div key={e.id + e.fecha}
-                    style={{
-                      background: "#EFF6FF",
-                      border: "1.5px solid #BFDBFE",
-                      borderRadius: 10, padding: "12px 16px",
-                    }}>
-                    <div style={{ fontWeight: 700, fontSize: 15 }}>📌 {e.nombre}</div>
-                    <div style={{ fontSize: 12, color: "#888" }}>{nombreDia(e.fecha)} {numDia(e.fecha)}</div>
-                    {e.descripcion && <div style={{ fontSize: 13, color: "#555", marginTop: 4 }}>{e.descripcion}</div>}
-                  </div>
-                ))}
-              </div>
-            }
-          </Modal>
-        );
-      })()}
-
-
       {fichaPacienteId && (
         <FichaPaciente
           pacienteId={fichaPacienteId}
@@ -2312,12 +2196,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         value={busquedaEntrada} onChange={e => setBusquedaEntrada(e.target.value)} />
                       {busquedaEntrada.length > 1 && (
                         <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
-                          {pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).length === 0
+                          {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).length === 0
                             ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado.
                                 <button type="button" onClick={() => setMostrarNuevoPacEntrada(true)}
                                   style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button>
                               </div>
-                            : pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).map(p => (
+                            : pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).map(p => (
                               <div key={p.id} onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: p.id })); setBusquedaEntrada(""); }}
                                 style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
                                 onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
@@ -2474,9 +2358,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             </>
           )}
 
-          <Field label={tipoEntrada === "recordatorio" ? "Descripción" : "Notas"}>
-            <textarea style={{ ...inputStyle, resize: "vertical", minHeight: tipoEntrada === "recordatorio" ? 100 : 50 }} value={formEntrada.notas || ""} onChange={e => setFormEntrada(f => ({ ...f, notas: e.target.value }))} placeholder={tipoEntrada === "recordatorio" ? "Detalle completo del recordatorio..." : ""} />
-          </Field>
+          <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={formEntrada.notas || ""} onChange={e => setFormEntrada(f => ({ ...f, notas: e.target.value }))} /></Field>
 
           {/* Sección realizado */}
           {modalEntrada.editando && formEntrada.paciente_id && tipoEntrada === "turno" && formEntrada.estado === "realizado" && (
@@ -2611,7 +2493,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   // HC state
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
-  const [repModal, setRepModal] = useState(false);
+  const [hcEditId, setHcEditId] = useState(null);
+  const [hcEditForm, setHcEditForm] = useState({ fecha: "", tipo: "", descripcion: "", profesional: "" });
 
   // Insumos state
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
@@ -2664,7 +2547,6 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   }));
   const todaHC = [...historia.map(e => ({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
-  const hayReparacionActiva = historia.some(e => e.tipo === "Audífono en reparación" && !e.resuelto);
 
   async function agregarEvento() {
     if (!evForm.descripcion) return alert("Escribí una descripción.");
@@ -2677,6 +2559,20 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
       });
       setEvModal(false);
       setEvForm({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
+    } finally { setSaving(false); }
+  }
+
+  function iniciarEdicionHC(ev) {
+    setHcEditId(ev.id);
+    setHcEditForm({ fecha: ev.fecha || today(), tipo: ev.tipo || "", descripcion: ev.descripcion || "", profesional: ev.profesional || "" });
+  }
+
+  async function guardarEdicionHC() {
+    if (!hcEditForm.descripcion) return alert("Escribí una descripción.");
+    setSaving(true);
+    try {
+      await db.actualizarEntradaHC(pacienteId, hcEditId, { ...hcEditForm });
+      setHcEditId(null);
     } finally { setSaving(false); }
   }
 
@@ -2753,12 +2649,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           {/* ── HISTORIA CLÍNICA ── */}
           {tab === "hc" && (
             <div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                <button onClick={() => setRepModal(true)} style={hayReparacionActiva
-                  ? { ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }
-                  : { ...btnSecondary, padding: "7px 14px", fontSize: 13, background: "#F3F4F6", color: "#9CA3AF", border: "1.5px solid #E5E7EB" }}>
-                  🔧 Audífono en reparación
-                </button>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
                 <button onClick={() => setEvModal(!evModal)} style={{ ...btnPrimary, padding: "7px 14px", fontSize: 13 }}>
                   {evModal ? "▲ Cerrar" : "+ Nueva evolución"}
                 </button>
@@ -2790,26 +2681,41 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                 : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {todaHC.map(ev => {
                     const c = coloresHC[ev._tipo] || coloresHC.hc;
-                    const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
+                    if (ev._tipo === "hc" && hcEditId === ev.id) {
+                      return (
+                        <div key={ev._tipo + ev.id} style={{ background: "#fff", border: "1.5px solid #1a6b6b", borderRadius: 8, padding: "12px 14px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8, marginBottom: 8 }}>
+                            <Field label="Fecha"><input type="date" style={inputStyle} value={hcEditForm.fecha} onChange={e => setHcEditForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                            <Field label="Tipo"><input style={inputStyle} value={hcEditForm.tipo} onChange={e => setHcEditForm(f => ({ ...f, tipo: e.target.value }))} /></Field>
+                          </div>
+                          <Field label="Descripción"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={hcEditForm.descripcion} onChange={e => setHcEditForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
+                          <Field label="Profesional">
+                            <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
+                              <option value="">— Sin asignar —</option>
+                              <option>Lic. Cecilia Miatello</option>
+                              <option>Lic. Graciela Valles</option>
+                            </select>
+                          </Field>
+                          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                            <button onClick={() => setHcEditId(null)} style={btnSecondary}>Cancelar</button>
+                            <button onClick={guardarEdicionHC} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
-                      <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 8, padding: "10px 14px", position: "relative" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingRight: ev._tipo === "hc" ? 20 : 0 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46", fontWeight: 700 }}> · ✓ Devuelto</span>}</span>
-                          <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                      <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                            {ev._tipo === "hc" && (
+                              <button onClick={() => iniciarEdicionHC(ev)} title="Editar entrada" style={{ background: "none", border: "none", color: "#1a6b6b", cursor: "pointer", fontSize: 12, padding: 0 }}>✎ Editar</button>
+                            )}
+                          </div>
                         </div>
                         <div style={{ fontSize: 13, color: "#374151" }}>{ev.descripcion}</div>
                         {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
-                        {esReparacionActiva && (
-                          <button onClick={() => db.actualizarEntradaHC(pacienteId, ev.id, { resuelto: true })}
-                            style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                            ✓ Marcar como devuelto
-                          </button>
-                        )}
-                        {ev._tipo === "hc" && (
-                          <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteId, ev.id); }}
-                            title="Eliminar entrada"
-                            style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 15, padding: 2, lineHeight: 1 }}>×</button>
-                        )}
                       </div>
                     );
                   })}
@@ -3035,7 +2941,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"", acompanante_nombre: pac.acompanante_nombre||"", acompanante_parentesco: pac.acompanante_parentesco||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
@@ -3123,7 +3029,6 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
           )}
         </div>
       </div>
-      {repModal && <ModalReparacion pacienteId={pacienteId} db={db} usuario={usuario} onClose={() => setRepModal(false)} />}
     </div>
   );
 }
@@ -3147,7 +3052,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
-  const [repModal, setRepModal] = useState(false);
+  const [hcEditId, setHcEditId] = useState(null);
+  const [hcEditForm, setHcEditForm] = useState({ fecha: "", tipo: "", descripcion: "", profesional: "" });
   const [insumoModal, setInsumoModal] = useState(false);
   const [ventaModal, setVentaModal] = useState(false);
   const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
@@ -3161,7 +3067,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
 
   const pacientes = data.pacientes.filter(p => {
-    const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
+    const matchBusqueda = busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase());
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     return matchBusqueda && matchEtiqueta;
   });
@@ -3219,6 +3125,20 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       });
       setEvModal(false);
       setEvForm({ fecha: today(), tipo: "consulta", practicas: [], descripcion: "", profesional: "" });
+    } finally { setSaving(false); }
+  }
+
+  function iniciarEdicionHC(ev) {
+    setHcEditId(ev.id);
+    setHcEditForm({ fecha: ev.fecha || today(), tipo: ev.tipo || "", descripcion: ev.descripcion || "", profesional: ev.profesional || "" });
+  }
+
+  async function guardarEdicionHC() {
+    if (!hcEditForm.descripcion) return alert("Escribí una descripción.");
+    setSaving(true);
+    try {
+      await db.actualizarEntradaHC(verHC, hcEditId, { ...hcEditForm });
+      setHcEditId(null);
     } finally { setSaving(false); }
   }
 
@@ -3563,9 +3483,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <button onClick={() => { editar(data.pacientes.find(p => p.id === verHC)); setEditPacModal(true); }} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#EEF2FF", color: "#4338CA", border: "1.5px solid #C7D2FE" }}>✏️ Editar paciente</button>
               <button onClick={() => setVentaModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#D1FAE5", color: "#065F46", border: "1.5px solid #A7F3D0" }}>🛒 Cargar venta</button>
               <button onClick={() => setInsumoModal(true)} style={{ ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEF3C7", color: "#92400E", border: "1.5px solid #FDE68A" }}>🛍️ Cargar insumo</button>
-              <button onClick={() => setRepModal(true)} style={(pacienteHC.historia||[]).some(e => e.tipo === "Audífono en reparación" && !e.resuelto)
-                ? { ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#FEE2E2", color: "#991B1B", border: "1.5px solid #FECACA" }
-                : { ...btnSecondary, padding: "6px 12px", fontSize: 12, background: "#F3F4F6", color: "#9CA3AF", border: "1.5px solid #E5E7EB" }}>🔧 Reparación</button>
               <button onClick={() => setEvModal(true)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 13 }}>+ Entrada</button>
             </div>
           </div>
@@ -3596,26 +3513,41 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {todo.map(ev => {
                   const c = colores[ev._tipo] || colores.hc;
-                  const esReparacionActiva = ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && !ev.resuelto;
+                  if (ev._tipo === "hc" && hcEditId === ev.id) {
+                    return (
+                      <div key={ev._tipo + ev.id} style={{ background: "#fff", border: "1.5px solid #1a6b6b", borderRadius: 10, padding: "12px 14px" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 8, marginBottom: 8 }}>
+                          <Field label="Fecha"><input type="date" style={inputStyle} value={hcEditForm.fecha} onChange={e => setHcEditForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                          <Field label="Tipo"><input style={inputStyle} value={hcEditForm.tipo} onChange={e => setHcEditForm(f => ({ ...f, tipo: e.target.value }))} /></Field>
+                        </div>
+                        <Field label="Descripción"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={hcEditForm.descripcion} onChange={e => setHcEditForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
+                        <Field label="Profesional">
+                          <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
+                            <option value="">— Sin asignar —</option>
+                            <option>Lic. Cecilia Miatello</option>
+                            <option>Lic. Graciela Valles</option>
+                          </select>
+                        </Field>
+                        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
+                          <button onClick={() => setHcEditId(null)} style={btnSecondary}>Cancelar</button>
+                          <button onClick={guardarEdicionHC} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar cambios"}</button>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
-                    <div key={ev._tipo + ev.id} style={{ background: esReparacionActiva ? "#FEF2F2" : c.bg, border: `1px solid ${esReparacionActiva ? "#FECACA" : c.border}`, borderRadius: 10, padding: "10px 14px", position: "relative" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, paddingRight: ev._tipo === "hc" ? 20 : 0 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}{ev._tipo === "hc" && ev.tipo === "Audífono en reparación" && ev.resuelto && <span style={{ color: "#065F46" }}> · ✓ Devuelto</span>}</span>
-                        <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                    <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: "10px 14px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                          {ev._tipo === "hc" && (
+                            <button onClick={() => iniciarEdicionHC(ev)} title="Editar entrada" style={{ background: "none", border: "none", color: "#1a6b6b", cursor: "pointer", fontSize: 12, padding: 0 }}>✎ Editar</button>
+                          )}
+                        </div>
                       </div>
                       <p style={{ margin: 0, fontSize: 14 }}>{ev.descripcion}</p>
                       {ev.profesional && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{ev.profesional}</div>}
-                      {esReparacionActiva && (
-                        <button onClick={() => db.actualizarEntradaHC(pacienteHC.id, ev.id, { resuelto: true })}
-                          style={{ marginTop: 8, background: "#DC2626", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
-                          ✓ Marcar como devuelto
-                        </button>
-                      )}
-                      {ev._tipo === "hc" && (
-                        <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteHC.id, ev.id); }}
-                          title="Eliminar entrada"
-                          style={{ position: "absolute", top: 8, right: 8, background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 15, padding: 2, lineHeight: 1 }}>×</button>
-                      )}
                     </div>
                   );
                 })}
@@ -3769,7 +3701,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           )}
         </Modal>
       )}
-      {repModal && verHC && <ModalReparacion pacienteId={verHC} db={db} usuario={usuario} onClose={() => setRepModal(false)} />}
     </div>
   );
 }
@@ -3890,7 +3821,7 @@ function Ventas({ data, db, usuario }) {
 
   // Estado presupuestos OS
   const [modalOS, setModalOS] = useState(null);
-  const [formOS, setFormOS] = useState({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [], derivadoPor: "" });
+  const [formOS, setFormOS] = useState({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] });
   const [verDetalleOS, setVerDetalleOS] = useState(null);
   const [segFormOS, setSegFormOS] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
   const [pagoFormOS, setPagoFormOS] = useState({ fecha: today(), monto: "", descripcion: "" });
@@ -3919,16 +3850,16 @@ function Ventas({ data, db, usuario }) {
   const ventas = ventasConPaciente.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || normalizar(pacNombre(v.paciente_id)).includes(normalizar(busqueda)) ||
-      normalizar(v.marca_der||"").includes(normalizar(busqueda)) ||
-      normalizar(v.modelo_der||"").includes(normalizar(busqueda));
+    const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
   // Presupuestos OS filtrados
   const presupOSFiltrados = presupuestosOS.filter(v => {
-    const matchBusq = !busqueda || normalizar(v.obra_social_directa||v.observaciones||"").includes(normalizar(busqueda)) ||
-      normalizar(v.marca_der||"").includes(normalizar(busqueda));
+    const matchBusq = !busqueda || (v.obra_social_directa||v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase()) ||
+      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase());
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
     return matchBusq && matchMes;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
@@ -3986,10 +3917,6 @@ function Ventas({ data, db, usuario }) {
         if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
         if (form.stock_izq_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_izq_id);
       }
-      // Recién vendido (no lo estaba antes): registrar en Historia Clínica y actualizar datos de audífono del paciente
-      const recienVendida = (form.estado === "vendido" || form.estado === "facturado_os")
-        && !["vendido", "facturado_os"].includes(ventaAnterior?.estado);
-      if (recienVendida && (form.marca_der || form.marca_izq)) await registrarEntregaAudifono(form);
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
@@ -4021,37 +3948,10 @@ function Ventas({ data, db, usuario }) {
     if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
   }
 
-  // Registra en Historia Clínica y actualiza los datos de audífono del paciente cuando una venta pasa a vendido/facturado_os
-  async function registrarEntregaAudifono(v) {
-    const desc = [
-      (v.marca_der || v.modelo_der) ? `Der: ${[v.marca_der, v.modelo_der].filter(Boolean).join(" ")}` : null,
-      (v.marca_izq || v.modelo_izq) ? `Izq: ${[v.marca_izq, v.modelo_izq].filter(Boolean).join(" ")}` : null,
-    ].filter(Boolean).join(" · ") || "Audífono";
-    await db.agregarEntradaHC(v.paciente_id, {
-      fecha: v.fecha || today(),
-      tipo: "Entrega de audífono",
-      descripcion: `${desc} · $${(parseFloat(v.precio) || 0).toLocaleString("es-AR")}`,
-      profesional: usuario?.nombre || "",
-    });
-    const pac = data.pacientes.find(p => p.id === v.paciente_id);
-    if (pac) {
-      const anio = String((v.fecha || today()).slice(0, 4));
-      const cambios = {};
-      if (v.marca_der || v.modelo_der) { cambios.audifono_der = [v.marca_der, v.modelo_der].filter(Boolean).join(" "); cambios.audifono_der_anio = anio; }
-      if (v.marca_izq || v.modelo_izq) { cambios.audifono_izq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" "); cambios.audifono_izq_anio = anio; }
-      if (Object.keys(cambios).length) await db.actualizarPaciente({ ...pac, ...cambios });
-    }
-  }
-
   async function cambiarEstado(ventaId, nuevoEstado) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
     await db.actualizarVenta({ ...v, estado: nuevoEstado });
-    // Recién vendida (no lo estaba antes): registrar en Historia Clínica y actualizar datos de audífono
-    const recienVendida = ["vendido","facturado_os"].includes(nuevoEstado) && !["vendido","facturado_os"].includes(v.estado);
-    if (recienVendida && v.paciente_id && (v.marca_der || v.marca_izq)) {
-      await registrarEntregaAudifono({ ...v, estado: nuevoEstado });
-    }
     // Si se aprueba y no tiene stock vinculado, preguntar si pedir a BS AS
     if (["aprobado","señado","facturado_os"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
       const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
@@ -4104,7 +4004,7 @@ function Ventas({ data, db, usuario }) {
         </button>
         <button onClick={() => { setSubTab("presupuestos_os"); setVerDetalle(null); setVerDetalleOS(null); }}
           style={{ background: subTab === "presupuestos_os" ? "#4338CA" : "transparent", color: subTab === "presupuestos_os" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          🏥 Presupuestos Pedidos {presupuestosOS.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{presupuestosOS.length}</span>}
+          🏥 Presupuestos OS {presupuestosOS.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{presupuestosOS.length}</span>}
         </button>
       </div>
 
@@ -4343,7 +4243,7 @@ function Ventas({ data, db, usuario }) {
               <option value="">Todos los meses</option>
               {Array.from({ length: 12 }, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; }).map(m => <option key={m} value={m}>{m}</option>)}
             </select>
-            <button onClick={() => { setFormOS({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [], derivadoPor: "" }); setModalOS("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
+            <button onClick={() => { setFormOS({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] }); setModalOS("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
           </div>
 
           {/* Stats OS */}
@@ -4383,7 +4283,6 @@ function Ventas({ data, db, usuario }) {
                       {[v.marca_izq, v.modelo_izq].filter(Boolean).length > 0 && <span>👂I: {[v.marca_izq,v.modelo_izq].filter(Boolean).join(" ")}</span>}
                       <span>{formatFecha(v.fecha)}</span>
                       {parseFloat(v.precio) > 0 && <span style={{ color: "#166534", fontWeight: 600 }}>${parseFloat(v.precio).toLocaleString("es-AR")}</span>}
-                      {v.derivadoPor && <span style={{ color: "#4338CA" }}>👨‍⚕️ {v.derivadoPor}</span>}
                     </div>
                   </div>
                 );
@@ -4453,11 +4352,6 @@ function Ventas({ data, db, usuario }) {
                 {ventaActualOS.marca_izq && <div>👂 Izq: {[ventaActualOS.marca_izq,ventaActualOS.modelo_izq].filter(Boolean).join(" ")}</div>}
                 {ventaActualOS.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActualOS.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_os}</div>}
                 {ventaActualOS.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActualOS.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_paciente}</div>}
-              </div>
-            )}
-            {ventaActualOS.derivadoPor && (
-              <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13, color: "#4338CA", fontWeight: 600 }}>
-                👨‍⚕️ Derivado por: {ventaActualOS.derivadoPor}
               </div>
             )}
             {/* Cobranza */}
@@ -4605,9 +4499,6 @@ function Ventas({ data, db, usuario }) {
           <Field label="Obra Social *">
             <input style={inputStyle} value={formOS.obra_social_directa||""} onChange={e => setFormOS(f => ({ ...f, obra_social_directa: e.target.value }))} placeholder="Ej: PAMI, OSDE, IOMA..." />
           </Field>
-          <Field label="Derivado por">
-            <DerivadoPorSelector value={formOS.derivadoPor||""} onChange={v => setFormOS(f => ({ ...f, derivadoPor: v }))} />
-          </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Fecha"><input type="date" style={inputStyle} value={formOS.fecha} onChange={e => setFormOS(f => ({ ...f, fecha: e.target.value }))} /></Field>
             <Field label="Estado">
@@ -4673,7 +4564,7 @@ function Compras({ data, db, usuario }) {
 
   const compras = data.compras
     .filter(c => !filtroEstado || c.estado === filtroEstado)
-    .filter(c => !busquedaPac || normalizar(pacNombre(c.paciente_id)).includes(normalizar(busquedaPac)));
+    .filter(c => !busquedaPac || pacNombre(c.paciente_id).toLowerCase().includes(busquedaPac.toLowerCase()));
 
   function saldoCompra(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
@@ -4970,13 +4861,12 @@ function Estadisticas({ data }) {
   const mesActual = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,"0")}`;
   const visitasProfMes = profExternos.reduce((acc, p) =>
     acc + (p.seguimiento||[]).filter(s => (s.tipo==="Visita"||s.tipo==="Reunión") && (s.fecha||"").startsWith(mesActual)).length, 0);
-  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim() !== "").length
-    + data.ventas.filter(v => !v.paciente_id && (v.derivadoPor||"").trim() !== "").length;
+  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim() !== "").length;
   const derivacionesMes = data.pacientes.filter(p => {
     const der = (p.derivado_por||p.derivadoPor||"").trim();
     const created = p.created_at || "";
     return der !== "" && created.startsWith(mesActual);
-  }).length + data.ventas.filter(v => !v.paciente_id && (v.derivadoPor||"").trim() !== "" && (v.fecha||"").startsWith(mesActual)).length;
+  }).length;
   const seleccionesMes = data.ventas.filter(v =>
     (v.fecha||"").startsWith(mesActual) && v.paciente_id &&
     ["seleccion","sin_presupuesto","ausente","presupuestado","aprobado","señado","subido_sios","facturado_os","vendido","perdido"].includes(v.estado)
@@ -5246,15 +5136,12 @@ function Estadisticas({ data }) {
         try {
           const profs = profExternos || [];
           if (profs.length === 0) return null;
-          const conDerivaciones = profs.map(p => {
-            const pacientes = data.pacientes.filter(pac =>
-              normalizar(pac.derivado_por || pac.derivadoPor || "").includes(normalizar(p.nombre))
-            );
-            const presupuestosOS = data.ventas.filter(v =>
-              !v.paciente_id && normalizar(v.derivadoPor || "").includes(normalizar(p.nombre))
-            );
-            return { ...p, pacientes, presupuestosOS, totalDeriv: pacientes.length + presupuestosOS.length };
-          }).filter(p => p.totalDeriv > 0).sort((a, b) => b.totalDeriv - a.totalDeriv);
+          const conDerivaciones = profs.map(p => ({
+            ...p,
+            pacientes: data.pacientes.filter(pac =>
+              (pac.derivado_por || pac.derivadoPor || "").toLowerCase().includes(p.nombre.toLowerCase())
+            )
+          })).filter(p => p.pacientes.length > 0).sort((a, b) => b.pacientes.length - a.pacientes.length);
           if (conDerivaciones.length === 0) return null;
           return (
             <div style={cardStyle}>
@@ -5267,10 +5154,10 @@ function Estadisticas({ data }) {
                         <span style={{ fontWeight: 600, fontSize: 14 }}>{p.nombre}</span>
                         {p.especialidad && <span style={{ fontSize: 12, color: "#888", marginLeft: 8 }}>{p.especialidad}</span>}
                       </div>
-                      <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{p.totalDeriv} derivación{p.totalDeriv !== 1 ? "es" : ""}</span>
+                      <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{p.pacientes.length} paciente{p.pacientes.length !== 1 ? "s" : ""}</span>
                     </div>
                     <div style={{ background: "#F3F4F6", borderRadius: 6, height: 8, overflow: "hidden", marginBottom: 6 }}>
-                      <div style={{ background: "#059669", height: "100%", borderRadius: 6, width: `${(p.totalDeriv / data.pacientes.length) * 100}%` }} />
+                      <div style={{ background: "#059669", height: "100%", borderRadius: 6, width: `${(p.pacientes.length / data.pacientes.length) * 100}%` }} />
                     </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {p.pacientes.slice(0, 6).map(pac => (
@@ -5278,12 +5165,7 @@ function Estadisticas({ data }) {
                           {pac.apellido}, {pac.nombre}
                         </span>
                       ))}
-                      {p.presupuestosOS.slice(0, 6).map(v => (
-                        <span key={v.id} style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontWeight: 500 }}>
-                          🏥 {v.obra_social_directa || (v.observaciones||"").split(" · ")[0] || "Presupuesto OS"}
-                        </span>
-                      ))}
-                      {(p.pacientes.length + p.presupuestosOS.length) > 6 && <span style={{ fontSize: 11, color: "#aaa" }}>+{(p.pacientes.length + p.presupuestosOS.length) - 6} más</span>}
+                      {p.pacientes.length > 6 && <span style={{ fontSize: 11, color: "#aaa" }}>+{p.pacientes.length - 6} más</span>}
                     </div>
                   </div>
                 ))}
@@ -5422,14 +5304,13 @@ function Profesionales({ data }) {
   const profesionales = items.filter(x => x.tipo !== "obra_social");
   const obrasSociales = items.filter(x => x.tipo === "obra_social");
   const lista = (subTab === "profesionales" ? profesionales : obrasSociales)
-    .filter(p => busqueda === "" || normalizar(`${p.nombre} ${p.especialidad||""} ${p.institucion||""}`).includes(normalizar(busqueda)));
+    .filter(p => busqueda === "" || `${p.nombre} ${p.especialidad||""} ${p.institucion||""}`.toLowerCase().includes(busqueda.toLowerCase()));
 
   // Stats
   const hoy = new Date();
   const mesActivo = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,"0")}`;
   const MESES_N = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim()!=="").length
-    + data.ventas.filter(v => !v.paciente_id && (v.derivadoPor||"").trim()!=="").length;
+  const totalDerivaciones = data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").trim()!=="").length;
   const visitasMes = profesionales.reduce((acc,p) =>
     acc + (p.seguimiento||[]).filter(s=>(s.tipo==="Visita"||s.tipo==="Reunión")&&(s.fecha||"").startsWith(mesActivo)).length, 0);
 
@@ -5448,12 +5329,9 @@ function Profesionales({ data }) {
   const bgV = pctV>=100?"#D1FAE5":pctV>=60?"#e0f4f4":pctV>=30?"#FEF3C7":"#FEE2E2";
 
   function pacientesPorProf(nombre) {
-    return data.pacientes.filter(p => normalizar(p.derivado_por||p.derivadoPor||"").includes(normalizar(nombre)));
+    return data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").toLowerCase().includes(nombre.toLowerCase()));
   }
-  function presupuestosPorProf(nombre) {
-    return data.ventas.filter(v => !v.paciente_id && normalizar(v.derivadoPor||"").includes(normalizar(nombre)));
-  }
-  function derivCount(nombre) { return pacientesPorProf(nombre).length + presupuestosPorProf(nombre).length; }
+  function derivCount(nombre) { return pacientesPorProf(nombre).length; }
 
   function abrirNuevo() {
     setForm(subTab === "profesionales" ? FORM_PROF_VACIO : FORM_OS_VACIO);
@@ -5585,20 +5463,6 @@ function Profesionales({ data }) {
                         {pac.telefono && <span style={{ color:"#1a6b6b", fontSize:11 }}>📞{pac.telefono}</span>}
                       </div>
                     ))}
-                    {presupuestosPorProf(p.nombre).length > 0 && (
-                      <>
-                        <div style={{ fontSize:11, fontWeight:700, color:"#4338CA", marginTop:8, marginBottom:6, textTransform:"uppercase" }}>Presupuestos pedidos derivados</div>
-                        {presupuestosPorProf(p.nombre).map(v=>(
-                          <div key={v.id} style={{ display:"flex", justifyContent:"space-between", background:"#fff", borderRadius:6, padding:"5px 8px", marginBottom:4, fontSize:12 }}>
-                            <div>
-                              <div style={{ fontWeight:600 }}>🏥 {v.obra_social_directa || (v.observaciones||"").split(" · ")[0] || "Sin OS"}</div>
-                              <div style={{ color:"#888", fontSize:11 }}>{[v.marca_der, v.modelo_der].filter(Boolean).join(" ") || "Sin audífono cargado"}</div>
-                            </div>
-                            <span style={{ color:"#888", fontSize:11 }}>{formatFecha(v.fecha)}</span>
-                          </div>
-                        ))}
-                      </>
-                    )}
                   </div>
                 )}
 
@@ -6419,7 +6283,7 @@ function FechasEspeciales({ usuario }) {
   function esPróximo(dia, mes) { const d = diasHastaCumple(dia, mes); return d <= 7 && d > 0; }
 
   const cumpleanos = fechas
-    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || normalizar(f.nombre).includes(normalizar(busqueda))))
+    .filter(f => f.tipo === "cumpleaños" && (busqueda === "" || f.nombre.toLowerCase().includes(busqueda.toLowerCase())))
     .sort((a, b) => diasHastaCumple(a.fecha_dia, a.fecha_mes) - diasHastaCumple(b.fecha_dia, b.fecha_mes));
 
   // Solo festivos de Supabase (todos editables)
@@ -6683,8 +6547,9 @@ const ESTADOS_STOCK = {
   pedido_ba:   { label: "Pedido a BS AS", bg: "#FFF7ED", color: "#C2410C" },
   disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
   reservado:   { label: "Reservado",     bg: "#FEF3C7", color: "#92400E" },
-  prestado:    { label: "Prestado",      bg: "#E0F2FE", color: "#075985" },
   vendido:     { label: "Vendido",       bg: "#DBEAFE", color: "#1E40AF" },
+  devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
+  reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
 };
 
 function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
@@ -6748,7 +6613,7 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
             <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""}
-              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? (item.estado === "disponible" ? "vendido" : item.estado) : item.estado })}>
+              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado })}>
               <option value="">— Sin asignar —</option>
               {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
             </select>
@@ -6759,7 +6624,7 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
   );
 }
 
-function Stock({ data, db, usuario }) {
+function Stock({ data, usuario }) {
   const { items, loading, agregar, actualizar, eliminar } = useStock();
   const [modal, setModal] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -6774,7 +6639,7 @@ function Stock({ data, db, usuario }) {
 
   const lista = items.filter(i => {
     const matchEstado = !filtroEstado || i.estado === filtroEstado;
-    const matchBusq = !busqueda || normalizar(`${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`).includes(normalizar(busqueda));
+    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchBusq;
   });
 
@@ -6788,57 +6653,13 @@ function Stock({ data, db, usuario }) {
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
 
-  // Registra en Historia Clínica y actualiza los datos de audífono del paciente cuando un item de stock
-  // queda vinculado a un paciente con estado "vendido". Otros estados (reservado, prestado, etc.) no
-  // generan entrada en HC ni tocan los datos de audífono, ya que no son una entrega definitiva.
-  async function registrarVinculoStock(item) {
-    if (!item.paciente_id || !db || item.estado !== "vendido") return;
-    const pac = data.pacientes.find(p => p.id === item.paciente_id);
-    const desc = [item.marca, item.modelo].filter(Boolean).join(" ") || "Audífono";
-    const oidoTxt = item.oido === "derecho" ? "oído derecho" : item.oido === "izquierdo" ? "oído izquierdo" : "ambos oídos";
-    await db.agregarEntradaHC(item.paciente_id, {
-      fecha: today(),
-      tipo: "Entrega de audífono",
-      descripcion: `${desc}${item.numero_serie ? ` · N° serie ${item.numero_serie}` : ""} · ${oidoTxt}`,
-      profesional: usuario?.nombre || "",
-    });
-    if (pac) {
-      const anio = String(new Date().getFullYear());
-      const cambios = {};
-      if (item.oido === "derecho" || item.oido === "bilateral") {
-        cambios.audifono_der = desc; cambios.audifono_der_anio = anio;
-      }
-      if (item.oido === "izquierdo" || item.oido === "bilateral") {
-        cambios.audifono_izq = desc; cambios.audifono_izq_anio = anio;
-      }
-      await db.actualizarPaciente({ ...pac, ...cambios });
-    }
-  }
-
-  // Alta de un item de stock: si ya viene con paciente asignado y estado "vendido", registramos el vínculo.
-  async function agregarConVinculo(payload) {
-    const row = await agregar(payload);
-    if (payload.paciente_id) await registrarVinculoStock({ ...payload, id: row?.id });
-  }
-
-  // Edición de un item de stock: si queda vinculado a un paciente nuevo (o distinto al anterior) con
-  // estado "vendido", registramos el vínculo. También cubre el caso de un item que ya tenía paciente
-  // y recién ahora pasa a "vendido".
-  async function actualizarConVinculo(itemNuevo) {
-    const itemAnterior = items.find(i => i.id === itemNuevo.id);
-    const huboNuevaAsignacion = itemNuevo.paciente_id && itemNuevo.paciente_id !== itemAnterior?.paciente_id;
-    const pasaAVendido = itemNuevo.paciente_id && itemNuevo.estado === "vendido" && itemAnterior?.estado !== "vendido" && !huboNuevaAsignacion;
-    await actualizar(itemNuevo);
-    if (huboNuevaAsignacion || pasaAVendido) await registrarVinculoStock(itemNuevo);
-  }
-
   async function guardar() {
     if (!form.marca && !form.modelo) return alert("Completá al menos el modelo.");
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
-      if (modal === "nuevo") await agregarConVinculo(payload);
-      else await actualizarConVinculo({ ...payload, id: modal });
+      if (modal === "nuevo") await agregar(payload);
+      else await actualizar({ ...payload, id: modal });
       setModal(null);
       setForm(FORM_VACIO);
     } finally { setSaving(false); }
@@ -6900,7 +6721,7 @@ function Stock({ data, db, usuario }) {
               </div>
               {modeloItems.map(item => (
                 <StockItem key={item.id} item={item} pacientes={data.pacientes}
-                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizarConVinculo} />
+                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizar} />
               ))}
             </div>
           ))}
@@ -6976,7 +6797,7 @@ function Auditoria({ db }) {
   const lista = logs.filter(l => {
     const mu = !filtroUsuario || l.usuario === filtroUsuario;
     const ma = !filtroAccion || l.accion === filtroAccion;
-    const mb = !busqueda || normalizar(l.descripcion).includes(normalizar(busqueda)) || normalizar(l.usuario).includes(normalizar(busqueda));
+    const mb = !busqueda || l.descripcion.toLowerCase().includes(busqueda.toLowerCase()) || l.usuario.toLowerCase().includes(busqueda.toLowerCase());
     return mu && ma && mb;
   });
 
@@ -7640,7 +7461,7 @@ function AppInner() {
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
-        {tab === "stock"          && <Stock data={data} db={db} usuario={usuarioActual} />}
+        {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
