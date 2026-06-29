@@ -374,7 +374,6 @@ const PRACTICAS_LISTA = [
   "Rendimiento de OTA",
   "Toma de impresión para molde",
   "Retira molde",
-  "Entrega de Molde",
   "Selección de audífonos",
   "Entrega de audífonos",
   "Asesoramiento comercial",
@@ -382,6 +381,7 @@ const PRACTICAS_LISTA = [
   "Reparación",
   "Cambio de spaguetti",
   "Reunión con profesional / Visita",
+  "Comunicación telefónica / WhatsApp",
   "Otro",
 ];
 
