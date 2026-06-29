@@ -348,6 +348,12 @@ const COLORES_ESTADO = {
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 
+const PROFESIONALES = [
+  { key: "Lic. Cecilia Miatello", label: "Cecilia Miatello", apellido: "Miatello", short: "CM", color: "#1a6b6b", bg: "#e0f4f4" },
+  { key: "Lic. Graciela Valles",  label: "Graciela Valles",  apellido: "Valles",   short: "GV", color: "#4338CA", bg: "#EEF2FF" },
+  { key: "Analía Paloma",         label: "Analía Paloma",    apellido: "Paloma",   short: "AP", color: "#B45309", bg: "#FEF3C7" },
+];
+
 const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
 
@@ -1244,8 +1250,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         };
 
         if ((tipoEntrada === "bloqueo" || tipoEntrada === "visita") && formEntrada.profesional === "ambas") {
-          await db.agregarTurno({ ...turno, profesional: "Lic. Cecilia Miatello" });
-          await db.agregarTurno({ ...turno, profesional: "Lic. Graciela Valles" });
+          await Promise.all(PROFESIONALES.map(p => db.agregarTurno({ ...turno, profesional: p.key })));
         } else if (esNueva) {
           await db.agregarTurno(turno);
         } else {
@@ -1375,7 +1380,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         <div onClick={onEdit} style={{ position: "absolute", top: 2, left: 3, right: 20, bottom: 2, overflow: "hidden" }}>
           <div style={{ fontSize: 9, fontWeight: 800, color: cm.color, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {entrada.hora?.slice(0,5)}{entrada.hora_fin ? `–${entrada.hora_fin.slice(0,5)}` : ""}
-            {entrada.profesional && ` · ${entrada.profesional.includes("Miatello") ? "CM" : entrada.profesional.includes("Valles") ? "GV" : entrada.profesional}`}
+            {entrada.profesional && ` · ${PROFESIONALES.find(p => p.key === entrada.profesional)?.short || entrada.profesional}`}
           </div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {displayName}
@@ -1610,7 +1615,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           {/* Filtros: profesional + cancelados */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
-              {[["todas","Todas"],["Lic. Cecilia Miatello","Miatello"],["Lic. Graciela Valles","Valles"]].map(([v,l]) => (
+              {[["todas","Todas"], ...PROFESIONALES.map(p => [p.key, p.apellido || p.short])].map(([v,l]) => (
                 <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
                   background: filtroProfesional === v ? "#1a6b6b" : "transparent",
                   color: filtroProfesional === v ? "#fff" : "#555",
@@ -1689,10 +1694,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       {/* ── Vista SEMANA ──────────────────────────────────────────────────────── */}
       {vista === "semana" && (() => {
-        const PROFS_SEM = [
-          { key: "Lic. Cecilia Miatello", short: "CM", color: "#1a6b6b", bg: "#e0f4f4" },
-          { key: "Lic. Graciela Valles",  short: "GV", color: "#4338CA", bg: "#EEF2FF" },
-        ];
+        const PROFS_SEM = PROFESIONALES;
 
         function entsProfFecha(profKey, fecha) {
           const turnos = data.turnos
@@ -1705,10 +1707,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           return turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" }));
         }
 
-        const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
+        const totalCols = `44px repeat(6, minmax(130px, 1fr))`;
 
-        const numProfs = filtroProfesional === "todas" ? 2 : 1;
-        const minColW = 90;
+        const numProfs = filtroProfesional === "todas" ? PROFESIONALES.length : 1;
+        const minColW = 64;
         const totalGridW = 44 + diasSemana.length * numProfs * minColW;
 
         return (
@@ -1719,9 +1721,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB", position: "sticky", left: 0, zIndex: 25 }} />
                 {diasSemana.map((fecha, idxDia) => {
                   const hoy = fecha === today();
-                  const bCM = entsProfFecha("Lic. Cecilia Miatello", fecha).filter(e => e._kind === "bloqueo").length > 0;
-                  const bGV = entsProfFecha("Lic. Graciela Valles", fecha).filter(e => e._kind === "bloqueo").length > 0;
-                  const algoBloq = bCM || bGV;
+                  const bloqueosPorProf = PROFS_SEM.map(p => entsProfFecha(p.key, fecha).filter(e => e._kind === "bloqueo").length > 0);
+                  const algoBloq = bloqueosPorProf.some(Boolean);
                   const esLunes = idxDia === 0;
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
                   return (
@@ -1736,13 +1737,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       )}
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
                       <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
-                      <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 2 }}>
-                        {(filtroProfesional === "todas" || filtroProfesional === "Lic. Cecilia Miatello") && (
-                          <span style={{ fontSize: 8, fontWeight: 700, color: bCM ? "#991B1B" : "#1a6b6b", background: bCM ? "#FEE2E2" : "#e0f4f4", borderRadius: 4, padding: "1px 4px" }}>{bCM ? "🔒CM" : "CM"}</span>
-                        )}
-                        {(filtroProfesional === "todas" || filtroProfesional === "Lic. Graciela Valles") && (
-                          <span style={{ fontSize: 8, fontWeight: 700, color: bGV ? "#991B1B" : "#4338CA", background: bGV ? "#FEE2E2" : "#EEF2FF", borderRadius: 4, padding: "1px 4px" }}>{bGV ? "🔒GV" : "GV"}</span>
-                        )}
+                      <div style={{ display: "flex", justifyContent: "center", gap: 3, marginTop: 2, flexWrap: "wrap" }}>
+                        {PROFS_SEM.map((p, pIdx) => {
+                          const bloq = bloqueosPorProf[pIdx];
+                          if (filtroProfesional !== "todas" && filtroProfesional !== p.key) return null;
+                          return (
+                            <span key={p.key} style={{ fontSize: 8, fontWeight: 700, color: bloq ? "#991B1B" : p.color, background: bloq ? "#FEE2E2" : p.bg, borderRadius: 4, padding: "1px 4px" }}>{bloq ? `🔒${p.short}` : p.short}</span>
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -1774,21 +1776,21 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 </div>
 
                 {/* 6 días */}
-                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(110px, 1fr))" }}>
+                <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, minmax(130px, 1fr))" }}>
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
                     <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
-                      <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: `repeat(${profsFilt.length}, 1fr)` }}>
                       {profsFilt.map((prof, pi) => {
                         const ents = entsProfFecha(prof.key, fecha);
                         const conCols = asignarCols(ents);
                         const totalH = TOTAL_SLOTS * SLOT_H_SEM;
                         const tieneBloqueo = ents.some(e => e._kind === "bloqueo");
                         return (
-                          <div key={prof.key} style={{ position: "relative", height: totalH, overflow: "hidden", borderRight: pi === 0 && profsFilt.length > 1 ? "1px dashed #E5E7EB" : "none" }}>
+                          <div key={prof.key} style={{ position: "relative", height: totalH, overflow: "hidden", borderRight: pi < profsFilt.length - 1 ? "1px dashed #E5E7EB" : "none" }}>
                             {/* Líneas fondo con disponibilidad */}
                             {HORAS.map((h, i) => {
                               const esM = i % 2 !== 0;
@@ -1894,10 +1896,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const SLOT_H_AG = 48;
         const totalHeight = TOTAL_SLOTS * SLOT_H_AG;
 
-        const PROFS = [
-          { key: "Lic. Cecilia Miatello", label: "Miatello", short: "CM", color: "#1a6b6b", bg: "#e0f4f4" },
-          { key: "Lic. Graciela Valles",  label: "Valles",   short: "GV", color: "#4338CA", bg: "#EEF2FF" },
-        ];
+        const PROFS = PROFESIONALES;
 
         function entradasProf(profKey) {
           const turnos = data.turnos
@@ -1928,18 +1927,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </span>
             </div>
 
+            {(() => {
+            const profsActivos = filtroProfesional === "todas" ? PROFS : PROFS.filter(p => p.key === filtroProfesional);
+            const colsProf = `repeat(${profsActivos.length}, 1fr)`;
+            return (
             <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
               {/* Header profesionales sticky */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff", minWidth: 320 }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${colsProf}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff", minWidth: 320 }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
-                {PROFS.filter(p => filtroProfesional === "todas" || p.key === filtroProfesional).map(prof => {
+                {profsActivos.map(prof => {
                   const ents = entradasProf(prof.key);
                   const bloqueos = ents.filter(e => e._kind === "bloqueo");
                   const normales = ents.filter(e => e._kind !== "bloqueo");
                   return (
                     <div key={prof.key} style={{ background: bloqueos.length > 0 ? "#FEE2E2" : prof.bg, padding: "10px 14px", borderRight: "1px solid #E5E7EB", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 15, color: bloqueos.length > 0 ? "#991B1B" : prof.color }}>{prof.label}</div>
+                        <div style={{ fontWeight: 800, fontSize: 15, color: bloqueos.length > 0 ? "#991B1B" : prof.color }}>{prof.apellido || prof.label}</div>
                         <div style={{ fontSize: 11, color: bloqueos.length > 0 ? "#DC2626" : prof.color, opacity: 0.8 }}>
                           {bloqueos.length > 0 && "🔒 "}
                           {normales.length} entrada{normales.length !== 1 ? "s" : ""}
@@ -1954,12 +1957,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </div>
 
               {/* Cuerpo dual */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? "1fr 1fr" : "1fr"}`, minWidth: 320 }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px ${colsProf}`, minWidth: 320 }}>
                 {/* Columna horas */}
                 <ColumnaHoras slotH={SLOT_H_AG} />
 
                 {/* Columna por profesional */}
-                {PROFS.map(prof => {
+                {profsActivos.map(prof => {
                   const ents = entradasProf(prof.key);
                   const conCols = asignarCols(ents);
 
@@ -2013,6 +2016,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 })}
               </div>
             </div>
+            );
+            })()}
           </div>
         );
       })()}
@@ -2274,8 +2279,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 <Field label="Profesional">
                   <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
                     <option value="">— Sin asignar —</option>
-                    <option>Lic. Cecilia Miatello</option>
-                    <option>Lic. Graciela Valles</option>
+                    {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
                   </select>
                 </Field>
                 <Field label="Estado">
@@ -2317,9 +2321,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               <Field label="Profesional">
                 <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
                   <option value="">— Sin asignar —</option>
-                  <option>Lic. Cecilia Miatello</option>
-                  <option>Lic. Graciela Valles</option>
-                  <option value="ambas">Ambas profesionales</option>
+                  {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
+                  <option value="ambas">Todas las profesionales</option>
                 </select>
               </Field>
             </>
@@ -2361,9 +2364,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               <Field label="Profesional a bloquear *">
                 <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
                   <option value="">— Seleccionar —</option>
-                  <option>Lic. Cecilia Miatello</option>
-                  <option>Lic. Graciela Valles</option>
-                  <option value="ambas">Ambas profesionales</option>
+                  {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
+                  <option value="ambas">Todas las profesionales</option>
                 </select>
               </Field>
             </>
@@ -2677,8 +2679,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                   <Field label="Profesional">
                     <select style={selectStyle} value={evForm.profesional} onChange={e => setEvForm(f => ({ ...f, profesional: e.target.value }))}>
                       <option value="">— Sin asignar —</option>
-                      <option>Lic. Cecilia Miatello</option>
-                      <option>Lic. Graciela Valles</option>
+                      {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
                     </select>
                   </Field>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -2703,8 +2704,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                           <Field label="Profesional">
                             <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
                               <option value="">— Sin asignar —</option>
-                              <option>Lic. Cecilia Miatello</option>
-                              <option>Lic. Graciela Valles</option>
+                              {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
                             </select>
                           </Field>
                           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -3535,8 +3535,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                         <Field label="Profesional">
                           <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
                             <option value="">— Sin asignar —</option>
-                            <option>Lic. Cecilia Miatello</option>
-                            <option>Lic. Graciela Valles</option>
+                            {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
                           </select>
                         </Field>
                         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 8 }}>
@@ -3652,8 +3651,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <Field label="Profesional">
                 <select style={selectStyle} value={evForm.profesional} onChange={e => setEvForm(f => ({ ...f, profesional: e.target.value }))}>
                   <option value="">— Sin asignar —</option>
-                  <option>Lic. Cecilia Miatello</option>
-                  <option>Lic. Graciela Valles</option>
+                  {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
                 </select>
               </Field>
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -5659,10 +5657,8 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
     setSaving(true);
     try {
       const profs = form.profesional === "ambas"
-        ? ["Lic. Cecilia Miatello", "Lic. Graciela Valles"]
-        : form.profesional === "miatello"
-        ? ["Lic. Cecilia Miatello"]
-        : ["Lic. Graciela Valles"];
+        ? PROFESIONALES.map(p => p.key)
+        : [form.profesional];
 
       const fechas = generarFechas();
       const serieId = form.repeticion !== "ninguna" ? `serie-${Date.now()}` : null;
@@ -5691,9 +5687,8 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
     <Modal title="🔒 Bloquear agenda" onClose={onClose}>
       <Field label="Profesional">
         <select style={selectStyle} value={form.profesional} onChange={e => setForm(f => ({ ...f, profesional: e.target.value }))}>
-          <option value="miatello">Lic. Cecilia Miatello</option>
-          <option value="valles">Lic. Graciela Valles</option>
-          <option value="ambas">Ambas profesionales</option>
+          {PROFESIONALES.map(p => <option key={p.key} value={p.key}>{p.key}</option>)}
+          <option value="ambas">Todas las profesionales</option>
         </select>
       </Field>
 
@@ -5799,7 +5794,7 @@ function ModalBloqueo({ onClose, db, fechaInicial }) {
 const USUARIOS = [
   { nombre: "Cecilia Miatello",  pass: "Ceci2025",   rol: "profesional", color: "#1a6b6b", bg: "#e0f4f4", inicial: "CM" },
   { nombre: "Graciela Valles",   pass: "Gra2025",    rol: "profesional", color: "#4338CA", bg: "#EEF2FF", inicial: "GV" },
-  { nombre: "Ayudante",          pass: "Sonara2025", rol: "ayudante",    color: "#6B7280", bg: "#F3F4F6", inicial: "AY" },
+  { nombre: "Analía Paloma",     pass: "Sonara2025", rol: "profesional", color: "#B45309", bg: "#FEF3C7", inicial: "AP" },
 ];
 
 function LoginScreen({ onLogin }) {
@@ -5949,10 +5944,7 @@ function Disponibilidad({ usuario }) {
   const [diaSeleccionado, setDiaSeleccionado] = useState(null); // { fecha, d, dispDia }
   const [excepcionForm, setExcepcionForm] = useState({ activo: true, horaDesde: "08:00", horaHasta: "18:00" });
 
-  const PROFS_DISP = [
-    { key: "Lic. Cecilia Miatello", label: "Cecilia Miatello", color: "#1a6b6b", bg: "#e0f4f4" },
-    { key: "Lic. Graciela Valles",  label: "Graciela Valles",  color: "#4338CA", bg: "#EEF2FF" },
-  ];
+  const PROFS_DISP = PROFESIONALES;
 
   const diasHorarios = getDisp(profSelec, mesActual, anioActual);
 
