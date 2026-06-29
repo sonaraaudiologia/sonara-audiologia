@@ -1727,7 +1727,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
-                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
+                      style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "2px solid #1a6b6b", position: "relative" }}>
                       {esLunes && cumplesSemana.length > 0 && (
                         <span onClick={e => { e.stopPropagation(); setVerCumpleDia(fecha); }}
                           title="Ver cumpleaños de la semana"
@@ -1780,7 +1780,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+                    <div key={fecha} style={{ borderRight: "2px solid #1a6b6b", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: `repeat(${profsFilt.length}, 1fr)` }}>
