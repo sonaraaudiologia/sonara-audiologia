@@ -1273,6 +1273,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               profesional: formEntrada.profesional || "",
             });
           }
+          // Si es ausente: registrar en HC
+          if (estadoFinal === "ausente" && formEntrada.paciente_id) {
+            const practicasTexto = Array.isArray(formEntrada.practicas) && formEntrada.practicas.length > 0
+              ? formEntrada.practicas.join(", ") : (formEntrada.motivo || "Consulta");
+            await db.agregarEntradaHC(formEntrada.paciente_id, {
+              fecha: formEntrada.fecha,
+              tipo: "Turno - Ausente",
+              descripcion: `${practicasTexto} · ${formEntrada.hora?.slice(0,5)}${formEntrada.hora_fin ? `–${formEntrada.hora_fin.slice(0,5)}` : ""} · No se presentó${formEntrada.notas ? `. ${formEntrada.notas}` : ""}`,
+              profesional: formEntrada.profesional || "",
+            });
+          }
         }
       }
       cerrarModal();
