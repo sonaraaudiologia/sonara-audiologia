@@ -774,6 +774,22 @@ function useSupabase() {
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
   }, [data.pacientes]);
 
+  const actualizarEntradaHC = useCallback(async (pacId, entradaActualizada) => {
+    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pac) return;
+    const historia = (pac.historia || []).map(e => e.id === entradaActualizada.id ? { ...e, ...entradaActualizada } : e);
+    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+  }, [data.pacientes]);
+
+  const eliminarEntradaHC = useCallback(async (pacId, entradaId) => {
+    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pac) return;
+    const historia = (pac.historia || []).filter(e => e.id !== entradaId);
+    await supabase.from("pacientes").update({ historia }).eq("id", pacId);
+    setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+  }, [data.pacientes]);
+
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
   const agregarTurno = useCallback(async (turno) => {
     const payload = toDBTurno(turno);
@@ -906,7 +922,7 @@ function useSupabase() {
 
   return {
     data, loading, error,
-    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC,
+    agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
     agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
@@ -3005,6 +3021,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   });
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), tipo: "consulta", descripcion: "", profesional: "" });
+  const [editandoHC, setEditandoHC] = useState(null); // id de la entrada HC en edición
+  const [hcEditForm, setHcEditForm] = useState({ fecha: "", tipo: "", descripcion: "", profesional: "" });
   const [insumoModal, setInsumoModal] = useState(false);
   const [ventaModal, setVentaModal] = useState(false);
   const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
@@ -3450,11 +3468,47 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {todo.map(ev => {
                   const c = colores[ev._tipo] || colores.hc;
+                  const esHC = ev._tipo === "hc";
+                  if (esHC && editandoHC === ev.id) {
+                    return (
+                      <div key={ev._tipo + ev.id} style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 10, padding: "10px 14px" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+                          <Field label="Fecha"><input type="date" style={inputStyle} value={hcEditForm.fecha} onChange={e => setHcEditForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                          <Field label="Tipo"><input style={inputStyle} value={hcEditForm.tipo} onChange={e => setHcEditForm(f => ({ ...f, tipo: e.target.value }))} /></Field>
+                        </div>
+                        <Field label="Descripción"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={hcEditForm.descripcion} onChange={e => setHcEditForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
+                        <Field label="Profesional">
+                          <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
+                            <option value="">— Sin asignar —</option>
+                            <option>Lic. Cecilia Miatello</option>
+                            <option>Lic. Graciela Valles</option>
+                          </select>
+                        </Field>
+                        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
+                          <button onClick={() => setEditandoHC(null)} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>Cancelar</button>
+                          <button onClick={async () => {
+                            await db.actualizarEntradaHC(pacienteHC.id, { id: ev.id, fecha: hcEditForm.fecha, tipo: hcEditForm.tipo, descripcion: hcEditForm.descripcion, profesional: hcEditForm.profesional });
+                            setEditandoHC(null);
+                          }} style={{ ...btnPrimary, fontSize: 12, padding: "5px 10px" }}>Guardar</button>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: "10px 14px" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                         <span style={{ fontSize: 13, fontWeight: 600 }}>{ev.tipo}</span>
-                        <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 12, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                          {esHC && (
+                            <>
+                              <button onClick={() => { setEditandoHC(ev.id); setHcEditForm({ fecha: ev.fecha || "", tipo: ev.tipo || "", descripcion: ev.descripcion || "", profesional: ev.profesional || "" }); }} title="Editar"
+                                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#555" }}>✎</button>
+                              <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteHC.id, ev.id); }} title="Eliminar"
+                                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#DC2626" }}>×</button>
+                            </>
+                          )}
+                        </div>
                       </div>
                       <p style={{ margin: 0, fontSize: 14 }}>{ev.descripcion}</p>
                       {ev.profesional && <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>{ev.profesional}</div>}
