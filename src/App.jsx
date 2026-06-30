@@ -394,6 +394,8 @@ const PRACTICAS_LISTA = [
   "Reparación",
   "Cambio de spaguetti",
   "Contacto telefónico / WhatsApp",
+  "Seña/compra de audífono",
+  "Compra de insumos",
   "Reunión con profesional / Visita",
   "Otro",
 ];
@@ -3573,7 +3575,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                 <Field label="Fecha"><input type="date" style={inputStyle} value={ventaForm.fecha} onChange={e => setVentaForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
                 <Field label="Estado">
                   <select style={selectStyle} value={ventaForm.estado} onChange={e => setVentaForm(f => ({ ...f, estado: e.target.value }))}>
-                    {Object.entries(COLORES_VENTA).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                    {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
                   </select>
                 </Field>
               </div>
@@ -3709,8 +3711,6 @@ const COLORES_VENTA = {
 
 const PIPELINE_STAGES = [
   { key: "seleccion",       label: "Selección",      icon: "👂", desc: "Paciente vino a selección" },
-  { key: "sin_presupuesto", label: "Sin presupuesto", icon: "🚶", desc: "Fue sin presupuesto" },
-  { key: "ausente",         label: "Ausente",         icon: "❌", desc: "No se presentó" },
   { key: "presupuestado",   label: "Presupuestado",   icon: "📋", desc: "Se entregó presupuesto" },
   { key: "aprobado",        label: "Aprobado",        icon: "✅", desc: "Presupuesto aprobado" },
   { key: "señado",          label: "Señado",          icon: "💰", desc: "Dejó seña" },
@@ -3935,6 +3935,14 @@ function Ventas({ data, db, usuario }) {
     if (!v) return;
     const nuevaSeg = [...(Array.isArray(v.seguimiento) ? v.seguimiento : []), { ...segForm, id: uid(), fecha: segForm.fecha }];
     await db.actualizarVenta({ ...v, seguimiento: nuevaSeg });
+    if (v.paciente_id) {
+      await db.agregarEntradaHC(v.paciente_id, {
+        fecha: segForm.fecha || today(),
+        tipo: `Seguimiento de venta · ${segForm.tipo || "Seguimiento"}`,
+        descripcion: segForm.descripcion,
+        profesional: segForm.responsable || usuario?.nombre || "",
+      });
+    }
     setSegForm({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
   }
 
