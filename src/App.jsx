@@ -2530,6 +2530,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
   // HC state
   const [evModal, setEvModal] = useState(false);
   const [evForm, setEvForm] = useState({ fecha: today(), practicas: [], tipo: "", descripcion: "", profesional: "" });
+  const [editandoHC, setEditandoHC] = useState(null);
+  const [hcEditForm, setHcEditForm] = useState({ fecha: "", tipo: "", descripcion: "", profesional: "" });
 
   // Insumos state
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
@@ -2701,11 +2703,46 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                 : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {todaHC.map(ev => {
                     const c = coloresHC[ev._tipo] || coloresHC.hc;
+                    const esHC = ev._tipo === "hc";
+                    if (esHC && editandoHC === ev.id) {
+                      return (
+                        <div key={ev._tipo + ev.id} style={{ background: "#FFFBEB", border: "1.5px solid #FDE68A", borderRadius: 8, padding: "10px 14px" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+                            <Field label="Fecha"><input type="date" style={inputStyle} value={hcEditForm.fecha} onChange={e => setHcEditForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
+                            <Field label="Tipo"><input style={inputStyle} value={hcEditForm.tipo} onChange={e => setHcEditForm(f => ({ ...f, tipo: e.target.value }))} /></Field>
+                          </div>
+                          <Field label="Descripción"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={hcEditForm.descripcion} onChange={e => setHcEditForm(f => ({ ...f, descripcion: e.target.value }))} /></Field>
+                          <Field label="Profesional">
+                            <select style={selectStyle} value={hcEditForm.profesional} onChange={e => setHcEditForm(f => ({ ...f, profesional: e.target.value }))}>
+                              <option value="">— Sin asignar —</option>
+                              {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
+                            </select>
+                          </Field>
+                          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
+                            <button onClick={() => setEditandoHC(null)} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>Cancelar</button>
+                            <button onClick={async () => {
+                              await db.actualizarEntradaHC(pacienteId, { id: ev.id, fecha: hcEditForm.fecha, tipo: hcEditForm.tipo, descripcion: hcEditForm.descripcion, profesional: hcEditForm.profesional });
+                              setEditandoHC(null);
+                            }} style={{ ...btnPrimary, fontSize: 12, padding: "5px 10px" }}>Guardar</button>
+                          </div>
+                        </div>
+                      );
+                    }
                     return (
                       <div key={ev._tipo + ev.id} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: "10px 14px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ fontSize: 12, fontWeight: 700 }}>{ev.tipo}</span>
-                          <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, color: "#888" }}>{formatFecha(ev.fecha)}</span>
+                            {esHC && (
+                              <>
+                                <button onClick={() => { setEditandoHC(ev.id); setHcEditForm({ fecha: ev.fecha || "", tipo: ev.tipo || "", descripcion: ev.descripcion || "", profesional: ev.profesional || "" }); }} title="Editar"
+                                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#555" }}>✎</button>
+                                <button onClick={() => { if (window.confirm("¿Eliminar esta entrada de la historia clínica?")) db.eliminarEntradaHC(pacienteId, ev.id); }} title="Eliminar"
+                                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, padding: 0, color: "#DC2626" }}>×</button>
+                              </>
+                            )}
+                          </div>
                         </div>
                         <div style={{ fontSize: 13, color: "#374151" }}>{ev.descripcion}</div>
                         {ev.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 3 }}>{ev.profesional}</div>}
