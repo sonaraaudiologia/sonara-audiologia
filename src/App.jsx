@@ -747,6 +747,7 @@ function useSupabase() {
       const p = fromDB(row);
       setData(d => ({ ...d, pacientes: [...d.pacientes, p] }));
       pushUndo({ tipo: "crear", tabla: "pacientes", item: row, descripcion: `Paciente ${row.apellido}, ${row.nombre} creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "pacientes", `Paciente ${row.apellido}, ${row.nombre}`, null, row);
       return p;
     }
     return null;
@@ -758,7 +759,10 @@ function useSupabase() {
     const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
     if (!error) {
       setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload) } : p) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
+      if (itemAnterior) {
+        pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
+        logAuditoria(window.__sonaraUsuario, "EDITAR", "pacientes", `Paciente ${pac.apellido}, ${pac.nombre}`, toDB(itemAnterior), payload);
+      }
     }
   }, [data.pacientes]);
 
@@ -777,26 +781,31 @@ function useSupabase() {
   const agregarEntradaHC = useCallback(async (pacId, entrada) => {
     const pac = data.pacientes.find(p => p.id === pacId);
     if (!pac) return;
-    const nueva = { ...entrada, id: uid(), fecha: entrada.fecha || today() };
+    const nueva = { ...entrada, id: uid(), fecha: entrada.fecha || today(), profesional: entrada.profesional || window.__sonaraUsuario || "" };
     const historia = [...(pac.historia || []), nueva];
     await supabase.from("pacientes").update({ historia }).eq("id", pacId);
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+    logAuditoria(window.__sonaraUsuario, "CREAR", "historia_clinica", `${pac.apellido}, ${pac.nombre} — ${entrada.tipo || "entrada"}: ${(entrada.descripcion||"").slice(0,80)}`, null, nueva);
   }, [data.pacientes]);
 
   const actualizarEntradaHC = useCallback(async (pacId, entradaActualizada) => {
     const pac = data.pacientes.find(p => p.id === pacId);
     if (!pac) return;
+    const anterior = (pac.historia || []).find(e => e.id === entradaActualizada.id);
     const historia = (pac.historia || []).map(e => e.id === entradaActualizada.id ? { ...e, ...entradaActualizada } : e);
     await supabase.from("pacientes").update({ historia }).eq("id", pacId);
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+    logAuditoria(window.__sonaraUsuario, "EDITAR", "historia_clinica", `${pac.apellido}, ${pac.nombre} — entrada editada`, anterior, entradaActualizada);
   }, [data.pacientes]);
 
   const eliminarEntradaHC = useCallback(async (pacId, entradaId) => {
     const pac = data.pacientes.find(p => p.id === pacId);
     if (!pac) return;
+    const item = (pac.historia || []).find(e => e.id === entradaId);
     const historia = (pac.historia || []).filter(e => e.id !== entradaId);
     await supabase.from("pacientes").update({ historia }).eq("id", pacId);
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
+    logAuditoria(window.__sonaraUsuario, "ELIMINAR", "historia_clinica", `${pac.apellido}, ${pac.nombre} — entrada eliminada`, item, null);
   }, [data.pacientes]);
 
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
@@ -817,7 +826,10 @@ function useSupabase() {
     const { error } = await supabase.from("turnos").update(payload).eq("id", turno.id);
     if (!error) {
       setData(d => ({ ...d, turnos: d.turnos.map(t => t.id === turno.id ? { ...t, ...payload } : t) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "turnos", item: payload, itemAnterior, descripcion: `Turno ${turno.fecha} ${turno.hora?.slice(0,5)} editado` });
+      if (itemAnterior) {
+        pushUndo({ tipo: "actualizar", tabla: "turnos", item: payload, itemAnterior, descripcion: `Turno ${turno.fecha} ${turno.hora?.slice(0,5)} editado` });
+        logAuditoria(window.__sonaraUsuario, "EDITAR", "turnos", `Turno del ${turno.fecha} ${turno.hora?.slice(0,5)} — ${turno.motivo || ""}`, itemAnterior, payload);
+      }
     }
   }, [data.turnos]);
 
@@ -839,6 +851,7 @@ function useSupabase() {
     if (row) {
       setData(d => ({ ...d, ventas: [fromDBVenta(row), ...d.ventas] }));
       pushUndo({ tipo: "crear", tabla: "ventas", item: row, descripcion: `Venta/presupuesto creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "ventas", `Venta/presupuesto del ${row.fecha || ""}`, null, row);
     }
     return row;
   }, []);
@@ -849,7 +862,10 @@ function useSupabase() {
     const { error } = await supabase.from("ventas").update(payload).eq("id", venta.id);
     if (!error) {
       setData(d => ({ ...d, ventas: d.ventas.map(v => v.id === venta.id ? { ...v, ...fromDBVenta(payload) } : v) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "ventas", item: payload, itemAnterior: { ...toDBVenta(itemAnterior), id: itemAnterior.id }, descripcion: `Venta editada` });
+      if (itemAnterior) {
+        pushUndo({ tipo: "actualizar", tabla: "ventas", item: payload, itemAnterior: { ...toDBVenta(itemAnterior), id: itemAnterior.id }, descripcion: `Venta editada` });
+        logAuditoria(window.__sonaraUsuario, "EDITAR", "ventas", `Venta del ${venta.fecha || ""} — estado: ${payload.estado || ""}`, toDBVenta(itemAnterior), payload);
+      }
     }
   }, [data.ventas]);
 
@@ -874,6 +890,7 @@ function useSupabase() {
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "compras", `Insumo del ${row.fecha || ""}`, null, row);
     }
     return row;
   }, []);
@@ -887,7 +904,10 @@ function useSupabase() {
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
-      if (itemAnterior) pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
+      if (itemAnterior) {
+        pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
+        logAuditoria(window.__sonaraUsuario, "EDITAR", "compras", `Insumo del ${compra.fecha || ""}`, itemAnterior, updated);
+      }
     }
   }, [data.compras]);
 
@@ -896,7 +916,10 @@ function useSupabase() {
     const { error } = await supabase.from("compras").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.filter(c => c.id !== id) }));
-      if (item) pushUndo({ tipo: "eliminar", tabla: "compras", item, descripcion: `Insumo eliminado` });
+      if (item) {
+        pushUndo({ tipo: "eliminar", tabla: "compras", item, descripcion: `Insumo eliminado` });
+        logAuditoria(window.__sonaraUsuario, "ELIMINAR", "compras", `Insumo del ${item.fecha || ""}`, item, null);
+      }
     }
   }, [data.compras]);
 
@@ -906,6 +929,7 @@ function useSupabase() {
     if (row) {
       setData(d => ({ ...d, recordatorios: [...d.recordatorios, row] }));
       pushUndo({ tipo: "crear", tabla: "recordatorios", item: row, descripcion: `Recordatorio "${row.titulo}" creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "recordatorios", `Recordatorio "${row.titulo}"`, null, row);
     }
     return row;
   }, []);
