@@ -1460,15 +1460,17 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
+        minWidth: 0,
+        width: "100%",
       }}>
         {recs.length > 0 && (
           <div style={{ fontSize: 8, fontWeight: 700, color: esAntes ? "#B45309" : "#9CA3AF", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3, paddingLeft: 2, flexShrink: 0 }}>
             {esAntes ? "☀️ Antes" : "🌙 Al terminar"}
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0, minWidth: 0 }}>
           {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0 }}>
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0, minWidth: 0, width: "100%", boxSizing: "border-box" }}>
               <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
                 style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1761,7 +1763,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   {diasSemana.map(fecha => {
                     const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
                     return (
-                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column" }}>
+                    <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
                       <RecordatoriosBloque fecha={fecha} momento="antes" alturaFija={altAntes} />
                       <div style={{ display: "grid", gridTemplateColumns: profsFilt.length === 1 ? "1fr" : "1fr 1fr" }}>
