@@ -6537,6 +6537,7 @@ const ESTADOS_STOCK = {
   disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
   reservado:   { label: "Reservado",     bg: "#FEF3C7", color: "#92400E" },
   vendido:     { label: "Vendido",       bg: "#DBEAFE", color: "#1E40AF" },
+  comodato:    { label: "En comodato",   bg: "#E0E7FF", color: "#3730A3" },
   devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
   reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
 };
