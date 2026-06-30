@@ -47,6 +47,10 @@ function formatFecha(str) {
 }
 function today() { return new Date().toISOString().split("T")[0]; }
 function uid() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11); }
+// Normaliza texto para comparar ignorando tildes/diacríticos y mayúsculas (ej: "Garcia" === "García")
+function normalizar(str) {
+  return (str || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
 
 // Lista centralizada de profesionales del consultorio. Agregar acá cualquier
 // profesional nuevo para que aparezca automáticamente en agenda, disponibilidad,
@@ -382,7 +386,6 @@ const PRACTICAS_LISTA = [
   "Rendimiento de IC",
   "Rendimiento de OTA",
   "Toma de impresión para molde",
-  "Retira molde",
   "Entrega de Molde",
   "Selección de audífonos",
   "Entrega de audífonos",
@@ -390,6 +393,7 @@ const PRACTICAS_LISTA = [
   "Control",
   "Reparación",
   "Cambio de spaguetti",
+  "Contacto telefónico / WhatsApp",
   "Reunión con profesional / Visita",
   "Otro",
 ];
@@ -447,7 +451,7 @@ function Dashboard({ data, onNavigate }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
   const busquedaResultados = busqueda.length > 1 ? [
-    ...data.pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busqueda.toLowerCase())).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
+    ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
     ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
     ...data.recordatorios.filter(r => (r.titulo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(r => ({ tipo: "recordatorio", label: r.titulo, sub: `${formatFecha(r.fecha)} · ${r.hora}`, id: r.id })),
   ] : [];
@@ -2230,12 +2234,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         value={busquedaEntrada} onChange={e => setBusquedaEntrada(e.target.value)} />
                       {busquedaEntrada.length > 1 && (
                         <div style={{ border: "1px solid #E5E7EB", borderRadius: 8, maxHeight: 160, overflowY: "auto", background: "#fff" }}>
-                          {pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).length === 0
+                          {pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).length === 0
                             ? <div style={{ padding: "10px 14px", fontSize: 13, color: "#aaa" }}>No encontrado.
                                 <button type="button" onClick={() => setMostrarNuevoPacEntrada(true)}
                                   style={{ background: "none", border: "none", color: "#4338CA", fontWeight: 700, cursor: "pointer", fontSize: 13 }}>¿Crear nuevo?</button>
                               </div>
-                            : pacientes.filter(p => `${p.nombre} ${p.apellido} ${p.dni||""}`.toLowerCase().includes(busquedaEntrada.toLowerCase())).map(p => (
+                            : pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busquedaEntrada))).map(p => (
                               <div key={p.id} onClick={() => { setFormEntrada(f => ({ ...f, paciente_id: p.id })); setBusquedaEntrada(""); }}
                                 style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F3F4F6", fontSize: 14 }}
                                 onMouseEnter={e => e.currentTarget.style.background = "#F0F4FF"}
@@ -3054,7 +3058,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const todasEtiquetas = [...ETIQUETAS_DEFAULT, ...etiquetasCustom];
 
   const pacientes = data.pacientes.filter(p => {
-    const matchBusqueda = busqueda === "" || `${p.nombre} ${p.apellido} ${p.dni || ""}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     return matchBusqueda && matchEtiqueta;
   });
@@ -3848,7 +3852,7 @@ function Ventas({ data, db, usuario }) {
   const ventas = ventasConPaciente.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || pacNombre(v.paciente_id).toLowerCase().includes(busqueda.toLowerCase()) ||
+    const matchBusq = !busqueda || normalizar(pacNombre(v.paciente_id)).includes(normalizar(busqueda)) ||
       (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
       (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchMes && matchBusq;
@@ -4569,7 +4573,7 @@ function Compras({ data, db, usuario }) {
 
   const compras = data.compras
     .filter(c => !filtroEstado || c.estado === filtroEstado)
-    .filter(c => !busquedaPac || pacNombre(c.paciente_id).toLowerCase().includes(busquedaPac.toLowerCase()));
+    .filter(c => !busquedaPac || normalizar(pacNombre(c.paciente_id)).includes(normalizar(busquedaPac)));
 
   function saldoCompra(c) {
     const pagos = Array.isArray(c.pagos) ? c.pagos : [];
