@@ -4110,12 +4110,13 @@ function Ventas({ data, db, usuario }) {
           </div>
 
           {/* Info */}
-          {(ventaActual.marca_der || ventaActual.marca_izq) && (
+          {(ventaActual.marca_der || ventaActual.marca_izq || ventaActual.observaciones) && (
             <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
               {ventaActual.marca_der && <div>👂 Der: {[ventaActual.marca_der,ventaActual.modelo_der].filter(Boolean).join(" ")}</div>}
               {ventaActual.marca_izq && <div>👂 Izq: {[ventaActual.marca_izq,ventaActual.modelo_izq].filter(Boolean).join(" ")}</div>}
               {ventaActual.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActual.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_os}</div>}
               {ventaActual.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActual.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActual.condicion_pago_paciente}</div>}
+              {ventaActual.observaciones && <div style={{ color: "#555", marginTop: 4, paddingTop: 4, borderTop: (ventaActual.marca_der || ventaActual.marca_izq || ventaActual.condicion_pago_os || ventaActual.condicion_pago_paciente) ? "1px dashed #E5E7EB" : "none", whiteSpace: "pre-wrap" }}>📝 {ventaActual.observaciones}</div>}
             </div>
           )}
 
@@ -4276,14 +4277,18 @@ function Ventas({ data, db, usuario }) {
               </div>
             </div>
             {/* Info audífonos */}
-            {(ventaActualOS.marca_der || ventaActualOS.marca_izq) && (
-              <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
-                {ventaActualOS.marca_der && <div>👂 Der: {[ventaActualOS.marca_der,ventaActualOS.modelo_der].filter(Boolean).join(" ")}</div>}
-                {ventaActualOS.marca_izq && <div>👂 Izq: {[ventaActualOS.marca_izq,ventaActualOS.modelo_izq].filter(Boolean).join(" ")}</div>}
-                {ventaActualOS.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActualOS.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_os}</div>}
-                {ventaActualOS.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActualOS.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_paciente}</div>}
-              </div>
-            )}
+            {(() => {
+              const obsOS = (ventaActualOS.observaciones||"").split(" · ").slice(1).join(" · ");
+              return (ventaActualOS.marca_der || ventaActualOS.marca_izq || obsOS) && (
+                <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
+                  {ventaActualOS.marca_der && <div>👂 Der: {[ventaActualOS.marca_der,ventaActualOS.modelo_der].filter(Boolean).join(" ")}</div>}
+                  {ventaActualOS.marca_izq && <div>👂 Izq: {[ventaActualOS.marca_izq,ventaActualOS.modelo_izq].filter(Boolean).join(" ")}</div>}
+                  {ventaActualOS.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActualOS.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_os}</div>}
+                  {ventaActualOS.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActualOS.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_paciente}</div>}
+                  {obsOS && <div style={{ color: "#555", marginTop: 4, paddingTop: 4, borderTop: (ventaActualOS.marca_der || ventaActualOS.marca_izq || ventaActualOS.condicion_pago_os || ventaActualOS.condicion_pago_paciente) ? "1px dashed #E5E7EB" : "none", whiteSpace: "pre-wrap" }}>📝 {obsOS}</div>}
+                </div>
+              );
+            })()}
             {/* Cobranza */}
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
