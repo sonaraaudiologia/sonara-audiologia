@@ -6566,7 +6566,7 @@ function Stock({ data, usuario }) {
   const [form, setForm] = useState(FORM_VACIO);
 
   const lista = items.filter(i => {
-    const matchEstado = !filtroEstado || i.estado === filtroEstado;
+    const matchEstado = filtroEstado ? i.estado === filtroEstado : i.estado !== "vendido";
     const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchBusq;
   });
