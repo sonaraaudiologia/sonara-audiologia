@@ -1225,7 +1225,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     setTipoEntrada(tipo);
     setColorEntrada(entrada.color_custom || "");
     if (tipo === "recordatorio") {
-      setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5) });
+      setFormEntrada({ ...entrada, titulo: entrada.titulo || "", hora: (entrada.hora||"08:00").slice(0,5), notas: entrada.descripcion || "" });
     } else if (tipo === "visita") {
       setFormEntrada({
         ...entrada,
@@ -1524,13 +1524,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0, minWidth: 0 }}>
           {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0, minWidth: 0, width: "100%", boxSizing: "border-box" }}>
-              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0, minWidth: 0, width: "100%", boxSizing: "border-box", cursor: "pointer" }}
+              onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })}>
+              <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
                 style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.titulo}
               </div>
-              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+              <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
                 style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
@@ -1553,8 +1554,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {recs.sort((a,b) => (a.hora||"").localeCompare(b.hora||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 8px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
-              <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+            <div key={r.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "6px 8px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", cursor: "pointer" }}
+              onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })}>
+              <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
                 style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0, marginTop: 2 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#374151", lineHeight: 1.4, wordBreak: "break-word" }}>
@@ -1563,7 +1565,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 {r.descripcion && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>{r.descripcion}</div>}
                 {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <div style={{ fontSize: 10, color: "#6B7280", marginTop: 1 }}>👤 {p.apellido}, {p.nombre}</div> : null; })()}
               </div>
-              <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+              <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
                 style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 14, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
@@ -1680,12 +1682,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const recsAntesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "antes");
         const recsDespuesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "despues");
         const ItemRec = ({ r }) => (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB" }}>
-            <input type="checkbox" checked={r.completado} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", cursor: "pointer" }}
+            onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })}>
+            <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
               style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{r.titulo}</span>
             {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
-            <button type="button" onClick={() => db.eliminarRecordatorio(r.id)}
+            <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
               style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
           </div>
         );
