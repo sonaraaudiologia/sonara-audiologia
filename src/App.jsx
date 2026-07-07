@@ -714,8 +714,9 @@ function useSupabase() {
       condicion_pago_os: v.condicion_pago_os || "",
       saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
       condicion_pago_paciente: v.condicion_pago_paciente || "",
-      estado: v.estado || "presupuestado",
+      estado: v.estado || "seleccion",
       estados: Array.isArray(v.estados) ? v.estados : (v.estado ? [v.estado] : []),
+      derivado_por: v.derivado_por || v.derivadoPor || "",
       observaciones: v.obra_social_directa
         ? (v.obra_social_directa + (v.observaciones ? " · " + v.observaciones : ""))
         : (v.observaciones || ""),
@@ -733,6 +734,7 @@ function useSupabase() {
       pagos: Array.isArray(row.pagos) ? row.pagos : [],
       seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
       estados: Array.isArray(row.estados) ? row.estados : (row.estado ? [row.estado] : []),
+      derivadoPor: row.derivado_por || "",
     };
   }
 
@@ -3747,11 +3749,11 @@ const COLORES_VENTA = {
   pedido_ba:        { bg: "#FFF7ED", color: "#C2410C",  label: "Pedido a Buenos Aires" },
   vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
   perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
+  pedido_terceros:  { bg: "#EEF2FF", color: "#4338CA",  label: "Pedido por terceros" },
 };
 
 const PIPELINE_STAGES = [
   { key: "seleccion",       label: "Selección",      icon: "👂", desc: "Paciente vino a selección" },
-  { key: "presupuestado",   label: "Presupuestado",   icon: "📋", desc: "Se entregó presupuesto" },
   { key: "aprobado",        label: "Aprobado",        icon: "✅", desc: "Presupuesto aprobado" },
   { key: "señado",          label: "Señado",          icon: "💰", desc: "Dejó seña" },
   { key: "subido_sios",     label: "SIOS",            icon: "📤", desc: "Subido a SIOS" },
@@ -3759,6 +3761,7 @@ const PIPELINE_STAGES = [
   { key: "pedido_ba",       label: "Pedido a Buenos Aires", icon: "📦", desc: "Audífono pedido a Buenos Aires" },
   { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
   { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
+  { key: "pedido_terceros", label: "Pedido por terceros", icon: "👥", desc: "Presupuesto pedido por un tercero (derivador)" },
 ];
 
 // Mensaje que se registra automáticamente en la Historia Clínica del paciente
@@ -3775,6 +3778,7 @@ const HC_MSG_ESTADO = {
   pedido_ba:        "Audífono pedido en Buenos Aires",
   vendido:          "Venta concretada",
   perdido:          "Se perdió la venta",
+  pedido_terceros:  "Presupuesto pedido por un tercero (derivador)",
 };
 
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
@@ -3873,7 +3877,7 @@ function Ventas({ data, db, usuario }) {
     marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
     stock_der_id: "", stock_izq_id: "",
     oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
-    saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion",
+    saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion", derivadoPor: "",
     observaciones: "", seguimiento: [], pagos: []
   };
   const [form, setForm] = useState(FORM_VACIO);
@@ -3881,10 +3885,11 @@ function Ventas({ data, db, usuario }) {
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
+  const nombreOTercero = v => v.paciente_id ? pacNombre(v.paciente_id) : ((v.derivadoPor || v.derivado_por) ? `👥 Derivado por: ${v.derivadoPor || v.derivado_por}` : "—");
 
-  // Separar ventas con paciente de presupuestos OS sin paciente
-  const ventasConPaciente = data.ventas.filter(v => v.paciente_id);
-  const presupuestosOS = data.ventas.filter(v => !v.paciente_id);
+  // Separar ventas con paciente de presupuestos OS sin paciente (los "pedido por terceros" quedan en la lista principal)
+  const ventasConPaciente = data.ventas.filter(v => v.paciente_id || v.estado === "pedido_terceros");
+  const presupuestosOS = data.ventas.filter(v => !v.paciente_id && v.estado !== "pedido_terceros");
 
   // Stats por estado del mes actual (solo ventas con paciente)
   const ventasMes = ventasConPaciente.filter(v => !filtroMes || (v.fecha || "").startsWith(filtroMes));
@@ -3945,7 +3950,9 @@ function Ventas({ data, db, usuario }) {
   }
 
   async function guardar() {
-    if (!form.paciente_id) return alert("Seleccioná un paciente.");
+    if (form.estado === "pedido_terceros") {
+      if (!(form.derivadoPor || form.derivado_por)) return alert("Ingresá quién derivó el pedido.");
+    } else if (!form.paciente_id) return alert("Seleccioná un paciente.");
     setSaving(true);
     try {
       const esNueva = modal === "nuevo";
@@ -4172,7 +4179,7 @@ function Ventas({ data, db, usuario }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>{pacNombre(v.paciente_id)}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{nombreOTercero(v)}</span>
                         <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
                         {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
                         {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>💰 ${saldo.toLocaleString("es-AR")}</span>}
@@ -4203,7 +4210,7 @@ function Ventas({ data, db, usuario }) {
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>{pacNombre(ventaActual.paciente_id)}</div>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{nombreOTercero(ventaActual)}</div>
               <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActual.fecha)}</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
@@ -4475,20 +4482,26 @@ function Ventas({ data, db, usuario }) {
       {/* Modal ventas con paciente */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva selección / venta" : "Editar"} onClose={() => setModal(null)}>
-          <Field label="Paciente *">
-            <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-              <option value="">Seleccionar...</option>
-              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-            </select>
-          </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
             <Field label="Estado">
-              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
+              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value, ...(e.target.value === "pedido_terceros" ? { paciente_id: "" } : {}) }))}>
                 {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
               </select>
             </Field>
+            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
           </div>
+          {form.estado === "pedido_terceros" ? (
+            <Field label="Derivado por *">
+              <DerivadoPorSelector value={form.derivadoPor || form.derivado_por || ""} onChange={v => setForm(f => ({ ...f, derivadoPor: v }))} />
+            </Field>
+          ) : (
+            <Field label="Paciente *">
+              <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
+                <option value="">Seleccionar...</option>
+                {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+              </select>
+            </Field>
+          )}
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
@@ -7448,7 +7461,7 @@ function AppInner() {
     { id: "dashboard", label: "Inicio", icon: "🏠" },
     { id: "turnos", label: "Turnos", icon: "📅", badge: turnosHoy > 0 ? turnosHoy : null },
     { id: "pacientes", label: "Pacientes", icon: "👤" },
-    { id: "ventas", label: "Ventas", icon: "🛒" },
+    { id: "ventas", label: "Presupuesto", icon: "🛒" },
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
 
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
