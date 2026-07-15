@@ -3745,6 +3745,7 @@ const COLORES_VENTA = {
   atendido_fono:    { bg: "#D1FAE5", color: "#065F46",  label: "Atendido por Fono" },
   facturado_os:     { bg: "#E0F2FE", color: "#0369A1",  label: "Facturado a OS" },
   pedido_ba:        { bg: "#FFF7ED", color: "#C2410C",  label: "Pedido a Buenos Aires" },
+  pedido_terceros:  { bg: "#EEF2FF", color: "#4338CA",  label: "Pedido por terceros" },
   vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
   perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
 };
@@ -3757,6 +3758,7 @@ const PIPELINE_STAGES = [
   { key: "subido_sios",     label: "SIOS",            icon: "📤", desc: "Subido a SIOS" },
   { key: "facturado_os",    label: "Facturado a OS",  icon: "🧾", desc: "Facturado a Obra Social" },
   { key: "pedido_ba",       label: "Pedido a Buenos Aires", icon: "📦", desc: "Audífono pedido a Buenos Aires" },
+  { key: "pedido_terceros", label: "Pedido por terceros",  icon: "👥", desc: "Presupuesto derivado por un tercero, sin paciente propio" },
   { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
   { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
 ];
@@ -3847,7 +3849,6 @@ function ObjetivoBar({ ventas, objetivo, editando = false }) {
 }
 
 function Ventas({ data, db, usuario }) {
-  const [subTab, setSubTab] = useState("ventas"); // "ventas" | "presupuestos_os"
   const [filtroEstado, setFiltroEstado] = useState("");
   const [filtroMes, setFiltroMes] = useState(() => {
     const h = new Date();
@@ -3861,15 +3862,8 @@ function Ventas({ data, db, usuario }) {
   const [nuevoObjetivo, setNuevoObjetivo] = useState(10);
   const { objetivo, guardarObjetivo } = useObjetivoMensual();
 
-  // Estado presupuestos OS
-  const [modalOS, setModalOS] = useState(null);
-  const [formOS, setFormOS] = useState({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] });
-  const [verDetalleOS, setVerDetalleOS] = useState(null);
-  const [segFormOS, setSegFormOS] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
-  const [pagoFormOS, setPagoFormOS] = useState({ fecha: today(), monto: "", descripcion: "" });
-
   const FORM_VACIO = {
-    paciente_id: "", fecha: today(), dispositivo: "Audífono",
+    paciente_id: "", derivado_por: "", fecha: today(), dispositivo: "Audífono",
     marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
     stock_der_id: "", stock_izq_id: "",
     oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
@@ -3881,10 +3875,6 @@ function Ventas({ data, db, usuario }) {
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
-
-  // Separar ventas con paciente de presupuestos OS sin paciente
-  const ventasConPaciente = data.ventas.filter(v => v.paciente_id);
-  const presupuestosOS = data.ventas.filter(v => !v.paciente_id);
 
   // Nombre para mostrar: paciente, o derivado/obra social si es un presupuesto sin paciente
   const nombreRegistro = v => v.paciente_id ? pacNombre(v.paciente_id) : (v.obra_social_directa || v.derivado_por || (v.observaciones||"").split(" · ")[0] || "Sin paciente");
@@ -3901,45 +3891,6 @@ function Ventas({ data, db, usuario }) {
     return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
-  // Presupuestos OS filtrados
-  const presupOSFiltrados = presupuestosOS.filter(v => {
-    const matchBusq = !busqueda || (v.obra_social_directa||v.observaciones||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase());
-    const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    return matchBusq && matchMes;
-  }).sort((a,b) => b.fecha.localeCompare(a.fecha));
-
-  const ventaActualOS = verDetalleOS ? data.ventas.find(v => v.id === verDetalleOS) : null;
-
-  async function guardarOS() {
-    if (!formOS.obra_social_directa) return alert("Ingresá el nombre de la obra social.");
-    setSaving(true);
-    try {
-      const payload = { ...formOS, paciente_id: null, observaciones: formOS.obra_social_directa + (formOS.observaciones ? " · " + formOS.observaciones : "") };
-      if (modalOS === "nuevo") await db.agregarVenta(payload);
-      else await db.actualizarVenta({ ...payload, id: modalOS });
-      setModalOS(null);
-    } finally { setSaving(false); }
-  }
-
-  async function agregarSeguimientoOS(ventaId) {
-    if (!segFormOS.descripcion) return alert("Escribí una descripción.");
-    const v = data.ventas.find(x => x.id === ventaId);
-    if (!v) return;
-    const seg = [...(Array.isArray(v.seguimiento) ? v.seguimiento : []), { ...segFormOS, id: uid() }];
-    await db.actualizarVenta({ ...v, seguimiento: seg });
-    setSegFormOS({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
-  }
-
-  async function agregarPagoOS(ventaId) {
-    if (!pagoFormOS.monto || parseFloat(pagoFormOS.monto) <= 0) return alert("Ingresá un monto válido.");
-    const v = data.ventas.find(x => x.id === ventaId);
-    if (!v) return;
-    const pagos = [...(Array.isArray(v.pagos) ? v.pagos : []), { ...pagoFormOS, id: uid() }];
-    await db.actualizarVenta({ ...v, pagos });
-    setPagoFormOS({ fecha: today(), monto: "", descripcion: "" });
-  }
-
   const ventaActual = verDetalle ? data.ventas.find(v => v.id === verDetalle) : null;
 
   function saldoReal(v) {
@@ -3948,15 +3899,18 @@ function Ventas({ data, db, usuario }) {
   }
 
   async function guardar() {
-    if (!form.paciente_id) return alert("Seleccioná un paciente.");
+    const esTerceros = form.estado === "pedido_terceros";
+    if (esTerceros && !form.derivado_por) return alert("Seleccioná quién deriva este presupuesto.");
+    if (!esTerceros && !form.paciente_id) return alert("Seleccioná un paciente.");
     setSaving(true);
     try {
       const esNueva = modal === "nuevo";
       const ventaAnterior = !esNueva && data.ventas.find(v => v.id === modal);
       const generarRec = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
       const ventaId = esNueva ? null : modal;
-      if (esNueva) await db.agregarVenta({ ...form, seguimiento: [], pagos: [] });
-      else await db.actualizarVenta({ ...form, id: modal });
+      const payload = esTerceros ? { ...form, paciente_id: null, stock_der_id: "", stock_izq_id: "" } : { ...form };
+      if (esNueva) await db.agregarVenta({ ...payload, seguimiento: [], pagos: [] });
+      else await db.actualizarVenta({ ...payload, id: modal });
       // Vincular items de stock al paciente cuando se vende
       if (form.estado === "vendido" || form.estado === "facturado_os") {
         if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
@@ -4075,7 +4029,7 @@ function Ventas({ data, db, usuario }) {
     <div>
     <div style={{ display: "flex", gap: 16, minHeight: 500 }}>
       {/* ── Panel izquierdo ── */}
-      <div style={{ width: (verDetalle || verDetalleOS) ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ width: verDetalle ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
 
         {/* Objetivo mensual */}
         <div style={{ position: "relative" }}>
@@ -4143,8 +4097,6 @@ function Ventas({ data, db, usuario }) {
             {MESES_SEL.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
           <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
-          <button onClick={() => { setFormOS({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] }); setModalOS("nuevo"); }}
-            style={{ ...btnPrimary, background: "linear-gradient(135deg,#4338CA,#3730A3)" }} title="Presupuesto sin paciente / derivado por obra social">+ OS/Tercero</button>
         </div>
 
         {/* Lista */}
@@ -4158,14 +4110,14 @@ function Ventas({ data, db, usuario }) {
               const pagos = Array.isArray(v.pagos) ? v.pagos : [];
               const segs = Array.isArray(v.seguimiento) ? v.seguimiento : [];
               const saldado = saldo <= 0 && parseFloat(v.precio) > 0;
-              const activo = v.paciente_id ? verDetalle === v.id : verDetalleOS === v.id;
+              const activo = verDetalle === v.id;
               return (
-                <div key={v.id} onClick={() => { if (v.paciente_id) { setVerDetalle(activo ? null : v.id); setVerDetalleOS(null); } else { setVerDetalleOS(activo ? null : v.id); setVerDetalle(null); } }}
+                <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
                   style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>{!v.paciente_id && "🏥 "}{nombreRegistro(v)}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{!v.paciente_id && "👥 "}{nombreRegistro(v)}</span>
                         <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
                         {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
                         {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>💰 ${saldo.toLocaleString("es-AR")}</span>}
@@ -4196,7 +4148,7 @@ function Ventas({ data, db, usuario }) {
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>{pacNombre(ventaActual.paciente_id)}</div>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{!ventaActual.paciente_id && "👥 "}{nombreRegistro(ventaActual)}</div>
               <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActual.fecha)}</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
@@ -4302,125 +4254,28 @@ function Ventas({ data, db, usuario }) {
 
     </div>
 
-      {/* Panel detalle OS */}
-      {verDetalleOS && ventaActualOS && (
-        <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 16 }}>🏥 {ventaActualOS.obra_social_directa || (ventaActualOS.observaciones||"").split(" · ")[0]}</div>
-                <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActualOS.fecha)}</div>
-              </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => { setFormOS({ ...ventaActualOS, obra_social_directa: ventaActualOS.obra_social_directa || (ventaActualOS.observaciones||"").split(" · ")[0], observaciones: (ventaActualOS.observaciones||"").split(" · ").slice(1).join(" · "), obraSocialCubre: ventaActualOS.obra_social_cubre || ventaActualOS.obraSocialCubre || "", saldoPaciente: ventaActualOS.saldo_paciente || ventaActualOS.saldoPaciente || "" }); setModalOS(ventaActualOS.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>✎ Editar</button>
-                <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActualOS.id); setVerDetalleOS(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-                <button onClick={() => setVerDetalleOS(null)} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
-              </div>
-            </div>
-            {/* Pipeline */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 8, textTransform: "uppercase" }}>Estado</div>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                {PIPELINE_STAGES.map(s => {
-                  const cv = COLORES_VENTA[s.key];
-                  const estadosV = Array.isArray(ventaActualOS.estados) && ventaActualOS.estados.length ? ventaActualOS.estados : (ventaActualOS.estado ? [ventaActualOS.estado] : []);
-                  const actual = estadosV.includes(s.key);
-                  return (
-                    <button key={s.key} onClick={() => cambiarEstado(ventaActualOS.id, s.key)}
-                      style={{ background: actual ? cv.color : cv.bg, color: actual ? "#fff" : cv.color, border: `1.5px solid ${cv.color}`, borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: actual ? 800 : 600, cursor: "pointer" }}>
-                      {s.icon} {s.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            {/* Info audífonos */}
-            {(() => {
-              const obsOS = (ventaActualOS.observaciones||"").split(" · ").slice(1).join(" · ");
-              return (ventaActualOS.marca_der || ventaActualOS.marca_izq || obsOS) && (
-                <div style={{ background: "#F8FAFC", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 13 }}>
-                  {ventaActualOS.marca_der && <div>👂 Der: {[ventaActualOS.marca_der,ventaActualOS.modelo_der].filter(Boolean).join(" ")}</div>}
-                  {ventaActualOS.marca_izq && <div>👂 Izq: {[ventaActualOS.marca_izq,ventaActualOS.modelo_izq].filter(Boolean).join(" ")}</div>}
-                  {ventaActualOS.condicion_pago_os && <div style={{ color: "#1E40AF", marginTop: 4 }}>OS: ${parseFloat(ventaActualOS.obra_social_cubre||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_os}</div>}
-                  {ventaActualOS.condicion_pago_paciente && <div style={{ color: "#92400E" }}>Pac: ${parseFloat(ventaActualOS.saldo_paciente||0).toLocaleString("es-AR")} · {ventaActualOS.condicion_pago_paciente}</div>}
-                  {obsOS && <div style={{ color: "#555", marginTop: 4, paddingTop: 4, borderTop: (ventaActualOS.marca_der || ventaActualOS.marca_izq || ventaActualOS.condicion_pago_os || ventaActualOS.condicion_pago_paciente) ? "1px dashed #E5E7EB" : "none", whiteSpace: "pre-wrap" }}>📝 {obsOS}</div>}
-                </div>
-              );
-            })()}
-            {/* Cobranza */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8, display: "flex", justifyContent: "space-between" }}>
-                <span>💰 Cobranza</span>
-                {ventaActualOS.precio && <span style={{ color: saldoReal(ventaActualOS) <= 0 ? "#065F46" : "#92400E", fontWeight: 700 }}>
-                  {saldoReal(ventaActualOS) <= 0 ? "✅ Saldado" : `Saldo: $${Math.max(0,saldoReal(ventaActualOS)).toLocaleString("es-AR")}`}
-                </span>}
-              </div>
-              {(ventaActualOS.pagos||[]).map(p => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "4px 10px", marginBottom: 3, fontSize: 12 }}>
-                  <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
-                  <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
-                  <span style={{ color: "#555" }}>{p.descripcion||"Pago"}</span>
-                </div>
-              ))}
-              {saldoReal(ventaActualOS) > 0 && (
-                <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 6, alignItems: "end" }}>
-                    <Field label="Fecha"><input type="date" style={inputStyle} value={pagoFormOS.fecha} onChange={e => setPagoFormOS(f => ({ ...f, fecha: e.target.value }))} /></Field>
-                    <Field label="Monto $"><input type="number" style={inputStyle} value={pagoFormOS.monto} onChange={e => setPagoFormOS(f => ({ ...f, monto: e.target.value }))} /></Field>
-                    <Field label="Descripción"><input style={inputStyle} value={pagoFormOS.descripcion} onChange={e => setPagoFormOS(f => ({ ...f, descripcion: e.target.value }))} /></Field>
-                    <button onClick={() => agregarPagoOS(ventaActualOS.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px", marginBottom: 14 }}>✓</button>
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* Seguimiento */}
-            <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8 }}>📋 Seguimiento</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10, maxHeight: 160, overflowY: "auto" }}>
-                {[...(ventaActualOS.seguimiento||[])].reverse().map(s => (
-                  <div key={s.id} style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 7, padding: "6px 10px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-                      <span style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>{s.tipo}</span>
-                      <span style={{ fontSize: 10, color: "#aaa" }}>{formatFecha(s.fecha)}</span>
-                    </div>
-                    <div style={{ fontSize: 12 }}>{s.descripcion}</div>
-                  </div>
-                ))}
-                {(!ventaActualOS.seguimiento || ventaActualOS.seguimiento.length === 0) && <div style={{ fontSize: 12, color: "#aaa", textAlign: "center", padding: 8 }}>Sin entradas</div>}
-              </div>
-              <div style={{ background: "#F0F4FF", border: "1px solid #C7D2FE", borderRadius: 8, padding: "10px 12px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <Field label="Fecha"><input type="date" style={inputStyle} value={segFormOS.fecha} onChange={e => setSegFormOS(f => ({ ...f, fecha: e.target.value }))} /></Field>
-                  <Field label="Tipo">
-                    <select style={selectStyle} value={segFormOS.tipo} onChange={e => setSegFormOS(f => ({ ...f, tipo: e.target.value }))}>
-                      {["Llamada","Email","WhatsApp","Visita","Nota interna","Reunión"].map(t => <option key={t}>{t}</option>)}
-                    </select>
-                  </Field>
-                </div>
-                <Field label="Nota"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={segFormOS.descripcion} onChange={e => setSegFormOS(f => ({ ...f, descripcion: e.target.value }))} /></Field>
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button onClick={() => agregarSeguimientoOS(ventaActualOS.id)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 12 }}>Agregar</button>
-                </div>
-              </div>
-            </div>
-        </div>
-      )}
-
       {/* Modal ventas con paciente */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva selección / venta" : "Editar"} onClose={() => setModal(null)}>
-          <Field label="Paciente *">
-            <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-              <option value="">Seleccionar...</option>
-              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+          <Field label="Estado">
+            <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
+              {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
             </select>
           </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
-            <Field label="Estado">
-              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
-                {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
+          {form.estado === "pedido_terceros" ? (
+            <Field label="Derivado por *">
+              <DerivadoPorSelector value={form.derivado_por||""} onChange={v => setForm(f => ({ ...f, derivado_por: v }))} />
+            </Field>
+          ) : (
+            <Field label="Paciente *">
+              <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
+                <option value="">Seleccionar...</option>
+                {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
               </select>
             </Field>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
           </div>
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
@@ -4479,57 +4334,6 @@ function Ventas({ data, db, usuario }) {
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button onClick={() => setModal(null)} style={btnSecondary}>Cancelar</button>
             <button onClick={guardar} disabled={saving} style={btnPrimary}>{saving ? "Guardando..." : "Guardar"}</button>
-          </div>
-        </Modal>
-      )}
-
-      {/* Modal presupuesto OS */}
-      {modalOS && (
-        <Modal title={modalOS === "nuevo" ? "Nuevo presupuesto OS" : "Editar presupuesto OS"} onClose={() => setModalOS(null)}>
-          <Field label="Obra Social *">
-            <input style={inputStyle} value={formOS.obra_social_directa||""} onChange={e => setFormOS(f => ({ ...f, obra_social_directa: e.target.value }))} placeholder="Ej: PAMI, OSDE, IOMA..." />
-          </Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Fecha"><input type="date" style={inputStyle} value={formOS.fecha} onChange={e => setFormOS(f => ({ ...f, fecha: e.target.value }))} /></Field>
-            <Field label="Estado">
-              <select style={selectStyle} value={formOS.estado} onChange={e => setFormOS(f => ({ ...f, estado: e.target.value }))}>
-                {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
-              </select>
-            </Field>
-          </div>
-          <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={formOS.marca_der||""} onChange={e => setFormOS(f => ({ ...f, marca_der: e.target.value }))} /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={formOS.modelo_der||""} onChange={e => setFormOS(f => ({ ...f, modelo_der: e.target.value }))} /></Field>
-          </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído izquierdo</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Marca"><input style={inputStyle} value={formOS.marca_izq||""} onChange={e => setFormOS(f => ({ ...f, marca_izq: e.target.value }))} /></Field>
-            <Field label="Modelo"><input style={inputStyle} value={formOS.modelo_izq||""} onChange={e => setFormOS(f => ({ ...f, modelo_izq: e.target.value }))} /></Field>
-          </div>
-          <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
-          <Field label="Precio total ($)"><input type="number" style={inputStyle} value={formOS.precio||""} onChange={e => setFormOS(f => ({ ...f, precio: e.target.value }))} /></Field>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Monto OS ($)"><input type="number" style={inputStyle} value={formOS.obraSocialCubre||""} onChange={e => setFormOS(f => ({ ...f, obraSocialCubre: e.target.value }))} /></Field>
-            <Field label="Condición OS">
-              <select style={selectStyle} value={formOS.condicion_pago_os||""} onChange={e => setFormOS(f => ({ ...f, condicion_pago_os: e.target.value }))}>
-                <option value="">—</option>
-                {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </Field>
-            <Field label="Saldo paciente ($)"><input type="number" style={inputStyle} value={formOS.saldoPaciente||""} onChange={e => setFormOS(f => ({ ...f, saldoPaciente: e.target.value }))} /></Field>
-            <Field label="Condición paciente">
-              <select style={selectStyle} value={formOS.condicion_pago_paciente||""} onChange={e => setFormOS(f => ({ ...f, condicion_pago_paciente: e.target.value }))}>
-                <option value="">—</option>
-                {CONDICIONES_PAGO.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </Field>
-          </div>
-          <Field label="Observaciones"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={formOS.observaciones||""} onChange={e => setFormOS(f => ({ ...f, observaciones: e.target.value }))} /></Field>
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
-            <button onClick={() => setModalOS(null)} style={btnSecondary}>Cancelar</button>
-            <button onClick={guardarOS} disabled={saving} style={{ ...btnPrimary, background: "linear-gradient(135deg,#4338CA,#3730A3)" }}>{saving ? "Guardando..." : "Guardar"}</button>
           </div>
         </Modal>
       )}
