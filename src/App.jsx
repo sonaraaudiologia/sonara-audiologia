@@ -3746,6 +3746,7 @@ const COLORES_VENTA = {
   facturado_os:     { bg: "#E0F2FE", color: "#0369A1",  label: "Facturado a OS" },
   pedido_ba:        { bg: "#FFF7ED", color: "#C2410C",  label: "Pedido a Buenos Aires" },
   pedido_terceros:  { bg: "#EEF2FF", color: "#4338CA",  label: "Pedido por terceros" },
+  no_por_ahora:     { bg: "#F3F4F6", color: "#57534E",  label: "No lo hará por el momento" },
   vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
   perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
 };
@@ -3759,6 +3760,7 @@ const PIPELINE_STAGES = [
   { key: "facturado_os",    label: "Facturado a OS",  icon: "🧾", desc: "Facturado a Obra Social" },
   { key: "pedido_ba",       label: "Pedido a Buenos Aires", icon: "📦", desc: "Audífono pedido a Buenos Aires" },
   { key: "pedido_terceros", label: "Pedido por terceros",  icon: "👥", desc: "Presupuesto derivado por un tercero, sin paciente propio" },
+  { key: "no_por_ahora",    label: "No lo hará por el momento", icon: "⏸️", desc: "El paciente decidió no continuar por ahora, sin descartarlo" },
   { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
   { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
 ];
@@ -3775,6 +3777,7 @@ const HC_MSG_ESTADO = {
   subido_sios:      "El presupuesto fue subido a SIOS",
   facturado_os:     "El presupuesto fue facturado a la Obra Social",
   pedido_ba:        "Audífono pedido en Buenos Aires",
+  no_por_ahora:     "Decidió no continuar con el proceso por el momento",
   vendido:          "Venta concretada",
   perdido:          "Se perdió la venta",
 };
