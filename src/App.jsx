@@ -4114,14 +4114,17 @@ function Ventas({ data, db, usuario }) {
               const segs = Array.isArray(v.seguimiento) ? v.seguimiento : [];
               const saldado = saldo <= 0 && parseFloat(v.precio) > 0;
               const activo = verDetalle === v.id;
+              // Solo necesitan seguimiento activo los que están en Selección o Presupuestado; el resto se "apagan" en gris
+              const requiereSeguimiento = v.estado === "seleccion" || v.estado === "presupuestado";
+              const cvMostrado = requiereSeguimiento ? cv : { bg: "#F3F4F6", color: "#9CA3AF", label: cv.label };
               return (
                 <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
-                  style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}>
+                  style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : (requiereSeguimiento ? cv.color + "33" : "#E5E7EB")}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", opacity: requiereSeguimiento ? 1 : 0.6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>{!v.paciente_id && "👥 "}{nombreRegistro(v)}</span>
-                        <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: requiereSeguimiento ? "#111" : "#6B7280" }}>{!v.paciente_id && "👥 "}{nombreRegistro(v)}</span>
+                        <span style={{ background: cvMostrado.bg, color: cvMostrado.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cvMostrado.label}</span>
                         {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
                         {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>💰 ${saldo.toLocaleString("es-AR")}</span>}
                       </div>
