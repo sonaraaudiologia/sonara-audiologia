@@ -714,9 +714,8 @@ function useSupabase() {
       condicion_pago_os: v.condicion_pago_os || "",
       saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
       condicion_pago_paciente: v.condicion_pago_paciente || "",
-      estado: v.estado || "seleccion",
+      estado: v.estado || "presupuestado",
       estados: Array.isArray(v.estados) ? v.estados : (v.estado ? [v.estado] : []),
-      derivado_por: v.derivado_por || v.derivadoPor || "",
       observaciones: v.obra_social_directa
         ? (v.obra_social_directa + (v.observaciones ? " · " + v.observaciones : ""))
         : (v.observaciones || ""),
@@ -734,7 +733,6 @@ function useSupabase() {
       pagos: Array.isArray(row.pagos) ? row.pagos : [],
       seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
       estados: Array.isArray(row.estados) ? row.estados : (row.estado ? [row.estado] : []),
-      derivadoPor: row.derivado_por || "",
     };
   }
 
@@ -3749,11 +3747,11 @@ const COLORES_VENTA = {
   pedido_ba:        { bg: "#FFF7ED", color: "#C2410C",  label: "Pedido a Buenos Aires" },
   vendido:          { bg: "#D1FAE5", color: "#065F46",  label: "Vendido" },
   perdido:          { bg: "#FEE2E2", color: "#991B1B",  label: "Perdido" },
-  pedido_terceros:  { bg: "#EEF2FF", color: "#4338CA",  label: "Pedido por terceros" },
 };
 
 const PIPELINE_STAGES = [
   { key: "seleccion",       label: "Selección",      icon: "👂", desc: "Paciente vino a selección" },
+  { key: "presupuestado",   label: "Presupuestado",   icon: "📋", desc: "Se entregó presupuesto" },
   { key: "aprobado",        label: "Aprobado",        icon: "✅", desc: "Presupuesto aprobado" },
   { key: "señado",          label: "Señado",          icon: "💰", desc: "Dejó seña" },
   { key: "subido_sios",     label: "SIOS",            icon: "📤", desc: "Subido a SIOS" },
@@ -3761,7 +3759,6 @@ const PIPELINE_STAGES = [
   { key: "pedido_ba",       label: "Pedido a Buenos Aires", icon: "📦", desc: "Audífono pedido a Buenos Aires" },
   { key: "vendido",         label: "Vendido",         icon: "🎉", desc: "Venta concretada" },
   { key: "perdido",         label: "Perdido",         icon: "💔", desc: "No se concretó" },
-  { key: "pedido_terceros", label: "Pedido por terceros", icon: "👥", desc: "Presupuesto pedido por un tercero (derivador)" },
 ];
 
 // Mensaje que se registra automáticamente en la Historia Clínica del paciente
@@ -3778,7 +3775,6 @@ const HC_MSG_ESTADO = {
   pedido_ba:        "Audífono pedido en Buenos Aires",
   vendido:          "Venta concretada",
   perdido:          "Se perdió la venta",
-  pedido_terceros:  "Presupuesto pedido por un tercero (derivador)",
 };
 
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
@@ -3877,7 +3873,7 @@ function Ventas({ data, db, usuario }) {
     marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "",
     stock_der_id: "", stock_izq_id: "",
     oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "",
-    saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion", derivadoPor: "",
+    saldoPaciente: "", condicion_pago_paciente: "", estado: "seleccion",
     observaciones: "", seguimiento: [], pagos: []
   };
   const [form, setForm] = useState(FORM_VACIO);
@@ -3885,19 +3881,21 @@ function Ventas({ data, db, usuario }) {
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
-  const nombreOTercero = v => v.paciente_id ? pacNombre(v.paciente_id) : ((v.derivadoPor || v.derivado_por) ? `👥 Derivado por: ${v.derivadoPor || v.derivado_por}` : "—");
 
-  // Separar ventas con paciente de presupuestos OS sin paciente (los "pedido por terceros" quedan en la lista principal)
-  const ventasConPaciente = data.ventas.filter(v => v.paciente_id || v.estado === "pedido_terceros");
-  const presupuestosOS = data.ventas.filter(v => !v.paciente_id && v.estado !== "pedido_terceros");
+  // Separar ventas con paciente de presupuestos OS sin paciente
+  const ventasConPaciente = data.ventas.filter(v => v.paciente_id);
+  const presupuestosOS = data.ventas.filter(v => !v.paciente_id);
 
-  // Stats por estado del mes actual (solo ventas con paciente)
-  const ventasMes = ventasConPaciente.filter(v => !filtroMes || (v.fecha || "").startsWith(filtroMes));
+  // Nombre para mostrar: paciente, o derivado/obra social si es un presupuesto sin paciente
+  const nombreRegistro = v => v.paciente_id ? pacNombre(v.paciente_id) : (v.obra_social_directa || v.derivado_por || (v.observaciones||"").split(" · ")[0] || "Sin paciente");
 
-  const ventas = ventasConPaciente.filter(v => {
+  // Stats del mes (todos los presupuestos, con o sin paciente)
+  const ventasMes = data.ventas.filter(v => !filtroMes || (v.fecha || "").startsWith(filtroMes));
+
+  const ventas = data.ventas.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || normalizar(pacNombre(v.paciente_id)).includes(normalizar(busqueda)) ||
+    const matchBusq = !busqueda || normalizar(nombreRegistro(v)).includes(normalizar(busqueda)) ||
       (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
       (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchMes && matchBusq;
@@ -3950,9 +3948,7 @@ function Ventas({ data, db, usuario }) {
   }
 
   async function guardar() {
-    if (form.estado === "pedido_terceros") {
-      if (!(form.derivadoPor || form.derivado_por)) return alert("Ingresá quién derivó el pedido.");
-    } else if (!form.paciente_id) return alert("Seleccioná un paciente.");
+    if (!form.paciente_id) return alert("Seleccioná un paciente.");
     setSaving(true);
     try {
       const esNueva = modal === "nuevo";
@@ -4077,21 +4073,9 @@ function Ventas({ data, db, usuario }) {
 
   return (
     <div>
-      {/* Sub-tabs Ventas / Presupuestos OS */}
-      <div style={{ display: "flex", gap: 4, background: "#F3F4F6", borderRadius: 10, padding: 4, marginBottom: 16, width: "fit-content" }}>
-        <button onClick={() => { setSubTab("ventas"); setVerDetalle(null); setVerDetalleOS(null); }}
-          style={{ background: subTab === "ventas" ? "#1a6b6b" : "transparent", color: subTab === "ventas" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          🛒 Ventas {ventasConPaciente.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{ventasConPaciente.length}</span>}
-        </button>
-        <button onClick={() => { setSubTab("presupuestos_os"); setVerDetalle(null); setVerDetalleOS(null); }}
-          style={{ background: subTab === "presupuestos_os" ? "#4338CA" : "transparent", color: subTab === "presupuestos_os" ? "#fff" : "#555", border: "none", borderRadius: 8, padding: "8px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-          🏥 Presupuestos OS {presupuestosOS.length > 0 && <span style={{ background: "rgba(255,255,255,0.3)", borderRadius: 10, padding: "1px 6px", fontSize: 11 }}>{presupuestosOS.length}</span>}
-        </button>
-      </div>
-
-    {subTab === "ventas" && <div style={{ display: "flex", gap: 16, minHeight: 500 }}>
+    <div style={{ display: "flex", gap: 16, minHeight: 500 }}>
       {/* ── Panel izquierdo ── */}
-      <div style={{ width: verDetalle ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ width: (verDetalle || verDetalleOS) ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
 
         {/* Objetivo mensual */}
         <div style={{ position: "relative" }}>
@@ -4159,6 +4143,8 @@ function Ventas({ data, db, usuario }) {
             {MESES_SEL.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
           <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
+          <button onClick={() => { setFormOS({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] }); setModalOS("nuevo"); }}
+            style={{ ...btnPrimary, background: "linear-gradient(135deg,#4338CA,#3730A3)" }} title="Presupuesto sin paciente / derivado por obra social">+ OS/Tercero</button>
         </div>
 
         {/* Lista */}
@@ -4172,14 +4158,14 @@ function Ventas({ data, db, usuario }) {
               const pagos = Array.isArray(v.pagos) ? v.pagos : [];
               const segs = Array.isArray(v.seguimiento) ? v.seguimiento : [];
               const saldado = saldo <= 0 && parseFloat(v.precio) > 0;
-              const activo = verDetalle === v.id;
+              const activo = v.paciente_id ? verDetalle === v.id : verDetalleOS === v.id;
               return (
-                <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
+                <div key={v.id} onClick={() => { if (v.paciente_id) { setVerDetalle(activo ? null : v.id); setVerDetalleOS(null); } else { setVerDetalleOS(activo ? null : v.id); setVerDetalle(null); } }}
                   style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : cv.color + "33"}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>{nombreOTercero(v)}</span>
+                        <span style={{ fontWeight: 700, fontSize: 13 }}>{!v.paciente_id && "🏥 "}{nombreRegistro(v)}</span>
                         <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
                         {saldado && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
                         {!saldado && saldo > 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#FEF3C7", color: "#92400E", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>💰 ${saldo.toLocaleString("es-AR")}</span>}
@@ -4210,7 +4196,7 @@ function Ventas({ data, db, usuario }) {
           {/* Header */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
             <div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>{nombreOTercero(ventaActual)}</div>
+              <div style={{ fontWeight: 800, fontSize: 16 }}>{pacNombre(ventaActual.paciente_id)}</div>
               <div style={{ fontSize: 12, color: "#888" }}>{formatFecha(ventaActual.fecha)}</div>
             </div>
             <div style={{ display: "flex", gap: 6 }}>
@@ -4314,69 +4300,11 @@ function Ventas({ data, db, usuario }) {
         </div>
       )}
 
-    </div>}
+    </div>
 
-    {/* ── PRESUPUESTOS OS ── */}
-    {subTab === "presupuestos_os" && (
-      <div style={{ display: "flex", gap: 16, minHeight: 500 }}>
-        <div style={{ width: verDetalleOS ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...inputStyle, flex: 1 }} placeholder="🔍 Buscar OS, modelo..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
-            <select style={{ ...selectStyle, maxWidth: 140 }} value={filtroMes} onChange={e => setFiltroMes(e.target.value)}>
-              <option value="">Todos los meses</option>
-              {Array.from({ length: 12 }, (_, i) => { const d = new Date(); d.setMonth(d.getMonth() - i); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`; }).map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <button onClick={() => { setFormOS({ fecha: today(), obra_social_directa: "", marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", oido: "bilateral", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "", seguimiento: [], pagos: [] }); setModalOS("nuevo"); }} style={btnPrimary}>+ Nuevo</button>
-          </div>
-
-          {/* Stats OS */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-            {[
-              ["Total", presupuestosOS.length, "#4338CA", "#EEF2FF"],
-              ["Pendiente", presupuestosOS.filter(v => v.estado === "presupuestado").length, "#4C1D95", "#EDE9FE"],
-              ["Aprobado", presupuestosOS.filter(v => v.estado === "aprobado" || v.estado === "señado" || v.estado === "subido_sios").length, "#065F46", "#D1FAE5"],
-              ["Vendido", presupuestosOS.filter(v => v.estado === "vendido").length, "#065F46", "#D1FAE5"],
-            ].map(([label, val, color, bg]) => (
-              <div key={label} style={{ background: bg, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
-                <div style={{ fontSize: 20, fontWeight: 800, color }}>{val}</div>
-                <div style={{ fontSize: 10, color, fontWeight: 600 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {presupOSFiltrados.length === 0
-              ? <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}><div style={{ fontSize: 32 }}>🏥</div><div>No hay presupuestos OS</div></div>
-              : presupOSFiltrados.map(v => {
-                const cv = COLORES_VENTA[v.estado] || { bg: "#F3F4F6", color: "#374151", label: v.estado };
-                const stage = PIPELINE_STAGES.find(s => s.key === v.estado);
-                const saldo = saldoReal(v);
-                const activo = verDetalleOS === v.id;
-                const osNombre = v.obra_social_directa || (v.observaciones||"").split(" · ")[0] || "Sin OS";
-                return (
-                  <div key={v.id} onClick={() => setVerDetalleOS(activo ? null : v.id)}
-                    style={{ background: "#fff", border: `2px solid ${activo ? "#4338CA" : cv.color + "33"}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer" }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 700, fontSize: 13 }}>🏥 {osNombre}</span>
-                      <span style={{ background: cv.bg, color: cv.color, borderRadius: 20, padding: "1px 8px", fontSize: 10, fontWeight: 700 }}>{stage?.icon} {cv.label}</span>
-                      {saldo <= 0 && parseFloat(v.precio) > 0 && <span style={{ background: "#D1FAE5", color: "#065F46", borderRadius: 20, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>✅ Saldado</span>}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {[v.marca_der, v.modelo_der].filter(Boolean).length > 0 && <span>👂D: {[v.marca_der,v.modelo_der].filter(Boolean).join(" ")}</span>}
-                      {[v.marca_izq, v.modelo_izq].filter(Boolean).length > 0 && <span>👂I: {[v.marca_izq,v.modelo_izq].filter(Boolean).join(" ")}</span>}
-                      <span>{formatFecha(v.fecha)}</span>
-                      {parseFloat(v.precio) > 0 && <span style={{ color: "#166534", fontWeight: 600 }}>${parseFloat(v.precio).toLocaleString("es-AR")}</span>}
-                    </div>
-                  </div>
-                );
-              })
-            }
-          </div>
-        </div>
-
-        {/* Panel detalle OS */}
-        {verDetalleOS && ventaActualOS && (
-          <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 18 }}>
+      {/* Panel detalle OS */}
+      {verDetalleOS && ventaActualOS && (
+        <div style={{ flex: 1, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 14, padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 16 }}>🏥 {ventaActualOS.obra_social_directa || (ventaActualOS.observaciones||"").split(" · ")[0]}</div>
@@ -4474,34 +4402,26 @@ function Ventas({ data, db, usuario }) {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    )}
+        </div>
+      )}
 
       {/* Modal ventas con paciente */}
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva selección / venta" : "Editar"} onClose={() => setModal(null)}>
+          <Field label="Paciente *">
+            <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
+              <option value="">Seleccionar...</option>
+              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
+            </select>
+          </Field>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
             <Field label="Estado">
-              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value, ...(e.target.value === "pedido_terceros" ? { paciente_id: "" } : {}) }))}>
+              <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
                 {PIPELINE_STAGES.map(s => <option key={s.key} value={s.key}>{s.icon} {s.label}</option>)}
               </select>
             </Field>
-            <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
           </div>
-          {form.estado === "pedido_terceros" ? (
-            <Field label="Derivado por *">
-              <DerivadoPorSelector value={form.derivadoPor || form.derivado_por || ""} onChange={v => setForm(f => ({ ...f, derivadoPor: v }))} />
-            </Field>
-          ) : (
-            <Field label="Paciente *">
-              <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-                <option value="">Seleccionar...</option>
-                {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-              </select>
-            </Field>
-          )}
           <div style={{ height: 1, background: "#F0F0F0", margin: "10px 0 12px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#1a6b6b", textTransform: "uppercase", marginBottom: 8 }}>👂 Oído derecho</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
@@ -7461,7 +7381,7 @@ function AppInner() {
     { id: "dashboard", label: "Inicio", icon: "🏠" },
     { id: "turnos", label: "Turnos", icon: "📅", badge: turnosHoy > 0 ? turnosHoy : null },
     { id: "pacientes", label: "Pacientes", icon: "👤" },
-    { id: "ventas", label: "Presupuesto", icon: "🛒" },
+    { id: "ventas", label: "Presupuestos", icon: "🧾" },
     { id: "compras", label: "Insumos", icon: "🛍️", badge: deudaPendiente > 0 ? deudaPendiente : null, badgeColor: "#D97706" },
 
     { id: "estadisticas", label: "Estadísticas", icon: "📊" },
