@@ -663,6 +663,7 @@ function useSupabase() {
       telefono: pac.telefono || "", email: pac.email || "",
       obra_social: pac.obraSocial || pac.obra_social || "",
       nro_afiliado: pac.nroAfiliado || pac.nro_afiliado || "",
+      direccion: pac.direccion || "", localidad: pac.localidad || "",
       diagnostico: pac.diagnostico || "", antecedentes: pac.antecedentes || "",
       notas: pac.notas || "", derivado_por: pac.derivadoPor || pac.derivado_por || "",
       audifono: pac.audifono || pac.audifono_der || "",
@@ -714,8 +715,9 @@ function useSupabase() {
       condicion_pago_os: v.condicion_pago_os || "",
       saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
       condicion_pago_paciente: v.condicion_pago_paciente || "",
-      estado: v.estado || "presupuestado",
+      estado: v.estado || "seleccion",
       estados: Array.isArray(v.estados) ? v.estados : (v.estado ? [v.estado] : []),
+      derivado_por: v.derivado_por || v.derivadoPor || "",
       observaciones: v.obra_social_directa
         ? (v.obra_social_directa + (v.observaciones ? " · " + v.observaciones : ""))
         : (v.observaciones || ""),
@@ -733,6 +735,7 @@ function useSupabase() {
       pagos: Array.isArray(row.pagos) ? row.pagos : [],
       seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
       estados: Array.isArray(row.estados) ? row.estados : (row.estado ? [row.estado] : []),
+      derivadoPor: row.derivado_por || "",
     };
   }
 
@@ -969,7 +972,7 @@ function useSupabase() {
   };
 }
 
-const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
+const FORM_PAC_VACIO = { nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", historia: [], etiquetas: [], acompanante_nombre: "", acompanante_parentesco: "" };
 
 
 function SelectorPracticas({ seleccionadas = [], onChange }) {
@@ -1071,6 +1074,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
   const [filtroProfesional, setFiltroProfesional] = useState("todas");
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
+  const [verEspecialDia, setVerEspecialDia] = useState(null); // fecha del día a mostrar días especiales
 
   // Modal nueva entrada
   const [modalEntrada, setModalEntrada] = useState(null); // null | { fecha, hora } | { editando: turno }
@@ -1109,6 +1113,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   function cumplesDeLaSemana(lunes) {
     const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
     return dias.flatMap(f => cumplesDelDia(f));
+  }
+
+  // ── Días especiales (festivos) del día ────────────────────────────────────
+  function especialesDelDia(fecha) {
+    const d = new Date(fecha + "T12:00:00");
+    const dia = d.getDate();
+    const mes = d.getMonth() + 1;
+    return (fechasEspeciales || [])
+      .filter(f => f.tipo === "festivo" && f.fecha_dia === dia && f.fecha_mes === mes)
+      .map(f => ({ nombre: f.nombre, descripcion: f.descripcion, id: f.id, _kind: "especial", fecha }));
+  }
+
+  // Días especiales de toda la semana (lunes a domingo), usado para el resumen del lunes
+  function especialesDeLaSemana(lunes) {
+    const dias = Array.from({ length: 7 }, (_, i) => addDays(lunes, i));
+    return dias.flatMap(f => especialesDelDia(f));
   }
 
 
@@ -1762,6 +1782,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   const algoBloq = bloqueosPorProf.some(Boolean);
                   const esLunes = idxDia === 0;
                   const cumplesSemana = esLunes ? cumplesDeLaSemana(fecha) : [];
+                  const especialesSemana = esLunes ? especialesDeLaSemana(fecha) : [];
                   return (
                     <div key={fecha} onClick={() => { setVista("dia"); setFiltroFecha(fecha); }}
                       style={{ background: hoy ? "#1a6b6b" : algoBloq ? "#FEF3F3" : "#F8FAFC", padding: "6px 4px", textAlign: "center", cursor: "pointer", borderRight: "1px solid #E5E7EB", position: "relative" }}>
@@ -1770,6 +1791,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                           title="Ver cumpleaños de la semana"
                           style={{ position: "absolute", top: 2, right: 2, fontSize: 13, cursor: "pointer", zIndex: 5, display: "flex", alignItems: "center", gap: 1 }}>
                           🎂{cumplesSemana.length > 1 && <span style={{ fontSize: 9, fontWeight: 800, background: "#fff", color: "#92400E", borderRadius: 8, padding: "0 3px" }}>{cumplesSemana.length}</span>}
+                        </span>
+                      )}
+                      {esLunes && especialesSemana.length > 0 && (
+                        <span onClick={e => { e.stopPropagation(); setVerEspecialDia(fecha); }}
+                          title="Ver días especiales de la semana"
+                          style={{ position: "absolute", top: 2, right: cumplesSemana.length > 0 ? 24 : 2, fontSize: 13, cursor: "pointer", zIndex: 5, display: "flex", alignItems: "center", gap: 1 }}>
+                          📌{especialesSemana.length > 1 && <span style={{ fontSize: 9, fontWeight: 800, background: "#fff", color: "#1D4ED8", borderRadius: 8, padding: "0 3px" }}>{especialesSemana.length}</span>}
                         </span>
                       )}
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
@@ -2080,6 +2108,32 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <div style={{ fontSize: 12, color: "#888" }}>{c.tipo} · {nombreDia(c.fecha)} {numDia(c.fecha)}</div>
                     </div>
                     {c._kind === "paciente" && <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>}
+                  </div>
+                ))}
+              </div>
+            }
+          </Modal>
+        );
+      })()}
+
+      {/* ── Modal días especiales de la semana ──────────────────────────────────── */}
+      {verEspecialDia && (() => {
+        const especiales = especialesDeLaSemana(verEspecialDia);
+        const finSemana = addDays(verEspecialDia, 6);
+        return (
+          <Modal title={`📌 Días especiales de la semana — ${formatFecha(verEspecialDia)} al ${formatFecha(finSemana)}`} onClose={() => setVerEspecialDia(null)}>
+            {especiales.length === 0
+              ? <div style={{ textAlign: "center", color: "#aaa", padding: 20 }}>Sin días especiales esta semana</div>
+              : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {especiales.map(e => (
+                  <div key={e.id + e.fecha}
+                    style={{
+                      background: "#EFF6FF", border: "1.5px solid #BFDBFE",
+                      borderRadius: 10, padding: "12px 16px",
+                    }}>
+                    <div style={{ fontWeight: 700, fontSize: 15 }}>📌 {e.nombre}</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>{nombreDia(e.fecha)} {numDia(e.fecha)}</div>
+                    {e.descripcion && <div style={{ fontSize: 12, color: "#1E40AF", marginTop: 4 }}>{e.descripcion}</div>}
                   </div>
                 ))}
               </div>
@@ -2974,7 +3028,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", direccion: pac.direccion||"", localidad: pac.localidad||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
@@ -2982,6 +3036,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                       ["DNI", pac.dni], ["Teléfono", pac.telefono],
                       ["Email", pac.email], ["Obra social", pac.obraSocial || pac.obra_social],
                       ["Nro. afiliado", pac.nroAfiliado || pac.nro_afiliado],
+                      ["Dirección", pac.direccion], ["Localidad", pac.localidad],
                       ["Fecha nac.", pac.fechaNac || pac.fecha_nac ? `${formatFecha(pac.fechaNac || pac.fecha_nac)} (${calcEdad(pac.fechaNac || pac.fecha_nac)} años)` : "—"],
                       ["Derivado por", pac.derivadoPor || pac.derivado_por],
                       ["Diagnóstico", pac.diagnostico],
@@ -3023,6 +3078,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                     <Field label="Teléfono"><input style={inputStyle} value={form.telefono||""} onChange={e => setForm(f => ({...f, telefono: e.target.value}))} /></Field>
                     <Field label="Email"><input style={inputStyle} value={form.email||""} onChange={e => setForm(f => ({...f, email: e.target.value}))} /></Field>
                     <Field label="Fecha nac."><input type="date" style={inputStyle} value={form.fechaNac||form.fecha_nac||""} onChange={e => setForm(f => ({...f, fechaNac: e.target.value}))} /></Field>
+                    <Field label="Dirección"><input style={inputStyle} value={form.direccion||""} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} /></Field>
+                    <Field label="Localidad"><input style={inputStyle} value={form.localidad||""} onChange={e => setForm(f => ({...f, localidad: e.target.value}))} /></Field>
                     <Field label="Obra social"><input style={inputStyle} value={form.obraSocial||form.obra_social||""} onChange={e => setForm(f => ({...f, obraSocial: e.target.value}))} /></Field>
                     <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado||form.nro_afiliado||""} onChange={e => setForm(f => ({...f, nroAfiliado: e.target.value}))} /></Field>
                   </div>
@@ -3078,6 +3135,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
+    direccion: "", localidad: "",
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     derivadoPor: "", audifono: "",
     audifono_der: "", audifono_der_anio: "", audifono_izq: "", audifono_izq_anio: "",
@@ -3124,7 +3182,9 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   function editar(p) {
     setForm({
       nombre: p.nombre, apellido: p.apellido, dni: p.dni || "", fechaNac: p.fechaNac || p.fecha_nac || "",
-      telefono: p.telefono || "", email: p.email || "", obraSocial: p.obraSocial || p.obra_social || "",
+      telefono: p.telefono || "", email: p.email || "",
+      direccion: p.direccion || "", localidad: p.localidad || "",
+      obraSocial: p.obraSocial || p.obra_social || "",
       nroAfiliado: p.nroAfiliado || p.nro_afiliado || "", diagnostico: p.diagnostico || "",
       antecedentes: p.antecedentes || "", notas: p.notas || "",
       derivadoPor: p.derivadoPor || p.derivado_por || "",
@@ -3243,7 +3303,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           </div>
         </div>
         <button onClick={() => {
-          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
+          setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
           setModal("nuevo");
         }} style={btnPrimary}>+ Nuevo paciente</button>
       </div>
@@ -3380,6 +3440,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
             <Field label="Fecha de nacimiento"><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
             <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
             <Field label="Email"><input type="email" style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="ejemplo@mail.com" /></Field>
+            <Field label="Dirección"><input style={inputStyle} value={form.direccion||""} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} /></Field>
+            <Field label="Localidad"><input style={inputStyle} value={form.localidad||""} onChange={e => setForm(f => ({ ...f, localidad: e.target.value }))} /></Field>
           </div>
 
           {/* ── Cobertura ── */}
@@ -3743,7 +3805,6 @@ const COLORES_VENTA = {
   facturado_os:     { bg: "#ECFDF5", color: "#065F46",  label: "Facturado a OS" },
   pedido_acompañamiento: { bg: "#F3E8FF", color: "#6D28D9", label: "Pedido acomp." },
   atendido_fono:    { bg: "#D1FAE5", color: "#065F46",  label: "Atendido por Fono" },
-  facturado_os:     { bg: "#E0F2FE", color: "#0369A1",  label: "Facturado a OS" },
   pedido_ba:        { bg: "#FFF7ED", color: "#C2410C",  label: "Pedido a Buenos Aires" },
   pedido_terceros:  { bg: "#EEF2FF", color: "#4338CA",  label: "Pedido por terceros" },
   no_por_ahora:     { bg: "#F3F4F6", color: "#57534E",  label: "No lo hará por el momento" },
@@ -3850,7 +3911,6 @@ function ObjetivoBar({ ventas, objetivo, editando = false }) {
     </div>
   );
 }
-
 function Ventas({ data, db, usuario }) {
   const [filtroEstado, setFiltroEstado] = useState("");
   const [filtroMes, setFiltroMes] = useState(() => {
@@ -3983,6 +4043,23 @@ function Ventas({ data, db, usuario }) {
         tipo: "Estado de venta",
         descripcion: HC_MSG_ESTADO[nuevoEstado],
       });
+    }
+
+    // Al vender, volcar el audífono (marca/modelo) a la ficha del paciente
+    if (nuevoEstado === "vendido" && v.paciente_id && (v.marca_der || v.modelo_der || v.marca_izq || v.modelo_izq)) {
+      const pac = data.pacientes.find(p => p.id === v.paciente_id);
+      if (pac) {
+        const anioVenta = (v.fecha || today()).split("-")[0];
+        const audifonoDer = [v.marca_der, v.modelo_der].filter(Boolean).join(" ").trim();
+        const audifonoIzq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ").trim();
+        await db.actualizarPaciente({
+          ...pac,
+          audifono_der: audifonoDer || pac.audifono_der || "",
+          audifono_der_anio: audifonoDer ? anioVenta : (pac.audifono_der_anio || ""),
+          audifono_izq: audifonoIzq || pac.audifono_izq || "",
+          audifono_izq_anio: audifonoIzq ? anioVenta : (pac.audifono_izq_anio || ""),
+        });
+      }
     }
 
     // Si se aprueba (o se marca directamente "Pedido a Buenos Aires") y no tiene stock vinculado, ofrecer pedirlo a BS AS
@@ -4346,6 +4423,7 @@ function Ventas({ data, db, usuario }) {
     </div>
   );
 }
+
 
 
 // ─── COMPRAS ──────────────────────────────────────────────────────────────────
