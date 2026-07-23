@@ -891,11 +891,21 @@ function useSupabase() {
   }, [data.ventas]);
 
   // ── CRUD Compras ──────────────────────────────────────────────────────────
+  // Columnas reales editables de la tabla "compras" — filtra columnas generadas/no
+  // escribibles (ej: saldo calculado) para que los updates no fallen silenciosamente.
+  const COLS_COMPRA = ["paciente_id", "fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "creado_por"];
+  function filtrarCompra(obj) {
+    const out = {};
+    for (const k of COLS_COMPRA) if (obj[k] !== undefined) out[k] = obj[k];
+    return out;
+  }
+
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
+    const { data: row, error } = await supabase.from("compras").insert(filtrarCompra({ ...compra, estado: estadoAuto })).select().single();
+    if (error) { console.error("Error insumo:", error); return null; }
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -909,10 +919,11 @@ function useSupabase() {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const updated = { ...compra, estado: estadoAuto };
+    const updated = filtrarCompra({ ...compra, estado: estadoAuto });
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
-    if (!error) {
-      setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
+    if (error) { console.error("Error al actualizar insumo:", error); alert("❌ No se pudo guardar: " + error.message); return; }
+    {
+      setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? { ...c, ...updated } : c) }));
       if (itemAnterior) {
         pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "compras", `Insumo del ${compra.fecha || ""}`, itemAnterior, updated);
