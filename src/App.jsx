@@ -891,21 +891,11 @@ function useSupabase() {
   }, [data.ventas]);
 
   // ── CRUD Compras ──────────────────────────────────────────────────────────
-  // Columnas reales editables de la tabla "compras" — filtra columnas generadas/no
-  // escribibles (ej: saldo calculado) para que los updates no fallen silenciosamente.
-  const COLS_COMPRA = ["paciente_id", "fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "creado_por"];
-  function filtrarCompra(obj) {
-    const out = {};
-    for (const k of COLS_COMPRA) if (obj[k] !== undefined) out[k] = obj[k];
-    return out;
-  }
-
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { data: row, error } = await supabase.from("compras").insert(filtrarCompra({ ...compra, estado: estadoAuto })).select().single();
-    if (error) { console.error("Error insumo:", error); return null; }
+    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -919,11 +909,10 @@ function useSupabase() {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const updated = filtrarCompra({ ...compra, estado: estadoAuto });
+    const updated = { ...compra, estado: estadoAuto };
     const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
-    if (error) { console.error("Error al actualizar insumo:", error); alert("❌ No se pudo guardar: " + error.message); return; }
-    {
-      setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? { ...c, ...updated } : c) }));
+    if (!error) {
+      setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) {
         pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "compras", `Insumo del ${compra.fecha || ""}`, itemAnterior, updated);
@@ -1411,8 +1400,10 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       (Array.isArray(entrada.practicas) && entrada.practicas.join(" ").toLowerCase().includes("visita"))
     );
 
+    const esRecCompletado = esRec && entrada.completado;
+
     const displayName = esRec
-      ? entrada.titulo
+      ? `${esRecCompletado ? "✓ " : ""}${entrada.titulo}`
       : esBloqueo
       ? (entrada.profesional || "Bloqueado")
       : esVisita
@@ -1439,13 +1430,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         cursor: "pointer",
         boxSizing: "border-box",
         zIndex: 4,
+        opacity: esRecCompletado ? 0.55 : 1,
       }}>
         <div onClick={onEdit} style={{ position: "absolute", top: 2, left: 3, right: 20, bottom: 2, overflow: "hidden" }}>
           <div style={{ fontSize: 9, fontWeight: 800, color: cm.color, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {entrada.hora?.slice(0,5)}{entrada.hora_fin ? `–${entrada.hora_fin.slice(0,5)}` : ""}
             {entrada.profesional && ` · ${(PROFESIONALES.find(p => entrada.profesional.includes(p.apellido))?.short) || entrada.profesional}`}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#1a1a2e", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: esRecCompletado ? "#9CA3AF" : "#1a1a2e", lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: esRecCompletado ? "line-through" : "none" }}>
             {displayName}
           </div>
           <div style={{ fontSize: 9, color: cm.color, opacity: 0.85, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1528,7 +1520,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
   // ── Recordatorios al pie (estilo Google Calendar) ────────────────────────────
   function RecordatoriosBloque({ fecha, momento, alturaFija }) {
-    const recs = data.recordatorios.filter(r => r.fecha === fecha && !r.completado && (r.momento || "despues") === momento);
+    const recs = data.recordatorios.filter(r => r.fecha === fecha && (r.momento || "despues") === momento);
     const esAntes = momento === "antes";
     if (alturaFija === 0) return null;
 
@@ -1554,13 +1546,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           </div>
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: 2, overflowY: "auto", flex: 1, minHeight: 0, minWidth: 0 }}>
-          {recs.sort((a,b) => (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: "#fff", border: `1px solid ${esAntes ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0, minWidth: 0, width: "100%", boxSizing: "border-box", cursor: "pointer" }}
+          {recs.sort((a,b) => (a.completado === b.completado ? 0 : a.completado ? 1 : -1) || (a.titulo||"").localeCompare(b.titulo||"")).map(r => (
+            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 5px", borderRadius: 4, background: r.completado ? "#F3F4F6" : "#fff", border: `1px solid ${esAntes && !r.completado ? "#FDE68A" : "#E5E7EB"}`, height: 18, flexShrink: 0, minWidth: 0, width: "100%", boxSizing: "border-box", cursor: "pointer", opacity: r.completado ? 0.6 : 1 }}
               onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })}>
-              <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
-                style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: "#374151", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {r.titulo}
+              <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: !r.completado }); }}
+                style={{ width: 10, height: 10, cursor: "pointer", accentColor: "#059669", flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: r.completado ? "#9CA3AF" : "#374151", textDecoration: r.completado ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {r.completado && "✓ "}{r.titulo}
               </div>
               <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
                 style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
@@ -1710,14 +1702,14 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       {/* ── Vista DÍA ─────────────────────────────────────────────────────────── */}
       {vista === "dia" && (() => {
-        const recsAntesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "antes");
-        const recsDespuesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && !r.completado && (r.momento||"despues") === "despues");
+        const recsAntesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && (r.momento||"despues") === "antes").sort((a,b) => (a.completado === b.completado ? 0 : a.completado ? 1 : -1));
+        const recsDespuesDia = data.recordatorios.filter(r => r.fecha === filtroFecha && (r.momento||"despues") === "despues").sort((a,b) => (a.completado === b.completado ? 0 : a.completado ? 1 : -1));
         const ItemRec = ({ r }) => (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: "#fff", border: "1px solid #E5E7EB", cursor: "pointer" }}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 7, background: r.completado ? "#F3F4F6" : "#fff", border: "1px solid #E5E7EB", cursor: "pointer", opacity: r.completado ? 0.6 : 1 }}
             onClick={() => abrirEditar({ ...r, _kind: "recordatorio" })}>
-            <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
-              style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#6B7280", flexShrink: 0 }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>{r.titulo}</span>
+            <input type="checkbox" checked={r.completado} onClick={e => e.stopPropagation()} onChange={async () => { await db.actualizarRecordatorio({ ...r, completado: !r.completado }); }}
+              style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#059669", flexShrink: 0 }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: r.completado ? "#9CA3AF" : "#374151", textDecoration: r.completado ? "line-through" : "none" }}>{r.completado && "✓ "}{r.titulo}</span>
             {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
             <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
               style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
@@ -1827,8 +1819,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               {(() => {
                 // Calcular altura máxima de recordatorios "antes" y "después" en toda la semana,
                 // para que la franja horaria quede alineada entre todos los días.
-                const recsAntesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "antes").length);
-                const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && !r.completado && (r.momento||"despues") === "despues").length);
+                const recsAntesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && (r.momento||"despues") === "antes").length);
+                const recsDespuesPorDia = diasSemana.map(f => data.recordatorios.filter(r => r.fecha === f && (r.momento||"despues") === "despues").length);
                 const maxAntes = Math.max(...recsAntesPorDia, 0);
                 const maxDespues = Math.max(...recsDespuesPorDia, 0);
                 // Mostramos hasta 4 ítems de alto; si hay más, queda scrolleable dentro del bloque
@@ -1978,7 +1970,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               return t.profesional === profKey || (!t.profesional && profKey === "Lic. Cecilia Miatello");
             });
           const recs = data.recordatorios
-            .filter(r => r.fecha === filtroFecha && !r.completado)
+            .filter(r => r.fecha === filtroFecha)
             .filter(r => !r.profesional || r.profesional === profKey);
           return [
             ...turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" })),
