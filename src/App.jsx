@@ -917,7 +917,10 @@ function useSupabase() {
         pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "compras", `Insumo del ${compra.fecha || ""}`, itemAnterior, updated);
       }
+      return { ok: true };
     }
+    console.error("actualizarCompra error:", error);
+    return { ok: false, error };
   }, [data.compras]);
 
   const eliminarCompra = useCallback(async (id) => {
@@ -2613,7 +2616,10 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
     const pagos = [...(Array.isArray(c.pagos) ? c.pagos : []), { ...pagoInsumoForm, id: uid() }];
     const totalPagadoNuevo = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const nuevoEstado = totalPagadoNuevo >= (parseFloat(c.total)||0) ? "pagado" : "pendiente";
-    await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    const resultado = await db.actualizarCompra({ ...c, pagos, estado: nuevoEstado });
+    if (!resultado || !resultado.ok) {
+      return alert("⚠️ No se pudo guardar el pago. Puede que falte aplicar una actualización en la base de datos. Probá de nuevo o avisá a soporte.");
+    }
     setPagoInsumoForm({ fecha: today(), monto: "", descripcion: "" });
     if (nuevoEstado === "pagado") alert("✅ ¡Insumo saldado completamente!");
   }
