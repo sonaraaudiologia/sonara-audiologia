@@ -58,7 +58,7 @@ function normalizar(str) {
 const PROFESIONALES = [
   { key: "Lic. Cecilia Miatello", apellido: "Miatello", label: "Miatello", short: "CM", color: "#1a6b6b", bg: "#e0f4f4" },
   { key: "Lic. Graciela Valles",  apellido: "Valles",   label: "Valles",   short: "GV", color: "#4338CA", bg: "#EEF2FF" },
-  { key: "Lic. Analía Paloma",    apellido: "Paloma",   label: "Paloma",   short: "AP", color: "#B45309", bg: "#FEF3C7" },
+  { key: "Analía Paloma",         apellido: "Paloma",   label: "Paloma",   short: "AP", color: "#B45309", bg: "#FEF3C7" },
 ];
 function getLunes(dateStr) {
   const d = new Date(dateStr + "T12:00:00");
