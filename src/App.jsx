@@ -891,11 +891,18 @@ function useSupabase() {
   }, [data.ventas]);
 
   // ── CRUD Compras ──────────────────────────────────────────────────────────
+  // "saldo" es una columna generada por Postgres: nunca se puede escribir, solo leer.
+  function sinColumnasGeneradas(obj) {
+    const { saldo, ...resto } = obj;
+    return resto;
+  }
+
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
+    const payload = sinColumnasGeneradas({ ...compra, estado: estadoAuto });
+    const { data: row } = await supabase.from("compras").insert(payload).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -910,7 +917,8 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    const payload = sinColumnasGeneradas(updated);
+    const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) {
