@@ -891,18 +891,11 @@ function useSupabase() {
   }, [data.ventas]);
 
   // ── CRUD Compras ──────────────────────────────────────────────────────────
-  // "saldo" es una columna generada por Postgres: nunca se puede escribir, solo leer.
-  function sinColumnasGeneradas(obj) {
-    const { saldo, ...resto } = obj;
-    return resto;
-  }
-
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const payload = sinColumnasGeneradas({ ...compra, estado: estadoAuto });
-    const { data: row } = await supabase.from("compras").insert(payload).select().single();
+    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -917,8 +910,7 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    const payload = sinColumnasGeneradas(updated);
-    const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
+    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) {
@@ -4095,7 +4087,7 @@ function Ventas({ data, db, usuario }) {
             notas: `Pedido por venta ${esPedidoDirecto ? "marcada como pedido a Buenos Aires" : "aprobada"} · ${nombrePac}`, creado_por: window.__sonaraUsuario || "",
           });
         }
-        if (v.marca_izq && v.modelo_izq && (v.marca_izq !== v.marca_der || v.modelo_izq !== v.modelo_der)) {
+        if (v.marca_izq && v.modelo_izq) {
           await supabase.from("stock").insert({
             marca: v.marca_izq, modelo: v.modelo_izq, oido: "izquierdo",
             estado: "pedido_ba", paciente_id: v.paciente_id, fecha_ingreso: today(),
