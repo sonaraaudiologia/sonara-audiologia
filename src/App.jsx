@@ -6434,7 +6434,12 @@ const ESTADOS_STOCK = {
   comodato:    { label: "En comodato",   bg: "#E0E7FF", color: "#3730A3" },
   devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
   reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
-  prestamo_fono_externa: { label: "Préstamo Fono externa", bg: "#FCE7F3", color: "#9D174D" },
+};
+
+// Etiqueta adicional, combinable con cualquier estado de ESTADOS_STOCK (ej: "Disponible" + "Fono externa")
+const UBICACIONES_STOCK = {
+  "":            { label: "—" },
+  fono_externa:  { label: "Fono externa", bg: "#FDF4FF", color: "#86198F" },
 };
 
 function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
@@ -6459,6 +6464,9 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           <span style={{ background: est.bg, color: est.color, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{est.label}</span>
+          {item.ubicacion && UBICACIONES_STOCK[item.ubicacion] && (
+            <span style={{ background: UBICACIONES_STOCK[item.ubicacion].bg, color: UBICACIONES_STOCK[item.ubicacion].color, borderRadius: 20, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>{UBICACIONES_STOCK[item.ubicacion].label}</span>
+          )}
           <button onClick={e => { e.stopPropagation(); onEdit(item); }} style={{ ...btnSecondary, padding: "3px 8px", fontSize: 11 }}>✎</button>
           <button onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar?")) onDelete(item.id); }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, padding: "3px 7px", fontSize: 11, cursor: "pointer" }}>✕</button>
         </div>
@@ -6495,6 +6503,17 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
               ))}
             </div>
           </div>
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Ubicación adicional:</div>
+            <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+              {Object.entries(UBICACIONES_STOCK).map(([k, v]) => (
+                <button key={k || "ninguna"} type="button" onClick={() => onUpdate({ ...item, ubicacion: k })}
+                  style={{ background: (item.ubicacion || "") === k ? (v.color || "#888") : (v.bg || "#F3F4F6"), color: (item.ubicacion || "") === k ? "#fff" : (v.color || "#888"), border: `1.5px solid ${v.color || "#D1D5DB"}`, borderRadius: 8, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
             <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""}
@@ -6518,13 +6537,13 @@ function Stock({ data, usuario }) {
 
   const FORM_VACIO = {
     marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
-    estado: "disponible", fecha_ingreso: today(), paciente_id: "", notas: ""
+    estado: "disponible", ubicacion: "", fecha_ingreso: today(), paciente_id: "", notas: ""
   };
   const [form, setForm] = useState(FORM_VACIO);
 
   const lista = items.filter(i => {
     const matchEstado = filtroEstado ? i.estado === filtroEstado : i.estado !== "vendido";
-    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color}`.toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color} ${UBICACIONES_STOCK[i.ubicacion||""]?.label||""}`.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchBusq;
   });
 
@@ -6631,6 +6650,11 @@ function Stock({ data, usuario }) {
             <Field label="Estado">
               <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
                 {Object.entries(ESTADOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Ubicación adicional">
+              <select style={selectStyle} value={form.ubicacion || ""} onChange={e => setForm(f => ({ ...f, ubicacion: e.target.value }))}>
+                {Object.entries(UBICACIONES_STOCK).map(([k, v]) => <option key={k || "ninguna"} value={k}>{v.label}</option>)}
               </select>
             </Field>
             <Field label="Fecha ingreso"><input type="date" style={inputStyle} value={form.fecha_ingreso} onChange={e => setForm(f => ({ ...f, fecha_ingreso: e.target.value }))} /></Field>
