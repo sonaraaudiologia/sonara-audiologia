@@ -3957,9 +3957,10 @@ function Ventas({ data, db, usuario }) {
   const ventas = data.ventas.filter(v => {
     const matchEstado = !filtroEstado || v.estado === filtroEstado;
     const matchMes = !filtroMes || (v.fecha || "").startsWith(filtroMes);
-    const matchBusq = !busqueda || normalizar(nombreRegistro(v)).includes(normalizar(busqueda)) ||
-      (v.marca_der||"").toLowerCase().includes(busqueda.toLowerCase()) ||
-      (v.modelo_der||"").toLowerCase().includes(busqueda.toLowerCase());
+    const matchBusq = !busqueda || normalizar([
+      nombreRegistro(v), v.marca_der, v.modelo_der, v.marca_izq, v.modelo_izq,
+      v.observaciones, v.derivado_por, v.obra_social_directa
+    ].filter(Boolean).join(" ")).includes(normalizar(busqueda));
     return matchEstado && matchMes && matchBusq;
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
@@ -6433,6 +6434,7 @@ const ESTADOS_STOCK = {
   comodato:    { label: "En comodato",   bg: "#E0E7FF", color: "#3730A3" },
   devuelto:    { label: "Devuelto",      bg: "#EDE9FE", color: "#5B21B6" },
   reparacion:  { label: "En reparación", bg: "#FEE2E2", color: "#991B1B" },
+  prestamo_fono_externa: { label: "Préstamo Fono externa", bg: "#FCE7F3", color: "#9D174D" },
 };
 
 function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
