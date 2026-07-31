@@ -6528,7 +6528,7 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
   );
 }
 
-function Stock({ data, usuario }) {
+function Stock({ data, db, usuario }) {
   const { items, loading, agregar, actualizar, eliminar } = useStock();
   const [modal, setModal] = useState(null);
   const [filtroEstado, setFiltroEstado] = useState("");
@@ -6540,6 +6540,37 @@ function Stock({ data, usuario }) {
     estado: "disponible", ubicacion: "", fecha_ingreso: today(), paciente_id: "", notas: ""
   };
   const [form, setForm] = useState(FORM_VACIO);
+
+  // Si el ítem queda "vendido" y tiene un paciente asignado, volcamos la marca/modelo
+  // a la ficha del paciente (oído derecho/izquierdo/bilateral según corresponda).
+  async function sincronizarAudifonoPaciente(item) {
+    if (!db || item.estado !== "vendido" || !item.paciente_id) return;
+    const pac = data.pacientes.find(p => p.id === item.paciente_id);
+    if (!pac) return;
+    const audifono = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
+    if (!audifono) return;
+    const anio = (item.fecha_ingreso || today()).split("-")[0];
+    const cambios = {};
+    if (item.oido === "izquierdo") {
+      cambios.audifono_izq = audifono;
+      cambios.audifono_izq_anio = anio;
+    } else if (item.oido === "derecho") {
+      cambios.audifono_der = audifono;
+      cambios.audifono_der_anio = anio;
+    } else {
+      // bilateral: se asigna a ambos oídos
+      cambios.audifono_der = audifono;
+      cambios.audifono_der_anio = anio;
+      cambios.audifono_izq = audifono;
+      cambios.audifono_izq_anio = anio;
+    }
+    await db.actualizarPaciente({ ...pac, ...cambios });
+  }
+
+  async function actualizarConSync(item) {
+    await actualizar(item);
+    await sincronizarAudifonoPaciente(item);
+  }
 
   const lista = items.filter(i => {
     const matchEstado = filtroEstado ? i.estado === filtroEstado : i.estado !== "vendido";
@@ -6564,6 +6595,7 @@ function Stock({ data, usuario }) {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
+      await sincronizarAudifonoPaciente(payload);
       setModal(null);
       setForm(FORM_VACIO);
     } finally { setSaving(false); }
@@ -6625,7 +6657,7 @@ function Stock({ data, usuario }) {
               </div>
               {modeloItems.map(item => (
                 <StockItem key={item.id} item={item} pacientes={data.pacientes}
-                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizar} />
+                  onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizarConSync} />
               ))}
             </div>
           ))}
@@ -7370,7 +7402,7 @@ function AppInner() {
         {tab === "profesionales" && <Profesionales data={data} />}
         {tab === "disponibilidad" && <Disponibilidad usuario={usuarioActual} />}
         {tab === "fechas"         && <FechasEspeciales usuario={usuarioActual} />}
-        {tab === "stock"          && <Stock data={data} usuario={usuarioActual} />}
+        {tab === "stock"          && <Stock data={data} db={db} usuario={usuarioActual} />}
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
