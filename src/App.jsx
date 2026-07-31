@@ -331,6 +331,14 @@ function horaAMin(h) {
   return hh * 60 + mm;
 }
 
+// Devuelve las franjas horarias de una config de disponibilidad/excepción.
+// Compatible con el formato viejo (horaDesde/horaHasta sueltos) y el nuevo (array `franjas`).
+function franjasDeConf(conf) {
+  if (!conf) return [];
+  if (Array.isArray(conf.franjas) && conf.franjas.length > 0) return conf.franjas;
+  return [{ horaDesde: conf.horaDesde || "08:00", horaHasta: conf.horaHasta || "18:00" }];
+}
+
 
 // ─── TIPOS DE ENTRADA DE AGENDA ───────────────────────────────────────────────
 const TIPOS_ENTRADA = {
@@ -1168,9 +1176,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     if (conf === null && getDisp(profKey, new Date(fecha+"T12:00:00").getMonth()+1, new Date(fecha+"T12:00:00").getFullYear())?.length === 0) return null;
     if (!conf) return false;
     const horaMin = horaAMin(hora);
-    const desde = horaAMin(conf.horaDesde || "08:00");
-    const hasta = horaAMin(conf.horaHasta || "18:00");
-    return horaMin >= desde && horaMin < hasta;
+    return franjasDeConf(conf).some(fr => horaMin >= horaAMin(fr.horaDesde || "08:00") && horaMin < horaAMin(fr.horaHasta || "18:00"));
   }
 
   // Check if a date has any disponibilidad configured
@@ -1299,6 +1305,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
       } else {
         // turno o bloqueo
+        if (tipoEntrada === "bloqueo") {
+          if (!formEntrada.profesional) return alert("Seleccioná a quién bloquear.");
+          if (haySolapamientoBloqueo(formEntrada.fecha, formEntrada.profesional, formEntrada.hora, formEntrada.hora_fin, modalEntrada?.editando?.id)) {
+            return alert("⚠️ Ese horario se superpone con otro bloqueo ya existente para esa profesional. Elegí un horario que no se solape.");
+          }
+        }
         const turno = {
           fecha: formEntrada.fecha,
           hora: formEntrada.hora,
@@ -1600,6 +1612,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     );
   }
 
+  // ── Verifica si un bloqueo nuevo/editado se solapa con otro bloqueo existente ──
+  function haySolapamientoBloqueo(fecha, profesional, hora, horaFin, excluirId) {
+    const desde = horaAMin(hora);
+    const hasta = horaFin ? horaAMin(horaFin) : desde + 30;
+    const profsAfectados = profesional === "ambas" ? PROFESIONALES.map(p => p.key) : [profesional];
+    return data.turnos.some(t => {
+      if (t.id === excluirId) return false;
+      if (t.fecha !== fecha) return false;
+      if (t.estado !== "bloqueado") return false;
+      if (!profsAfectados.includes(t.profesional)) return false;
+      const tDesde = horaAMin(t.hora);
+      const tHasta = t.hora_fin ? horaAMin(t.hora_fin) : tDesde + 30;
+      return desde < tHasta && tDesde < hasta;
+    });
+  }
+
   // ── Calcular fin e inicio de disponibilidad para una fecha ──────────────────
   function getDispEfectiva(fecha, profKey) {
     const d = new Date(fecha + "T12:00:00");
@@ -1618,12 +1646,16 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
   function getFinDisponibilidad(fecha, profKey) {
     const conf = getDispEfectiva(fecha, profKey);
-    return conf ? (conf.horaHasta || null) : null;
+    if (!conf) return null;
+    const franjas = franjasDeConf(conf);
+    return franjas.reduce((max, fr) => !max || horaAMin(fr.horaHasta) > horaAMin(max) ? fr.horaHasta : max, null);
   }
 
   function getInicioDisponibilidad(fecha, profKey) {
     const conf = getDispEfectiva(fecha, profKey);
-    return conf ? (conf.horaDesde || null) : null;
+    if (!conf) return null;
+    const franjas = franjasDeConf(conf);
+    return franjas.reduce((min, fr) => !min || horaAMin(fr.horaDesde) < horaAMin(min) ? fr.horaDesde : min, null);
   }
 
   function ColumnaHoras({ slotH }) {
@@ -1889,31 +1921,33 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                                 onDelete={() => eliminarEntrada(e)}
                               />
                             ))}
-                            {/* Líneas verde inicio/fin disponibilidad */}
+                            {/* Líneas verde inicio/fin disponibilidad (una por franja) */}
                             {(() => {
                               const conf = getDispEfectiva(fecha, prof.key);
                               if (!conf) return null;
-                              const topI = conf.horaDesde ? (horaAMin(conf.horaDesde) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
-                              const topF = conf.horaHasta ? (horaAMin(conf.horaHasta) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
-                              return (<>
-                                {topI !== null && topI > 0 && (
-                                  <div style={{ position: "absolute", top: topI, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
-                                    <span style={{ position: "absolute", left: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{conf.horaDesde?.slice(0,5)}</span>
-                                  </div>
-                                )}
-                                {topF !== null && (
-                                  <div style={{ position: "absolute", top: topF, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
-                                    <span style={{ position: "absolute", right: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{conf.horaHasta?.slice(0,5)}</span>
-                                  </div>
-                                )}
-                              </>);
+                              const franjas = franjasDeConf(conf);
+                              return franjas.map((fr, fi) => {
+                                const topI = fr.horaDesde ? (horaAMin(fr.horaDesde) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
+                                const topF = fr.horaHasta ? (horaAMin(fr.horaHasta) - HORA_INICIO * 60) / 30 * SLOT_H_SEM : null;
+                                return (<React.Fragment key={fi}>
+                                  {topI !== null && topI > 0 && (
+                                    <div style={{ position: "absolute", top: topI, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
+                                      <span style={{ position: "absolute", left: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{fr.horaDesde?.slice(0,5)}</span>
+                                    </div>
+                                  )}
+                                  {topF !== null && (
+                                    <div style={{ position: "absolute", top: topF, left: 0, right: 0, height: 2, background: "#1a6b6b", zIndex: 8, opacity: 0.7 }}>
+                                      <span style={{ position: "absolute", right: 1, top: -9, fontSize: 7, fontWeight: 700, color: "#1a6b6b", background: "#fff", padding: "0 2px", borderRadius: 2 }}>{fr.horaHasta?.slice(0,5)}</span>
+                                    </div>
+                                  )}
+                                </React.Fragment>);
+                              });
                             })()}
-                            {/* Bloqueo como overlay con botón eliminar */}
-                            {tieneBloqueo && (() => {
-                              const blq = ents.find(e => e._kind === "bloqueo");
+                            {/* Bloqueos como overlay con botón eliminar (uno por cada bloqueo del día) */}
+                            {tieneBloqueo && ents.filter(e => e._kind === "bloqueo").map(blq => {
                               const { top, height } = entradaLayout(blq, SLOT_H_SEM);
                               return (
-                                <div style={{ position: "absolute", top, left: 1, right: 1, height, zIndex: 2,
+                                <div key={"blq-"+blq.id} style={{ position: "absolute", top, left: 1, right: 1, height, zIndex: 2,
                                   background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,rgba(255,255,255,0.6) 5px,rgba(255,255,255,0.6) 10px)",
                                   border: "1px solid #FECACA", borderRadius: 5, padding: "2px 4px",
                                   display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
@@ -1939,7 +1973,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                                   </div>
                                 </div>
                               );
-                            })()}
+                            })}
                           </div>
                         );
                       })}
@@ -5822,7 +5856,7 @@ function Disponibilidad({ usuario }) {
   const { guardar, getDisp } = useDisponibilidad();
   const [saving, setSaving] = useState(false);
   const [diaSeleccionado, setDiaSeleccionado] = useState(null); // { fecha, d, dispDia }
-  const [excepcionForm, setExcepcionForm] = useState({ activo: true, horaDesde: "08:00", horaHasta: "18:00" });
+  const [excepcionForm, setExcepcionForm] = useState({ activo: true, franjas: [{ horaDesde: "08:00", horaHasta: "18:00" }] });
 
   const PROFS_DISP = PROFESIONALES;
 
@@ -5998,8 +6032,7 @@ function Disponibilidad({ usuario }) {
                   setDiaSeleccionado({ fecha, d, dispDia: dispEfectiva });
                   setExcepcionForm({
                     activo: dispEfectiva?.activo ?? true,
-                    horaDesde: dispEfectiva?.horaDesde || "08:00",
-                    horaHasta: dispEfectiva?.horaHasta || "18:00"
+                    franjas: franjasDeConf(dispEfectiva).map(fr => ({ horaDesde: fr.horaDesde || "08:00", horaHasta: fr.horaHasta || "18:00" }))
                   });
                 }} style={{
                   textAlign: "center", padding: "5px 2px", borderRadius: 6, fontSize: 11, fontWeight: disponible ? 700 : 400,
@@ -6037,21 +6070,42 @@ function Disponibilidad({ usuario }) {
                 </span>
               </div>
               {excepcionForm.activo && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Desde</label>
-                    <input type="time" value={excepcionForm.horaDesde} onChange={e => setExcepcionForm(f => ({ ...f, horaDesde: e.target.value }))} style={{ ...inputStyle, fontSize: 13 }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Hasta</label>
-                    <input type="time" value={excepcionForm.horaHasta} onChange={e => setExcepcionForm(f => ({ ...f, horaHasta: e.target.value }))} style={{ ...inputStyle, fontSize: 13 }} />
-                  </div>
+                <div style={{ marginBottom: 10 }}>
+                  {excepcionForm.franjas.map((fr, fi) => (
+                    <div key={fi} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, marginBottom: 8, alignItems: "end" }}>
+                      <div>
+                        <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Desde</label>
+                        <input type="time" value={fr.horaDesde} onChange={e => setExcepcionForm(f => ({ ...f, franjas: f.franjas.map((x,i) => i === fi ? { ...x, horaDesde: e.target.value } : x) }))} style={{ ...inputStyle, fontSize: 13 }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, color: "#555", display: "block", marginBottom: 3 }}>Hasta</label>
+                        <input type="time" value={fr.horaHasta} onChange={e => setExcepcionForm(f => ({ ...f, franjas: f.franjas.map((x,i) => i === fi ? { ...x, horaHasta: e.target.value } : x) }))} style={{ ...inputStyle, fontSize: 13 }} />
+                      </div>
+                      {excepcionForm.franjas.length > 1 && (
+                        <button type="button" onClick={() => setExcepcionForm(f => ({ ...f, franjas: f.franjas.filter((_,i) => i !== fi) }))}
+                          style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 7, padding: "8px 10px", fontSize: 12, cursor: "pointer" }}>✕</button>
+                      )}
+                    </div>
+                  ))}
+                  {excepcionForm.franjas.length < 2 && (
+                    <button type="button" onClick={() => setExcepcionForm(f => ({ ...f, franjas: [...f.franjas, { horaDesde: "08:00", horaHasta: "18:00" }] }))}
+                      style={{ background: "none", border: `1.5px dashed ${prof?.color || "#888"}`, color: prof?.color, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                      + Agregar segunda franja horaria
+                    </button>
+                  )}
                 </div>
               )}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={async () => {
-                  // Save exception as a date-specific entry
-                  const nuevaExcepcion = { fecha: diaSeleccionado.fecha, ...excepcionForm };
+                  // Save exception as a date-specific entry (con una o dos franjas horarias)
+                  const primera = excepcionForm.franjas[0] || { horaDesde: "08:00", horaHasta: "18:00" };
+                  const nuevaExcepcion = {
+                    fecha: diaSeleccionado.fecha,
+                    activo: excepcionForm.activo,
+                    franjas: excepcionForm.franjas,
+                    horaDesde: primera.horaDesde,
+                    horaHasta: primera.horaHasta,
+                  };
                   const sinEstaFecha = (dispActual || []).filter(x => x.fecha !== diaSeleccionado.fecha);
                   const nuevaDisp = [...sinEstaFecha, nuevaExcepcion];
                   setLocalDisp(nuevaDisp);
