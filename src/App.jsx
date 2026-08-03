@@ -899,11 +899,19 @@ function useSupabase() {
   }, [data.ventas]);
 
   // ── CRUD Compras ──────────────────────────────────────────────────────────
+  const COLS_COMPRA = ["paciente_id", "fecha", "insumos", "total", "seña", "estado", "notas", "pagos", "creado_por"];
+  function sinColumnasGeneradas(obj, cols) {
+    const out = {};
+    cols.forEach(k => { if (k in obj) out[k] = obj[k]; });
+    return out;
+  }
+
   const agregarCompra = useCallback(async (compra) => {
     const total = parseFloat(compra.total) || 0;
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
-    const { data: row } = await supabase.from("compras").insert({ ...compra, estado: estadoAuto }).select().single();
+    const payload = sinColumnasGeneradas({ ...compra, estado: estadoAuto }, COLS_COMPRA);
+    const { data: row } = await supabase.from("compras").insert(payload).select().single();
     if (row) {
       setData(d => ({ ...d, compras: [row, ...d.compras] }));
       pushUndo({ tipo: "crear", tabla: "compras", item: row, descripcion: `Insumo registrado` });
@@ -918,7 +926,8 @@ function useSupabase() {
     const seña = parseFloat(compra.seña) || 0;
     const estadoAuto = total > 0 && seña >= total ? "pagado" : (compra.estado || "pendiente");
     const updated = { ...compra, estado: estadoAuto };
-    const { error } = await supabase.from("compras").update(updated).eq("id", compra.id);
+    const payload = sinColumnasGeneradas(updated, COLS_COMPRA);
+    const { error } = await supabase.from("compras").update(payload).eq("id", compra.id);
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) {
@@ -1261,6 +1270,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         titulo: entrada.titulo || entrada.motivo || (Array.isArray(entrada.practicas) && entrada.practicas[0]) || "",
         motivo: entrada.motivo || "",
         practicas: Array.isArray(entrada.practicas) ? entrada.practicas : [],
+      });
+    } else if (tipo === "bloqueo") {
+      setFormEntrada({
+        ...entrada,
+        titulo: entrada.titulo || (entrada.motivo || "").replace("🔒 BLOQUEADO: ", ""),
       });
     } else {
       setFormEntrada({ ...entrada, practicas: Array.isArray(entrada.practicas) ? entrada.practicas : (entrada.motivo ? [entrada.motivo] : []) });
@@ -1946,31 +1960,42 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                             {/* Bloqueos como overlay con botón eliminar (uno por cada bloqueo del día) */}
                             {tieneBloqueo && ents.filter(e => e._kind === "bloqueo").map(blq => {
                               const { top, height } = entradaLayout(blq, SLOT_H_SEM);
+                              const motivoBlq = (blq.motivo || "").replace("🔒 BLOQUEADO: ", "").trim();
                               return (
-                                <div key={"blq-"+blq.id} style={{ position: "absolute", top, left: 1, right: 1, height, zIndex: 2,
+                                <div key={"blq-"+blq.id} title={motivoBlq || undefined}
+                                  onClick={e => { e.stopPropagation(); abrirEditar(blq); }}
+                                  style={{ position: "absolute", top, left: 1, right: 1, height, zIndex: 2,
                                   background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,rgba(255,255,255,0.6) 5px,rgba(255,255,255,0.6) 10px)",
-                                  border: "1px solid #FECACA", borderRadius: 5, padding: "2px 4px",
-                                  display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 8, fontWeight: 800, color: "#991B1B" }}>🔒 {prof.short}</span>
-                                  <div style={{ display: "flex", gap: 2 }}>
-                                    {blq.notas && blq.notas.startsWith("serie:") && (
+                                  border: "1px solid #FECACA", borderRadius: 5, padding: "2px 4px", cursor: "pointer",
+                                  display: "flex", flexDirection: "column", justifyContent: "flex-start", overflow: "hidden" }}>
+                                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                                    <span style={{ fontSize: 8, fontWeight: 800, color: "#991B1B" }}>🔒 {prof.short}</span>
+                                    <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+                                      {blq.notas && blq.notas.startsWith("serie:") && (
+                                        <button type="button"
+                                          onClick={async e => {
+                                            e.stopPropagation();
+                                            const serieId = blq.notas;
+                                            if (window.confirm("¿Eliminar TODOS los bloqueos de esta serie?")) {
+                                              const serie = data.turnos.filter(t => t.notas === serieId && t.estado === "bloqueado");
+                                              await Promise.all(serie.map(t => db.eliminarTurno(t.id)));
+                                            }
+                                          }}
+                                          style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "1px 4px", fontSize: 8, cursor: "pointer", color: "#991B1B", lineHeight: 1, whiteSpace: "nowrap" }}>
+                                          Serie
+                                        </button>
+                                      )}
                                       <button type="button"
-                                        onClick={async e => {
-                                          e.stopPropagation();
-                                          const serieId = blq.notas;
-                                          if (window.confirm("¿Eliminar TODOS los bloqueos de esta serie?")) {
-                                            const serie = data.turnos.filter(t => t.notas === serieId && t.estado === "bloqueado");
-                                            await Promise.all(serie.map(t => db.eliminarTurno(t.id)));
-                                          }
-                                        }}
-                                        style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, padding: "1px 4px", fontSize: 8, cursor: "pointer", color: "#991B1B", lineHeight: 1, whiteSpace: "nowrap" }}>
-                                        Serie
-                                      </button>
-                                    )}
-                                    <button type="button"
-                                      onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este bloqueo?")) db.eliminarTurno(blq.id); }}
-                                      style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                        onClick={e => { e.stopPropagation(); abrirEditar(blq); }}
+                                        style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 8, cursor: "pointer", color: "#991B1B", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>✎</button>
+                                      <button type="button"
+                                        onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este bloqueo?")) db.eliminarTurno(blq.id); }}
+                                        style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                                    </div>
                                   </div>
+                                  {motivoBlq && height > 24 && (
+                                    <span style={{ fontSize: 8, color: "#991B1B", opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{motivoBlq}</span>
+                                  )}
                                 </div>
                               );
                             })}
@@ -2086,16 +2111,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                         const fin = e.hora_fin ? horaAMin(e.hora_fin) : ini + (HORA_FIN - HORA_INICIO) * 60;
                         const top = (ini - HORA_INICIO * 60) / 30 * SLOT_H_AG;
                         const height = Math.max((fin - ini) / 30 * SLOT_H_AG, SLOT_H_AG);
+                        const motivoBlq = (e.motivo || "").replace("🔒 BLOQUEADO: ", "");
                         return (
-                          <div key={"blq-"+e.id} style={{
+                          <div key={"blq-"+e.id} title={motivoBlq || undefined}
+                            onClick={ev => { ev.stopPropagation(); abrirEditar(e); }}
+                            style={{
                             position: "absolute", top, left: 0, right: 0, height,
                             background: "repeating-linear-gradient(45deg,#FEE2E2,#FEE2E2 5px,rgba(255,255,255,0.7) 5px,rgba(255,255,255,0.7) 10px)",
                             borderTop: "2px solid #FECACA", borderBottom: "2px solid #FECACA",
-                            zIndex: 2, display: "flex", alignItems: "flex-start", padding: "4px 8px", pointerEvents: "none"
+                            zIndex: 2, display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "4px 8px", cursor: "pointer"
                           }}>
                             <span style={{ fontSize: 10, fontWeight: 800, color: "#991B1B", background: "rgba(255,255,255,0.85)", borderRadius: 4, padding: "2px 6px" }}>
-                              🔒 {e.hora?.slice(0,5)}{e.hora_fin ? `–${e.hora_fin.slice(0,5)}` : ""} · {(e.motivo||"").replace("🔒 BLOQUEADO: ","")}
+                              🔒 {e.hora?.slice(0,5)}{e.hora_fin ? `–${e.hora_fin.slice(0,5)}` : ""} · {motivoBlq || "Bloqueo"}
                             </span>
+                            <button type="button"
+                              onClick={ev => { ev.stopPropagation(); abrirEditar(e); }}
+                              style={{ background: "rgba(255,255,255,0.9)", border: "none", borderRadius: 4, padding: "2px 6px", fontSize: 11, cursor: "pointer", color: "#991B1B", fontWeight: 700, flexShrink: 0 }}>✎ Editar</button>
                           </div>
                         );
                       })}
