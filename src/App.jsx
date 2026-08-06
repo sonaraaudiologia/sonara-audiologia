@@ -580,10 +580,20 @@ function useSupabase() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const undoStack = React.useRef([]);
+  const redoStack = React.useRef([]);
+
+  // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
+  function transformarUndo(tabla, rows) {
+    if (tabla === "ventas") return rows.map(fromDBVenta);
+    if (tabla === "pacientes") return rows.map(fromDB);
+    return rows;
+  }
 
   function pushUndo(accion) {
     undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
+    redoStack.current = []; // una acción nueva invalida el historial de "rehacer"
     window.__sonaraUndo = undoStack.current;
+    window.__sonaraRedo = redoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
   }
 
@@ -591,31 +601,55 @@ function useSupabase() {
     const accion = undoStack.current[0];
     if (!accion) return;
     undoStack.current = undoStack.current.slice(1);
+    redoStack.current = [accion, ...redoStack.current.slice(0, 9)];
     window.__sonaraUndo = undoStack.current;
+    window.__sonaraRedo = redoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
-
-    // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
-    function transformar(tabla, rows) {
-      if (tabla === "ventas") return rows.map(fromDBVenta);
-      if (tabla === "pacientes") return rows.map(fromDB);
-      return rows;
-    }
 
     try {
       if (accion.tipo === "eliminar") {
         await supabase.from(accion.tabla).insert({ ...accion.item });
         const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
+        if (rows) setData(d => ({ ...d, [accion.tabla]: transformarUndo(accion.tabla, rows) }));
       } else if (accion.tipo === "crear") {
         await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
         setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
       } else if (accion.tipo === "actualizar") {
         await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-        const itemTransformado = transformar(accion.tabla, [accion.itemAnterior])[0];
+        const itemTransformado = transformarUndo(accion.tabla, [accion.itemAnterior])[0];
         setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? itemTransformado : x) }));
       }
       alert(`↩ Deshecho: ${accion.descripcion}`);
     } catch(e) { alert("Error al deshacer: " + e.message); }
+  }
+
+  async function rehacerUltima() {
+    const accion = redoStack.current[0];
+    if (!accion) return;
+    redoStack.current = redoStack.current.slice(1);
+    undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
+    window.__sonaraUndo = undoStack.current;
+    window.__sonaraRedo = redoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+
+    try {
+      if (accion.tipo === "eliminar") {
+        // se había reinsertado al deshacer -> rehacer = volver a eliminar
+        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
+      } else if (accion.tipo === "crear") {
+        // se había eliminado al deshacer -> rehacer = volver a crear
+        await supabase.from(accion.tabla).insert({ ...accion.item });
+        const { data: rows } = await supabase.from(accion.tabla).select("*");
+        if (rows) setData(d => ({ ...d, [accion.tabla]: transformarUndo(accion.tabla, rows) }));
+      } else if (accion.tipo === "actualizar") {
+        // se había revertido a itemAnterior al deshacer -> rehacer = volver a aplicar item
+        await supabase.from(accion.tabla).update(accion.item).eq("id", accion.item.id);
+        const itemTransformado = transformarUndo(accion.tabla, [accion.item])[0];
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.item.id ? itemTransformado : x) }));
+      }
+      alert(`↪ Rehecho: ${accion.descripcion}`);
+    } catch(e) { alert("Error al rehacer: " + e.message); }
   }
 
   useEffect(() => {
@@ -985,7 +1019,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima, rehacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
@@ -7491,20 +7525,28 @@ function AppInner() {
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
-      <UndoButton db={db} />
+      {TABS_CON_UNDO.includes(tab) && <UndoButton db={db} />}
     </div>
   );
 }
 
+// Pestañas cuyas acciones pasan por el stack compartido de deshacer/rehacer
+// (Profesionales/Derivadores, Disponibilidad, Fechas, Estadísticas, Stock, Auditoría
+// y Gestión usan su propio estado y no participan de este historial, así que el
+// botón no debe mostrarse ahí para evitar confusión).
+const TABS_CON_UNDO = ["turnos", "pacientes", "ventas", "compras"];
 
-// ─── UNDO BUTTON ──────────────────────────────────────────────────────────────
+// ─── UNDO / REDO BUTTON ───────────────────────────────────────────────────────
 function UndoButton({ db }) {
   const [ultimo, setUltimo] = React.useState(null);
+  const [siguiente, setSiguiente] = React.useState(null);
 
   React.useEffect(() => {
     function update() {
-      const stack = window.__sonaraUndo || [];
-      setUltimo(stack[0] || null);
+      const stackUndo = window.__sonaraUndo || [];
+      const stackRedo = window.__sonaraRedo || [];
+      setUltimo(stackUndo[0] || null);
+      setSiguiente(stackRedo[0] || null);
     }
     window.addEventListener("sonara-undo-update", update);
     update();
@@ -7513,23 +7555,42 @@ function UndoButton({ db }) {
 
   return (
     <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-      <button
-        onClick={() => ultimo && db.deshacerUltima()}
-        disabled={!ultimo}
-        style={{
-          background: ultimo ? "#1a1a2e" : "#E5E7EB",
-          color: ultimo ? "#fff" : "#9CA3AF",
-          border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
-          cursor: ultimo ? "pointer" : "not-allowed",
-          boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
-          display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
-        }}
-        onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
-        onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
-        title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
-      >
-        ↩ Deshacer
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => ultimo && db.deshacerUltima()}
+          disabled={!ultimo}
+          style={{
+            background: ultimo ? "#1a1a2e" : "#E5E7EB",
+            color: ultimo ? "#fff" : "#9CA3AF",
+            border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+            cursor: ultimo ? "pointer" : "not-allowed",
+            boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
+            display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
+          }}
+          onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
+          onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
+          title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
+        >
+          ↩ Deshacer
+        </button>
+        <button
+          onClick={() => siguiente && db.rehacerUltima()}
+          disabled={!siguiente}
+          style={{
+            background: siguiente ? "#1a1a2e" : "#E5E7EB",
+            color: siguiente ? "#fff" : "#9CA3AF",
+            border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+            cursor: siguiente ? "pointer" : "not-allowed",
+            boxShadow: siguiente ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
+            display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
+          }}
+          onMouseEnter={e => { if (siguiente) e.currentTarget.style.background = "#1a6b6b"; }}
+          onMouseLeave={e => { if (siguiente) e.currentTarget.style.background = "#1a1a2e"; }}
+          title={siguiente ? `Rehacer: ${siguiente.descripcion}` : "No hay acciones para rehacer"}
+        >
+          Rehacer ↪
+        </button>
+      </div>
       {ultimo && (
         <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
           {ultimo.descripcion}
