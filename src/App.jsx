@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "./lib/supabase";
 
 // ─── UTILS ────────────────────────────────────────────────────────────────────
@@ -580,20 +580,10 @@ function useSupabase() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const undoStack = React.useRef([]);
-  const redoStack = React.useRef([]);
-
-  // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
-  function transformarUndo(tabla, rows) {
-    if (tabla === "ventas") return rows.map(fromDBVenta);
-    if (tabla === "pacientes") return rows.map(fromDB);
-    return rows;
-  }
 
   function pushUndo(accion) {
     undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
-    redoStack.current = []; // una acción nueva invalida el historial de "rehacer"
     window.__sonaraUndo = undoStack.current;
-    window.__sonaraRedo = redoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
   }
 
@@ -601,55 +591,31 @@ function useSupabase() {
     const accion = undoStack.current[0];
     if (!accion) return;
     undoStack.current = undoStack.current.slice(1);
-    redoStack.current = [accion, ...redoStack.current.slice(0, 9)];
     window.__sonaraUndo = undoStack.current;
-    window.__sonaraRedo = redoStack.current;
     window.dispatchEvent(new Event("sonara-undo-update"));
+
+    // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
+    function transformar(tabla, rows) {
+      if (tabla === "ventas") return rows.map(fromDBVenta);
+      if (tabla === "pacientes") return rows.map(fromDB);
+      return rows;
+    }
 
     try {
       if (accion.tipo === "eliminar") {
         await supabase.from(accion.tabla).insert({ ...accion.item });
         const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: transformarUndo(accion.tabla, rows) }));
+        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
       } else if (accion.tipo === "crear") {
         await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
         setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
       } else if (accion.tipo === "actualizar") {
         await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-        const itemTransformado = transformarUndo(accion.tabla, [accion.itemAnterior])[0];
+        const itemTransformado = transformar(accion.tabla, [accion.itemAnterior])[0];
         setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? itemTransformado : x) }));
       }
       alert(`↩ Deshecho: ${accion.descripcion}`);
     } catch(e) { alert("Error al deshacer: " + e.message); }
-  }
-
-  async function rehacerUltima() {
-    const accion = redoStack.current[0];
-    if (!accion) return;
-    redoStack.current = redoStack.current.slice(1);
-    undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
-    window.__sonaraUndo = undoStack.current;
-    window.__sonaraRedo = redoStack.current;
-    window.dispatchEvent(new Event("sonara-undo-update"));
-
-    try {
-      if (accion.tipo === "eliminar") {
-        // se había reinsertado al deshacer -> rehacer = volver a eliminar
-        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
-      } else if (accion.tipo === "crear") {
-        // se había eliminado al deshacer -> rehacer = volver a crear
-        await supabase.from(accion.tabla).insert({ ...accion.item });
-        const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: transformarUndo(accion.tabla, rows) }));
-      } else if (accion.tipo === "actualizar") {
-        // se había revertido a itemAnterior al deshacer -> rehacer = volver a aplicar item
-        await supabase.from(accion.tabla).update(accion.item).eq("id", accion.item.id);
-        const itemTransformado = transformarUndo(accion.tabla, [accion.item])[0];
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.item.id ? itemTransformado : x) }));
-      }
-      alert(`↪ Rehecho: ${accion.descripcion}`);
-    } catch(e) { alert("Error al rehacer: " + e.message); }
   }
 
   useEffect(() => {
@@ -1019,7 +985,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima, rehacerUltima,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
@@ -1185,6 +1151,50 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     return dias.flatMap(f => especialesDelDia(f));
   }
 
+  // ── Auto-bloqueo de feriados nacionales ──────────────────────────────────
+  // Crea automáticamente un bloqueo real (🔒 AGENDA BLOQUEADA) para cada
+  // profesional en cada feriado nacional (año actual y siguiente, desde hoy
+  // en adelante), si todavía no existe uno cargado para esa fecha.
+  const feriadosIntentadosRef = useRef(new Set());
+  useEffect(() => {
+    if (!data.turnos) return;
+    const hoy = today();
+    const anioActual = new Date().getFullYear();
+    const feriados = [...new Set([...getFeriadosArgentina(anioActual), ...getFeriadosArgentina(anioActual + 1)])]
+      .filter(f => f >= hoy);
+
+    let excluidos = [];
+    try { excluidos = JSON.parse(localStorage.getItem("sonara_feriados_excluidos") || "[]"); } catch (e) { /* ignore */ }
+
+    const faltantes = [];
+    for (const fecha of feriados) {
+      for (const prof of PROFESIONALES) {
+        const key = `${fecha}|${prof.key}`;
+        if (feriadosIntentadosRef.current.has(key)) continue;
+        if (excluidos.includes(key)) continue;
+        const yaExiste = data.turnos.some(t => t.fecha === fecha && t.profesional === prof.key && t.estado === "bloqueado");
+        if (!yaExiste) faltantes.push({ fecha, prof: prof.key, key });
+      }
+    }
+    if (faltantes.length === 0) return;
+
+    faltantes.forEach(f => feriadosIntentadosRef.current.add(f.key));
+    (async () => {
+      for (const f of faltantes) {
+        try {
+          await db.agregarTurno({
+            fecha: f.fecha,
+            hora: "08:00",
+            hora_fin: "20:00",
+            motivo: "🔒 BLOQUEADO: Feriado nacional",
+            profesional: f.prof,
+            estado: "bloqueado",
+            notas: "feriado-auto",
+          });
+        } catch (e) { console.error("Error creando bloqueo de feriado:", e); }
+      }
+    })();
+  }, [data.turnos, db]);
 
   // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
@@ -1410,10 +1420,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     } finally { setSaving(false); }
   }
 
+  // Si se borra un bloqueo generado automáticamente por feriado, lo recordamos
+  // para no volver a crearlo en este navegador (por si ese día la clínica sí atiende).
+  function marcarFeriadoExcluido(turno) {
+    if (!turno || turno.notas !== "feriado-auto") return;
+    try {
+      const key = "sonara_feriados_excluidos";
+      const actuales = JSON.parse(localStorage.getItem(key) || "[]");
+      const nueva = `${turno.fecha}|${turno.profesional}`;
+      if (!actuales.includes(nueva)) localStorage.setItem(key, JSON.stringify([...actuales, nueva]));
+    } catch (e) { /* localStorage no disponible */ }
+  }
+
   async function eliminarEntrada(entrada) {
     if (!window.confirm("¿Eliminar esta entrada?")) return;
     if (entrada._kind === "recordatorio") await db.eliminarRecordatorio(entrada.id);
-    else await db.eliminarTurno(entrada.id);
+    else { marcarFeriadoExcluido(entrada); await db.eliminarTurno(entrada.id); }
   }
 
   // ── Layout para grilla ────────────────────────────────────────────────────────
@@ -2023,7 +2045,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                                         onClick={e => { e.stopPropagation(); abrirEditar(blq); }}
                                         style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 8, cursor: "pointer", color: "#991B1B", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>✎</button>
                                       <button type="button"
-                                        onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este bloqueo?")) db.eliminarTurno(blq.id); }}
+                                        onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este bloqueo?")) { marcarFeriadoExcluido(blq); db.eliminarTurno(blq.id); } }}
                                         style={{ background: "rgba(255,255,255,0.85)", border: "none", borderRadius: 3, width: 14, height: 14, fontSize: 9, cursor: "pointer", color: "#DC2626", display: "flex", alignItems: "center", justifyContent: "center", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
                                     </div>
                                   </div>
@@ -7525,28 +7547,20 @@ function AppInner() {
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
       </div>
-      {TABS_CON_UNDO.includes(tab) && <UndoButton db={db} />}
+      <UndoButton db={db} />
     </div>
   );
 }
 
-// Pestañas cuyas acciones pasan por el stack compartido de deshacer/rehacer
-// (Profesionales/Derivadores, Disponibilidad, Fechas, Estadísticas, Stock, Auditoría
-// y Gestión usan su propio estado y no participan de este historial, así que el
-// botón no debe mostrarse ahí para evitar confusión).
-const TABS_CON_UNDO = ["turnos", "pacientes", "ventas", "compras"];
 
-// ─── UNDO / REDO BUTTON ───────────────────────────────────────────────────────
+// ─── UNDO BUTTON ──────────────────────────────────────────────────────────────
 function UndoButton({ db }) {
   const [ultimo, setUltimo] = React.useState(null);
-  const [siguiente, setSiguiente] = React.useState(null);
 
   React.useEffect(() => {
     function update() {
-      const stackUndo = window.__sonaraUndo || [];
-      const stackRedo = window.__sonaraRedo || [];
-      setUltimo(stackUndo[0] || null);
-      setSiguiente(stackRedo[0] || null);
+      const stack = window.__sonaraUndo || [];
+      setUltimo(stack[0] || null);
     }
     window.addEventListener("sonara-undo-update", update);
     update();
@@ -7555,42 +7569,23 @@ function UndoButton({ db }) {
 
   return (
     <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-      <div style={{ display: "flex", gap: 8 }}>
-        <button
-          onClick={() => ultimo && db.deshacerUltima()}
-          disabled={!ultimo}
-          style={{
-            background: ultimo ? "#1a1a2e" : "#E5E7EB",
-            color: ultimo ? "#fff" : "#9CA3AF",
-            border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
-            cursor: ultimo ? "pointer" : "not-allowed",
-            boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
-            display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
-          }}
-          onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
-          onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
-          title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
-        >
-          ↩ Deshacer
-        </button>
-        <button
-          onClick={() => siguiente && db.rehacerUltima()}
-          disabled={!siguiente}
-          style={{
-            background: siguiente ? "#1a1a2e" : "#E5E7EB",
-            color: siguiente ? "#fff" : "#9CA3AF",
-            border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
-            cursor: siguiente ? "pointer" : "not-allowed",
-            boxShadow: siguiente ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
-            display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
-          }}
-          onMouseEnter={e => { if (siguiente) e.currentTarget.style.background = "#1a6b6b"; }}
-          onMouseLeave={e => { if (siguiente) e.currentTarget.style.background = "#1a1a2e"; }}
-          title={siguiente ? `Rehacer: ${siguiente.descripcion}` : "No hay acciones para rehacer"}
-        >
-          Rehacer ↪
-        </button>
-      </div>
+      <button
+        onClick={() => ultimo && db.deshacerUltima()}
+        disabled={!ultimo}
+        style={{
+          background: ultimo ? "#1a1a2e" : "#E5E7EB",
+          color: ultimo ? "#fff" : "#9CA3AF",
+          border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+          cursor: ultimo ? "pointer" : "not-allowed",
+          boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
+          display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
+        }}
+        onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
+        onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
+        title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
+      >
+        ↩ Deshacer
+      </button>
       {ultimo && (
         <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
           {ultimo.descripcion}
