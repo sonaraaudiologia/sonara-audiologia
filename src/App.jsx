@@ -397,7 +397,7 @@ const COLORES_ESTADO = {
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Speaker", "Otro"];
 
 
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
