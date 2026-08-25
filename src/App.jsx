@@ -77,6 +77,34 @@ function sumarMeses(fechaStr, meses) {
   d.setMonth(d.getMonth() + meses);
   return d.toISOString().split("T")[0];
 }
+
+// ─── WHATSAPP — recordatorio manual de turnos ─────────────────────────────────
+// Limpia y normaliza un número de teléfono argentino al formato que espera wa.me
+// (54 9 + código de área + número, sin el "15" local ni el "0" de larga distancia).
+function limpiarTelefonoAR(tel) {
+  if (!tel) return "";
+  let d = String(tel).replace(/\D/g, "");
+  if (!d) return "";
+  if (d.startsWith("0")) d = d.slice(1);
+  // Código de área (2 a 4 dígitos) + "15" + número local (6 a 8 dígitos): se quita el 15
+  const m = d.match(/^(\d{2,4})15(\d{6,8})$/);
+  if (m) d = m[1] + m[2];
+  if (d.startsWith("549")) return d;
+  if (d.startsWith("54")) return "549" + d.slice(2);
+  return "549" + d;
+}
+
+// Arma el link de wa.me con el mensaje de recordatorio precargado (el usuario
+// solo tiene que abrir el link y tocar "Enviar" — no se manda nada automáticamente).
+function linkRecordatorioWhatsApp(turno, paciente) {
+  if (!paciente?.telefono) return null;
+  const numero = limpiarTelefonoAR(paciente.telefono);
+  if (!numero) return null;
+  const fecha = formatFecha(turno.fecha);
+  const hora = turno.hora ? turno.hora.slice(0, 5) : "";
+  const mensaje = `Hola ${paciente.nombre}! 👋 Te escribimos de Sonara Audiología para recordarte tu turno de mañana ${fecha}${hora ? ` a las ${hora}hs` : ""}. Ante cualquier inconveniente para asistir, por favor avisanos. ¡Te esperamos!`;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+}
 function nombreDia(dateStr) {
   return ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][new Date(dateStr + "T12:00:00").getDay()];
 }
@@ -460,6 +488,12 @@ function Dashboard({ data, onNavigate }) {
   const recsHoy = data.recordatorios.filter(r => !r.completado && r.fecha <= hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora));
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
+  // Turnos de mañana con paciente asignado (para el panel de recordatorios de WhatsApp)
+  const manana = addDays(hoy, 1);
+  const turnosManana = data.turnos
+    .filter(t => t.fecha === manana && t.paciente_id && !ESTADOS_OCULTOS.includes(t.estado) && t.estado !== "bloqueado" && !(t.motivo||"").includes("BLOQUEADO"))
+    .sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
+
   const busquedaResultados = busqueda.length > 1 ? [
     ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
     ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
@@ -560,6 +594,44 @@ function Dashboard({ data, onNavigate }) {
             ))
           }
         </div>
+      </div>
+
+      {/* Recordatorios de WhatsApp para los turnos de mañana */}
+      <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📲 Recordatorios de mañana por WhatsApp</div>
+          <span style={{ fontSize: 12, color: "#888" }}>{turnosManana.length} turno{turnosManana.length !== 1 ? "s" : ""}</span>
+        </div>
+        {turnosManana.length === 0
+          ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>No hay turnos con paciente asignado para mañana</div>
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {turnosManana.map(t => {
+                const pac = data.pacientes.find(p => p.id === t.paciente_id);
+                const link = pac ? linkRecordatorioWhatsApp(t, pac) : null;
+                return (
+                  <div key={t.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", borderRadius: 8, background: "#FAFBFF", border: "1px solid #F0F0F0" }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", minWidth: 40 }}>{t.hora?.slice(0,5)}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{pac?.telefono || "Sin teléfono cargado"}</div>
+                    </div>
+                    {link ? (
+                      <a href={link} target="_blank" rel="noopener noreferrer"
+                        style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
+                        📱 Enviar
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "7px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>Sin teléfono</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
       </div>
     </div>
   );
@@ -2411,6 +2483,16 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                               <div style={{ color: "#4338CA", gridColumn: "span 2" }}>👂 {p.audifono_der || p.audifono}{p.audifono_der_anio ? ` (${p.audifono_der_anio})` : ""}</div>
                             )}
                           </div>
+                          {modalEntrada.editando && formEntrada.fecha && (
+                            (() => { const link = linkRecordatorioWhatsApp({ fecha: formEntrada.fecha, hora: formEntrada.hora }, p); return link ? (
+                              <a href={link} target="_blank" rel="noopener noreferrer"
+                                style={{ display: "inline-block", marginTop: 10, background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none" }}>
+                                📱 Recordar turno por WhatsApp
+                              </a>
+                            ) : (
+                              <div style={{ marginTop: 10, fontSize: 11, color: "#B91C1C" }}>Sin teléfono cargado para enviar WhatsApp</div>
+                            ); })()
+                          )}
                         </div>
                       ) : null; })()}
                     </div>
