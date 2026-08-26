@@ -5390,10 +5390,13 @@ function useDerivadores() {
     await supabase.from("profesionales_externos").delete().eq("id", id);
     setItems(s => s.filter(x => x.id !== id));
   }
-  async function agregarSeguimiento(id, entrada) {
+  async function agregarSeguimiento(id, entrada, editId) {
     const item = items.find(x => x.id === id);
     if (!item) return;
-    const seg = [...(item.seguimiento || []), { ...entrada, id: uid() }];
+    const listaActual = item.seguimiento || [];
+    const seg = editId
+      ? listaActual.map(s => s.id === editId ? { ...s, ...entrada, id: editId } : s)
+      : [...listaActual, { ...entrada, id: uid() }];
     await actualizar({ ...item, seguimiento: seg });
   }
 
@@ -5414,6 +5417,7 @@ function Profesionales({ data }) {
   const [form, setForm] = useState(FORM_PROF_VACIO);
   const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Visita", descripcion: "", proxContacto: "" });
   const [segModal, setSegModal] = useState(false);
+  const [segEditId, setSegEditId] = useState(null);
 
   // Separar por tipo
   const profesionales = items.filter(x => x.tipo !== "obra_social");
@@ -5467,9 +5471,20 @@ function Profesionales({ data }) {
   }
   function guardarSeguimiento() {
     if (!segForm.descripcion) return alert("Escribí una descripción.");
-    agregarSeguimiento(verSeg, segForm);
+    agregarSeguimiento(verSeg, segForm, segEditId);
     setSegModal(false);
     setSegForm({ fecha:today(), tipo:"Visita", descripcion:"", proxContacto:"" });
+    setSegEditId(null);
+  }
+  function editarContacto(s) {
+    setSegForm({ fecha: s.fecha || today(), tipo: s.tipo || "Visita", descripcion: s.descripcion || "", proxContacto: s.proxContacto || "" });
+    setSegEditId(s.id);
+    setSegModal(true);
+  }
+  function cancelarEdicionContacto() {
+    setSegModal(false);
+    setSegForm({ fecha:today(), tipo:"Visita", descripcion:"", proxContacto:"" });
+    setSegEditId(null);
   }
   const profActual = items.find(p=>p.id===verSeg);
 
@@ -5640,7 +5655,7 @@ function Profesionales({ data }) {
 
       {/* Modal seguimiento */}
       {verSeg && profActual && (
-        <Modal title={`Seguimiento · ${profActual.nombre}`} onClose={()=>setVerSeg(null)}>
+        <Modal title={`Seguimiento · ${profActual.nombre}`} onClose={()=>{ setVerSeg(null); cancelarEdicionContacto(); }}>
           <div style={{ background:"#F8FAFC", borderRadius:10, padding:"12px 16px", marginBottom:16, fontSize:13 }}>
             <div style={{ fontWeight:700, fontSize:15, marginBottom:4 }}>{profActual.nombre}</div>
             <div style={{ color:"#888" }}>{profActual.especialidad}{profActual.institucion?` · ${profActual.institucion}`:""}</div>
@@ -5649,7 +5664,7 @@ function Profesionales({ data }) {
           </div>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <span style={{ fontWeight:700, fontSize:15 }}>Historial de contactos</span>
-            <button onClick={()=>setSegModal(true)} style={{...btnPrimary,padding:"6px 14px",fontSize:13}}>+ Agregar</button>
+            <button onClick={()=>{ setSegEditId(null); setSegForm({ fecha:today(), tipo:"Visita", descripcion:"", proxContacto:"" }); setSegModal(true); }} style={{...btnPrimary,padding:"6px 14px",fontSize:13}}>+ Agregar</button>
           </div>
           {(profActual.seguimiento||[]).length===0
             ? <div style={{ textAlign:"center", color:"#aaa", padding:20 }}>Sin contactos registrados</div>
@@ -5657,10 +5672,13 @@ function Profesionales({ data }) {
               {[...(profActual.seguimiento||[])].reverse().map(s=>{
                 const tc = TIPO_COLOR_SEG[s.tipo]||TIPO_COLOR_SEG["Otro"];
                 return (
-                  <div key={s.id} style={{ background:tc.bg, border:`1px solid ${tc.c}22`, borderRadius:10, padding:"10px 14px" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4 }}>
+                  <div key={s.id} style={{ background:tc.bg, border: segEditId===s.id ? `1px solid ${tc.c}` : `1px solid ${tc.c}22`, borderRadius:10, padding:"10px 14px" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", marginBottom:4, gap:8 }}>
                       <span style={{ fontSize:13, fontWeight:700, color:tc.c }}>{s.tipo}</span>
-                      <span style={{ fontSize:12, color:"#888" }}>{formatFecha(s.fecha)}</span>
+                      <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                        <span style={{ fontSize:12, color:"#888" }}>{formatFecha(s.fecha)}</span>
+                        <button onClick={()=>editarContacto(s)} title="Editar" style={{ background:"none", border:"none", cursor:"pointer", fontSize:12, color:tc.c, padding:0 }}>✎</button>
+                      </div>
                     </div>
                     <p style={{ margin:0, fontSize:14 }}>{s.descripcion}</p>
                     {s.proxContacto && <div style={{ fontSize:12, color:"#888", marginTop:4 }}>📅 Próximo: {formatFecha(s.proxContacto)}</div>}
@@ -5671,7 +5689,7 @@ function Profesionales({ data }) {
           }
           {segModal && (
             <div style={{ marginTop:16, background:"#F8FAFC", borderRadius:10, padding:16 }}>
-              <h4 style={{ margin:"0 0 12px", fontSize:14 }}>Nuevo contacto</h4>
+              <h4 style={{ margin:"0 0 12px", fontSize:14 }}>{segEditId ? "Editar contacto" : "Nuevo contacto"}</h4>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
                 <Field label="Fecha"><input type="date" style={inputStyle} value={segForm.fecha} onChange={e=>setSegForm(f=>({...f,fecha:e.target.value}))} /></Field>
                 <Field label="Tipo">
@@ -5683,8 +5701,8 @@ function Profesionales({ data }) {
               <Field label="Descripción *"><textarea style={{...inputStyle,resize:"vertical",minHeight:70}} value={segForm.descripcion} onChange={e=>setSegForm(f=>({...f,descripcion:e.target.value}))} /></Field>
               <Field label="Próximo contacto"><input type="date" style={inputStyle} value={segForm.proxContacto} onChange={e=>setSegForm(f=>({...f,proxContacto:e.target.value}))} /></Field>
               <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-                <button onClick={()=>setSegModal(false)} style={btnSecondary}>Cancelar</button>
-                <button onClick={guardarSeguimiento} style={btnPrimary}>Guardar</button>
+                <button onClick={cancelarEdicionContacto} style={btnSecondary}>Cancelar</button>
+                <button onClick={guardarSeguimiento} style={btnPrimary}>{segEditId ? "Guardar cambios" : "Guardar"}</button>
               </div>
             </div>
           )}
