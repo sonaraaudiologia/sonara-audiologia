@@ -397,7 +397,7 @@ const COLORES_ESTADO = {
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Speaker", "Otro"];
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
 
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
@@ -4147,6 +4147,7 @@ function Ventas({ data, db, usuario }) {
   };
   const [form, setForm] = useState(FORM_VACIO);
   const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
+  const [segEditId, setSegEditId] = useState(null);
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
@@ -4206,9 +4207,15 @@ function Ventas({ data, db, usuario }) {
     if (!segForm.descripcion) return alert("Escribí una descripción.");
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
-    const nuevaSeg = [...(Array.isArray(v.seguimiento) ? v.seguimiento : []), { ...segForm, id: uid(), fecha: segForm.fecha }];
+    const listaActual = Array.isArray(v.seguimiento) ? v.seguimiento : [];
+    let nuevaSeg;
+    if (segEditId) {
+      nuevaSeg = listaActual.map(s => s.id === segEditId ? { ...s, ...segForm, id: segEditId } : s);
+    } else {
+      nuevaSeg = [...listaActual, { ...segForm, id: uid(), fecha: segForm.fecha }];
+    }
     await db.actualizarVenta({ ...v, seguimiento: nuevaSeg });
-    if (v.paciente_id) {
+    if (v.paciente_id && !segEditId) {
       await db.agregarEntradaHC(v.paciente_id, {
         fecha: segForm.fecha || today(),
         tipo: `Seguimiento de venta · ${segForm.tipo || "Seguimiento"}`,
@@ -4217,6 +4224,17 @@ function Ventas({ data, db, usuario }) {
       });
     }
     setSegForm({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
+    setSegEditId(null);
+  }
+
+  function editarSeguimiento(s) {
+    setSegForm({ fecha: s.fecha || today(), tipo: s.tipo || "Llamada", descripcion: s.descripcion || "", responsable: s.responsable || usuario?.nombre || "" });
+    setSegEditId(s.id);
+  }
+
+  function cancelarEdicionSeguimiento() {
+    setSegForm({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
+    setSegEditId(null);
   }
 
   async function agregarPago(ventaId) {
@@ -4408,7 +4426,7 @@ function Ventas({ data, db, usuario }) {
               const requiereSeguimiento = v.estado === "seleccion" || v.estado === "presupuestado";
               const cvMostrado = requiereSeguimiento ? cv : { bg: "#F3F4F6", color: "#9CA3AF", label: cv.label };
               return (
-                <div key={v.id} onClick={() => setVerDetalle(activo ? null : v.id)}
+                <div key={v.id} onClick={() => { setVerDetalle(activo ? null : v.id); cancelarEdicionSeguimiento(); }}
                   style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : (requiereSeguimiento ? cv.color + "33" : "#E5E7EB")}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", opacity: requiereSeguimiento ? 1 : 0.6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -4450,7 +4468,7 @@ function Ventas({ data, db, usuario }) {
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => { setForm({ ...FORM_VACIO, ...ventaActual, obraSocialCubre: ventaActual.obra_social_cubre || ventaActual.obraSocialCubre || "", saldoPaciente: ventaActual.saldo_paciente || ventaActual.saldoPaciente || "" }); setModal(ventaActual.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>✎ Editar</button>
               <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActual.id); setVerDetalle(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-              <button onClick={() => setVerDetalle(null)} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
+              <button onClick={() => { setVerDetalle(null); cancelarEdicionSeguimiento(); }} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
             </div>
           </div>
 
@@ -4515,10 +4533,11 @@ function Ventas({ data, db, usuario }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1a6b6b", marginBottom: 8 }}>📋 Seguimiento</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10, maxHeight: 200, overflowY: "auto" }}>
               {[...(ventaActual.seguimiento||[])].reverse().map(s => (
-                <div key={s.id} style={{ background: "#F8FAFC", border: "1px solid #E5E7EB", borderRadius: 7, padding: "6px 10px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <div key={s.id} style={{ background: segEditId === s.id ? "#EEF2FF" : "#F8FAFC", border: segEditId === s.id ? "1px solid #4338CA" : "1px solid #E5E7EB", borderRadius: 7, padding: "6px 10px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2, gap: 6 }}>
                     <span style={{ background: "#EEF2FF", color: "#4338CA", borderRadius: 10, padding: "1px 7px", fontSize: 10, fontWeight: 700 }}>{s.tipo}</span>
-                    <span style={{ fontSize: 10, color: "#aaa" }}>{formatFecha(s.fecha)}{s.responsable ? ` · ${s.responsable}` : ""}</span>
+                    <span style={{ fontSize: 10, color: "#aaa", flex: 1, textAlign: "right" }}>{formatFecha(s.fecha)}{s.responsable ? ` · ${s.responsable}` : ""}</span>
+                    <button onClick={() => editarSeguimiento(s)} title="Editar" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#4338CA", padding: 0 }}>✎</button>
                   </div>
                   <div style={{ fontSize: 12, color: "#374151" }}>{s.descripcion}</div>
                 </div>
@@ -4540,8 +4559,13 @@ function Ventas({ data, db, usuario }) {
                 <textarea style={{ ...inputStyle, resize: "vertical", minHeight: 50 }} value={segForm.descripcion} onChange={e => setSegForm(f => ({ ...f, descripcion: e.target.value }))} />
               </Field>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: "#888" }}>Por: {usuario?.nombre || "—"}</span>
-                <button onClick={() => agregarSeguimiento(ventaActual.id)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 12 }}>Agregar</button>
+                <span style={{ fontSize: 11, color: "#888" }}>{segEditId ? "Editando entrada" : `Por: ${usuario?.nombre || "—"}`}</span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {segEditId && (
+                    <button onClick={cancelarEdicionSeguimiento} style={{ ...btnPrimary, background: "#9CA3AF", padding: "6px 14px", fontSize: 12 }}>Cancelar</button>
+                  )}
+                  <button onClick={() => agregarSeguimiento(ventaActual.id)} style={{ ...btnPrimary, padding: "6px 14px", fontSize: 12 }}>{segEditId ? "Guardar cambios" : "Agregar"}</button>
+                </div>
               </div>
             </div>
           </div>
