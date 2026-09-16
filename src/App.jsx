@@ -83,12 +83,23 @@ function sumarMeses(fechaStr, meses) {
 // (54 9 + código de área + número, sin el "15" local ni el "0" de larga distancia).
 function limpiarTelefonoAR(tel) {
   if (!tel) return "";
-  let d = String(tel).replace(/\D/g, "");
+  const original = String(tel).trim();
+  if (!original) return "";
+  // El "15" solo se quita cuando aparece como grupo separado en el texto original
+  // (con espacio, guion, punto o paréntesis alrededor), tal como la gente lo escribe
+  // cuando quiere indicar el viejo prefijo de celular. Si el número está todo junto
+  // sin separadores, se lo deja tal cual: buscar "15" dentro de una tira de dígitos
+  // ya unida es ambiguo y puede confundir un "1" o un "5" reales del número
+  // (por ej. área "341" + local que empieza con "5" arma un falso "...1" + "5...").
+  const grupos = original.split(/\D+/).filter(Boolean);
+  let d;
+  if (grupos.length > 1 && grupos.includes("15")) {
+    d = grupos.filter(g => g !== "15").join("");
+  } else {
+    d = original.replace(/\D/g, "");
+  }
   if (!d) return "";
   if (d.startsWith("0")) d = d.slice(1);
-  // Código de área (2 a 4 dígitos) + "15" + número local (6 a 8 dígitos): se quita el 15
-  const m = d.match(/^(\d{2,4})15(\d{6,8})$/);
-  if (m) d = m[1] + m[2];
   if (d.startsWith("549")) return d;
   if (d.startsWith("54")) return "549" + d.slice(2);
   return "549" + d;
@@ -397,7 +408,7 @@ const COLORES_ESTADO = {
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Cargador", "Otro"];
+const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
 
 
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
@@ -6691,13 +6702,6 @@ function useStock() {
   return { items, loading, agregar, actualizar, eliminar };
 }
 
-// Tipo de producto en Stock: determina si al venderse se vuelca a la ficha del
-// paciente (audífono) o se registra como insumo en Compras sin tocar la ficha (cargador).
-const TIPOS_STOCK = {
-  audifono: { label: "Audífono", icon: "👂" },
-  cargador: { label: "Cargador", icon: "🔌" },
-};
-
 const ESTADOS_STOCK = {
   pedido_ba:   { label: "Pedido a BS AS", bg: "#FFF7ED", color: "#C2410C" },
   disponible:  { label: "Disponible",    bg: "#D1FAE5", color: "#065F46" },
@@ -6717,7 +6721,6 @@ const UBICACIONES_STOCK = {
 function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
   const [abierto, setAbierto] = useState(false);
   const est = ESTADOS_STOCK[item.estado] || ESTADOS_STOCK.disponible;
-  const tipo = TIPOS_STOCK[item.tipo] || TIPOS_STOCK.audifono;
   const pac = item.paciente_id ? pacientes.find(p => p.id === item.paciente_id) : null;
   const pacNombre = pac ? `${pac.apellido}, ${pac.nombre}` : null;
 
@@ -6727,7 +6730,6 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
         style={{ background: "#fff", padding: "10px 16px", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12, color: "#555", display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {item.tipo === "cargador" && <span>{tipo.icon} {tipo.label}</span>}
             {item.numero_serie && <span>Serie: <b>{item.numero_serie}</b></span>}
             {item.oido && item.oido !== "bilateral" && <span>👂 {item.oido}</span>}
             {item.color && <span>🎨 {item.color}</span>}
@@ -6810,15 +6812,13 @@ function Stock({ data, db, usuario }) {
   const [saving, setSaving] = useState(false);
 
   const FORM_VACIO = {
-    tipo: "audifono", marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
+    marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
     estado: "disponible", ubicacion: "", fecha_ingreso: today(), paciente_id: "", notas: ""
   };
   const [form, setForm] = useState(FORM_VACIO);
-  const [filtroTipo, setFiltroTipo] = useState("");
 
   // Si el ítem queda "vendido" y tiene un paciente asignado, volcamos la marca/modelo
   // a la ficha del paciente (oído derecho/izquierdo/bilateral según corresponda).
-  // Solo aplica a tipo "audifono" — un cargador NUNCA debe tocar estos campos.
   async function sincronizarAudifonoPaciente(item) {
     if (!db || item.estado !== "vendido" || !item.paciente_id) return;
     const pac = data.pacientes.find(p => p.id === item.paciente_id);
@@ -6843,61 +6843,23 @@ function Stock({ data, db, usuario }) {
     await db.actualizarPaciente({ ...pac, ...cambios });
   }
 
-  // Si un cargador queda "vendido" y tiene paciente asignado: se registra como insumo
-  // en Compras y se deja constancia en la Historia Clínica, pero NUNCA se tocan los
-  // campos audifono_der/audifono_izq de la ficha del paciente (eso es solo para audífonos).
-  async function sincronizarVentaCargador(item, prevItem) {
-    if (!db || item.estado !== "vendido" || !item.paciente_id) return;
-    // Evita duplicar el insumo si se re-guarda el ítem ya vendido para el mismo paciente
-    const yaProcesado = prevItem && prevItem.estado === "vendido" && prevItem.paciente_id === item.paciente_id;
-    if (yaProcesado) return;
-    const pac = data.pacientes.find(p => p.id === item.paciente_id);
-    if (!pac) return;
-    const desc = [item.marca, item.modelo].filter(Boolean).join(" ").trim() || "Cargador";
-    await db.agregarCompra({
-      paciente_id: item.paciente_id,
-      fecha: today(),
-      insumos: [{ id: uid(), nombre: "Cargador", cantidad: 1, precio: "" }],
-      total: "", seña: "", estado: "pendiente",
-      notas: `${desc}${item.numero_serie ? " · N° serie " + item.numero_serie : ""} · vendido desde Stock`,
-      pagos: [],
-      creado_por: usuario?.nombre || "",
-    });
-    await db.agregarEntradaHC(item.paciente_id, {
-      fecha: today(),
-      tipo: "Venta de cargador",
-      descripcion: desc,
-      profesional: usuario?.nombre || "",
-    });
-  }
-
-  // Punto único de sincronización al guardar/actualizar un ítem de Stock: ramifica
-  // según tipo para no mezclar el flujo de audífono (ficha) con el de cargador (insumo).
-  async function sincronizarVentaStock(item, prevItem) {
-    if (item.tipo === "cargador") await sincronizarVentaCargador(item, prevItem);
-    else await sincronizarAudifonoPaciente(item);
-  }
-
   async function actualizarConSync(item) {
-    const prevItem = items.find(i => i.id === item.id);
     await actualizar(item);
-    await sincronizarVentaStock(item, prevItem);
+    await sincronizarAudifonoPaciente(item);
   }
 
   const lista = items.filter(i => {
     const matchEstado = filtroEstado ? i.estado === filtroEstado : i.estado !== "vendido";
-    const matchTipo = !filtroTipo || (i.tipo || "audifono") === filtroTipo;
     const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color} ${UBICACIONES_STOCK[i.ubicacion||""]?.label||""}`.toLowerCase().includes(busqueda.toLowerCase());
-    return matchEstado && matchTipo && matchBusq;
+    return matchEstado && matchBusq;
   });
 
-  // Group by tipo + modelo (para no mezclar un audífono y un cargador que compartan nombre)
+  // Group by modelo
   const grupos = {};
   lista.forEach(item => {
-    const nombre = `${item.marca ? item.marca + " " : ""}${item.modelo}`.trim() || "Sin modelo";
-    const key = `${item.tipo || "audifono"}::${nombre}`;
-    if (!grupos[key]) grupos[key] = { nombre, tipo: item.tipo || "audifono", items: [] };
-    grupos[key].items.push(item);
+    const key = `${item.marca ? item.marca + " " : ""}${item.modelo}`.trim() || "Sin modelo";
+    if (!grupos[key]) grupos[key] = [];
+    grupos[key].push(item);
   });
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
@@ -6907,10 +6869,9 @@ function Stock({ data, db, usuario }) {
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
-      const prevItem = modal !== "nuevo" ? items.find(i => i.id === modal) : null;
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
-      await sincronizarVentaStock(payload, prevItem);
+      await sincronizarAudifonoPaciente(payload);
       setModal(null);
       setForm(FORM_VACIO);
     } finally { setSaving(false); }
@@ -6925,19 +6886,9 @@ function Stock({ data, db, usuario }) {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📦 Stock</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📦 Stock de audífonos</div>
         <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Agregar</button>
-      </div>
-
-      {/* Filtro por tipo de producto */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-        {[["", "Todos"], ...Object.entries(TIPOS_STOCK).map(([k, v]) => [k, `${v.icon} ${v.label}s`])].map(([k, label]) => (
-          <button key={k} onClick={() => setFiltroTipo(k)}
-            style={{ ...btnSecondary, background: filtroTipo === k ? "#1a1a2e" : "#F3F4F6", color: filtroTipo === k ? "#fff" : "#374151", padding: "6px 14px", fontSize: 13 }}>
-            {label}
-          </button>
-        ))}
       </div>
 
       {/* Stats */}
@@ -6962,25 +6913,25 @@ function Stock({ data, db, usuario }) {
       {lista.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}><div style={{ fontSize: 40 }}>📦</div><div>Sin resultados</div></div>
         : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {Object.entries(grupos).map(([key, grupo]) => (
-            <div key={key} style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
+          {Object.entries(grupos).map(([modelo, modeloItems]) => (
+            <div key={modelo} style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ background: "#F8FAFC", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #E5E7EB" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>{(TIPOS_STOCK[grupo.tipo] || TIPOS_STOCK.audifono).icon}</span>
+                  <span style={{ fontSize: 18 }}>👂</span>
                   <div>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{grupo.nombre}</div>
-                    <div style={{ fontSize: 11, color: "#888" }}>{grupo.items.length} unidad{grupo.items.length !== 1 ? "es" : ""}</div>
+                    <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{modelo}</div>
+                    <div style={{ fontSize: 11, color: "#888" }}>{modeloItems.length} unidad{modeloItems.length !== 1 ? "es" : ""}</div>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                   {Object.entries(ESTADOS_STOCK).map(([k, v]) => {
-                    const c = grupo.items.filter(i => i.estado === k).length;
+                    const c = modeloItems.filter(i => i.estado === k).length;
                     if (!c) return null;
                     return <span key={k} style={{ background: v.bg, color: v.color, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 700 }}>{c} {v.label}</span>;
                   })}
                 </div>
               </div>
-              {grupo.items.map(item => (
+              {modeloItems.map(item => (
                 <StockItem key={item.id} item={item} pacientes={data.pacientes}
                   onEdit={abrirEditar} onDelete={eliminar} onUpdate={actualizarConSync} />
               ))}
@@ -6991,26 +6942,19 @@ function Stock({ data, db, usuario }) {
 
       {/* Modal */}
       {modal && (
-        <Modal title={modal === "nuevo" ? "Nuevo ítem en stock" : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
-          <Field label="Tipo de producto">
-            <select style={selectStyle} value={form.tipo || "audifono"} onChange={e => setForm(f => ({ ...f, tipo: e.target.value, ...(e.target.value === "cargador" ? { oido: "" } : {}) }))}>
-              {Object.entries(TIPOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
-            </select>
-          </Field>
+        <Modal title={modal === "nuevo" ? "Nuevo audífono en stock" : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
             <Field label="Modelo *"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
             <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} /></Field>
             <Field label="Color"><input style={inputStyle} value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Ej: Beige..." /></Field>
-            {form.tipo !== "cargador" && (
-              <Field label="Oído">
-                <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
-                  <option value="bilateral">Bilateral</option>
-                  <option value="derecho">Derecho</option>
-                  <option value="izquierdo">Izquierdo</option>
-                </select>
-              </Field>
-            )}
+            <Field label="Oído">
+              <select style={selectStyle} value={form.oido} onChange={e => setForm(f => ({ ...f, oido: e.target.value }))}>
+                <option value="bilateral">Bilateral</option>
+                <option value="derecho">Derecho</option>
+                <option value="izquierdo">Izquierdo</option>
+              </select>
+            </Field>
             <Field label="Estado">
               <select style={selectStyle} value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value }))}>
                 {Object.entries(ESTADOS_STOCK).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
