@@ -46,6 +46,17 @@ function formatFecha(str) {
   return `${d}/${m}/${y}`;
 }
 function today() { return new Date().toISOString().split("T")[0]; }
+// Fecha local (Argentina) en formato YYYY-MM-DD; today() usa UTC y después de las 21 hs devolvería el día siguiente
+function hoyLocal() { return new Date().toLocaleDateString("en-CA"); }
+// Texto de detalle de un audífono en la ficha: (año) · S/N · Retiro dd/mm/aaaa
+function detalleAudifono(pac, lado) {
+  const anio = pac[`audifono_${lado}_anio`], serie = pac[`audifono_${lado}_serie`], fecha = pac[`audifono_${lado}_fecha`];
+  const partes = [];
+  if (anio) partes.push(`(${anio})`);
+  if (serie) partes.push(`S/N ${serie}`);
+  if (fecha) partes.push(`Retiro ${formatFecha(fecha)}`);
+  return partes.length ? " " + partes.join(" · ") : "";
+}
 function uid() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11); }
 // Normaliza texto para comparar ignorando tildes/diacríticos y mayúsculas (ej: "Garcia" === "García")
 function normalizar(str) {
@@ -760,6 +771,8 @@ function useSupabase() {
       audifono: pac.audifono || pac.audifono_der || "",
       audifono_der: pac.audifono_der || "", audifono_der_anio: pac.audifono_der_anio || "",
       audifono_izq: pac.audifono_izq || "", audifono_izq_anio: pac.audifono_izq_anio || "",
+      audifono_der_serie: pac.audifono_der_serie || "", audifono_der_fecha: pac.audifono_der_fecha || null,
+      audifono_izq_serie: pac.audifono_izq_serie || "", audifono_izq_fecha: pac.audifono_izq_fecha || null,
       historia: Array.isArray(pac.historia) ? pac.historia : [],
       etiquetas: Array.isArray(pac.etiquetas) ? pac.etiquetas : [],
       acompanante_nombre: pac.acompanante_nombre || "",
@@ -779,6 +792,8 @@ function useSupabase() {
       audifono_der_anio: row.audifono_der_anio || "",
       audifono_izq: row.audifono_izq || "",
       audifono_izq_anio: row.audifono_izq_anio || "",
+      audifono_der_serie: row.audifono_der_serie || "", audifono_der_fecha: row.audifono_der_fecha || "",
+      audifono_izq_serie: row.audifono_izq_serie || "", audifono_izq_fecha: row.audifono_izq_fecha || "",
       historia: Array.isArray(row.historia) ? row.historia : [],
       etiquetas: Array.isArray(row.etiquetas) ? row.etiquetas : [],
       acompanante_nombre: row.acompanante_nombre || "",
@@ -2491,7 +2506,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                               <div style={{ color: "#4338CA", gridColumn: "span 2" }}>🩺 {p.diagnostico}</div>
                             )}
                             {(p.audifono_der || p.audifono) && (
-                              <div style={{ color: "#4338CA", gridColumn: "span 2" }}>👂 {p.audifono_der || p.audifono}{p.audifono_der_anio ? ` (${p.audifono_der_anio})` : ""}</div>
+                              <div style={{ color: "#4338CA", gridColumn: "span 2" }}>👂 {p.audifono_der || p.audifono}{detalleAudifono(p, "der")}</div>
                             )}
                           </div>
                           {modalEntrada.editando && formEntrada.fecha && (
@@ -3251,7 +3266,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
               {!editando ? (
                 <div>
                   <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", direccion: pac.direccion||"", localidad: pac.localidad||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
+                    <button onClick={() => { setForm({ nombre: pac.nombre||"", apellido: pac.apellido||"", dni: pac.dni||"", telefono: pac.telefono||"", email: pac.email||"", direccion: pac.direccion||"", localidad: pac.localidad||"", fechaNac: pac.fechaNac||pac.fecha_nac||"", obraSocial: pac.obraSocial||pac.obra_social||"", nroAfiliado: pac.nroAfiliado||pac.nro_afiliado||"", derivadoPor: pac.derivadoPor||pac.derivado_por||"", diagnostico: pac.diagnostico||"", antecedentes: pac.antecedentes||"", notas: pac.notas||"", audifono_der: pac.audifono_der||pac.audifono||"", audifono_der_anio: pac.audifono_der_anio||"", audifono_izq: pac.audifono_izq||"", audifono_izq_anio: pac.audifono_izq_anio||"", audifono_der_serie: pac.audifono_der_serie||"", audifono_der_fecha: pac.audifono_der_fecha||"", audifono_izq_serie: pac.audifono_izq_serie||"", audifono_izq_fecha: pac.audifono_izq_fecha||"" }); setEditando(true); }} style={{ ...btnSecondary, background: "#EEF2FF", color: "#4338CA" }}>✏️ Editar datos</button>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     {[
@@ -3275,8 +3290,8 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                   {(pac.audifono_der || pac.audifono_izq || pac.audifono) && (
                     <div style={{ background: "#EEF2FF", borderRadius: 8, padding: "10px 14px", marginTop: 12 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>👂 Audífonos actuales</div>
-                      {(pac.audifono_der || pac.audifono) && <div style={{ fontSize: 13 }}>Der: {pac.audifono_der || pac.audifono}{pac.audifono_der_anio ? ` (${pac.audifono_der_anio})` : ""}</div>}
-                      {pac.audifono_izq && <div style={{ fontSize: 13 }}>Izq: {pac.audifono_izq}{pac.audifono_izq_anio ? ` (${pac.audifono_izq_anio})` : ""}</div>}
+                      {(pac.audifono_der || pac.audifono) && <div style={{ fontSize: 13 }}>Der: {pac.audifono_der || pac.audifono}{detalleAudifono(pac, "der")}</div>}
+                      {pac.audifono_izq && <div style={{ fontSize: 13 }}>Izq: {pac.audifono_izq}{detalleAudifono(pac, "izq")}</div>}
                     </div>
                   )}
                   {pac.antecedentes && (
@@ -3317,6 +3332,16 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                     <input style={inputStyle} value={form.audifono_izq||""} onChange={e => setForm(f => ({...f, audifono_izq: e.target.value}))} placeholder="Marca/Modelo" />
                     <input style={inputStyle} value={form.audifono_izq_anio||""} onChange={e => setForm(f => ({...f, audifono_izq_anio: e.target.value}))} placeholder="Año" />
                   </div>
+                  {/* N° de serie y fecha de retiro */}
+                  <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 140px auto 1fr 140px", gap: 8, alignItems: "center", marginTop: 8 }}>
+                    <span style={{ fontSize: 11, color: "#777" }}>S/N:</span>
+                    <input style={inputStyle} value={form.audifono_der_serie||""} onChange={e => setForm(f => ({...f, audifono_der_serie: e.target.value}))} placeholder="N° de serie" />
+                    <input type="date" title="Fecha de retiro (der.)" style={inputStyle} value={form.audifono_der_fecha||""} onChange={e => setForm(f => ({...f, audifono_der_fecha: e.target.value, ...(e.target.value ? { audifono_der_anio: e.target.value.split("-")[0] } : {})}))} />
+                    <span style={{ fontSize: 11, color: "#777" }}>S/N:</span>
+                    <input style={inputStyle} value={form.audifono_izq_serie||""} onChange={e => setForm(f => ({...f, audifono_izq_serie: e.target.value}))} placeholder="N° de serie" />
+                    <input type="date" title="Fecha de retiro (izq.)" style={inputStyle} value={form.audifono_izq_fecha||""} onChange={e => setForm(f => ({...f, audifono_izq_fecha: e.target.value, ...(e.target.value ? { audifono_izq_anio: e.target.value.split("-")[0] } : {})}))} />
+                  </div>
+                  <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>La fecha es el día que retiró el audífono (se completa sola desde Stock al marcarlo vendido).</div>
                   <Field label="Antecedentes"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.antecedentes||""} onChange={e => setForm(f => ({...f, antecedentes: e.target.value}))} /></Field>
                   <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 60 }} value={form.notas||""} onChange={e => setForm(f => ({...f, notas: e.target.value}))} /></Field>
                   <div style={{ height: 1, background: "#F0F0F0", margin: "8px 0 12px" }} />
@@ -3362,6 +3387,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
     obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "",
     derivadoPor: "", audifono: "",
     audifono_der: "", audifono_der_anio: "", audifono_izq: "", audifono_izq_anio: "",
+    audifono_der_serie: "", audifono_der_fecha: "", audifono_izq_serie: "", audifono_izq_fecha: "",
     etiquetas: []
   });
   const [evModal, setEvModal] = useState(false);
@@ -3416,6 +3442,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       audifono_der_anio: p.audifono_der_anio || "",
       audifono_izq: p.audifono_izq || "",
       audifono_izq_anio: p.audifono_izq_anio || "",
+      audifono_der_serie: p.audifono_der_serie || "", audifono_der_fecha: p.audifono_der_fecha || "",
+      audifono_izq_serie: p.audifono_izq_serie || "", audifono_izq_fecha: p.audifono_izq_fecha || "",
       etiquetas: Array.isArray(p.etiquetas) ? [...p.etiquetas] : [],
       acompanante_nombre: p.acompanante_nombre || "",
       acompanante_parentesco: p.acompanante_parentesco || "",
@@ -3701,6 +3729,16 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
                   <input style={inputStyle} value={form.audifono_izq || ""} onChange={e => setForm(f => ({ ...f, audifono_izq: e.target.value }))} placeholder="Marca / Modelo" />
                   <input style={inputStyle} value={form.audifono_izq_anio || ""} onChange={e => setForm(f => ({ ...f, audifono_izq_anio: e.target.value }))} placeholder="Año" />
                 </div>
+                {/* N° de serie y fecha de retiro */}
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 140px auto 1fr 140px", gap: 8, alignItems: "center", marginTop: 8 }}>
+                  <span style={{ fontSize: 11, color: "#777" }}>S/N:</span>
+                  <input style={inputStyle} value={form.audifono_der_serie||""} onChange={e => setForm(f => ({...f, audifono_der_serie: e.target.value}))} placeholder="N° de serie" />
+                  <input type="date" title="Fecha de retiro (der.)" style={inputStyle} value={form.audifono_der_fecha||""} onChange={e => setForm(f => ({...f, audifono_der_fecha: e.target.value, ...(e.target.value ? { audifono_der_anio: e.target.value.split("-")[0] } : {})}))} />
+                  <span style={{ fontSize: 11, color: "#777" }}>S/N:</span>
+                  <input style={inputStyle} value={form.audifono_izq_serie||""} onChange={e => setForm(f => ({...f, audifono_izq_serie: e.target.value}))} placeholder="N° de serie" />
+                  <input type="date" title="Fecha de retiro (izq.)" style={inputStyle} value={form.audifono_izq_fecha||""} onChange={e => setForm(f => ({...f, audifono_izq_fecha: e.target.value, ...(e.target.value ? { audifono_izq_anio: e.target.value.split("-")[0] } : {})}))} />
+                </div>
+                <div style={{ fontSize: 10, color: "#999", marginTop: 4 }}>La fecha es el día que retiró el audífono (se completa sola desde Stock al marcarlo vendido).</div>
               </div>
             </div>
           </div>
@@ -4300,6 +4338,11 @@ function Ventas({ data, db, usuario }) {
           audifono_der_anio: audifonoDer ? anioVenta : (pac.audifono_der_anio || ""),
           audifono_izq: audifonoIzq || pac.audifono_izq || "",
           audifono_izq_anio: audifonoIzq ? anioVenta : (pac.audifono_izq_anio || ""),
+          // Si se reemplaza el audífono, N° de serie (del stock vinculado) y fecha de retiro se actualizan con él
+          audifono_der_serie: audifonoDer ? ((data.stock || []).find(x => x.id === v.stock_der_id)?.numero_serie || "") : (pac.audifono_der_serie || ""),
+          audifono_der_fecha: audifonoDer ? hoyLocal() : (pac.audifono_der_fecha || ""),
+          audifono_izq_serie: audifonoIzq ? ((data.stock || []).find(x => x.id === v.stock_izq_id)?.numero_serie || "") : (pac.audifono_izq_serie || ""),
+          audifono_izq_fecha: audifonoIzq ? hoyLocal() : (pac.audifono_izq_fecha || ""),
         });
       }
     }
@@ -6817,35 +6860,49 @@ function Stock({ data, db, usuario }) {
   };
   const [form, setForm] = useState(FORM_VACIO);
 
-  // Si el ítem queda "vendido" y tiene un paciente asignado, volcamos la marca/modelo
-  // a la ficha del paciente (oído derecho/izquierdo/bilateral según corresponda).
-  async function sincronizarAudifonoPaciente(item) {
+  // Los cargadores no van a la ficha del paciente (Audífonos actuales): solo quedan en la evolución.
+  const esCargador = it => it.tipo === "cargador" || /charger|cargador/i.test(`${it.marca || ""} ${it.modelo || ""}`);
+
+  // Si el ítem queda "vendido" y tiene un paciente asignado:
+  //  - audífono: volcamos marca/modelo, N° de serie y fecha exacta de retiro a la ficha (der/izq/bilateral).
+  //  - cargador: solo agregamos una entrada nueva en la evolución (historia clínica).
+  // `prev` es el ítem antes del cambio; la fecha de retiro/entrada de evolución solo se generan
+  // cuando pasa a vendido o cambia de paciente, para no pisarlas al editar el ítem después.
+  async function sincronizarAudifonoPaciente(item, prev) {
     if (!db || item.estado !== "vendido" || !item.paciente_id) return;
     const pac = data.pacientes.find(p => p.id === item.paciente_id);
     if (!pac) return;
-    const audifono = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
-    if (!audifono) return;
-    const anio = (item.fecha_ingreso || today()).split("-")[0];
-    const cambios = {};
-    if (item.oido === "izquierdo") {
-      cambios.audifono_izq = audifono;
-      cambios.audifono_izq_anio = anio;
-    } else if (item.oido === "derecho") {
-      cambios.audifono_der = audifono;
-      cambios.audifono_der_anio = anio;
-    } else {
-      // bilateral: se asigna a ambos oídos
-      cambios.audifono_der = audifono;
-      cambios.audifono_der_anio = anio;
-      cambios.audifono_izq = audifono;
-      cambios.audifono_izq_anio = anio;
+    const transicion = !prev || prev.estado !== "vendido" || prev.paciente_id !== item.paciente_id;
+    const nombre = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
+    if (!nombre) return;
+    const serie = (item.numero_serie || "").trim();
+
+    if (esCargador(item)) {
+      if (!transicion) return;
+      await db.agregarEntradaHC(pac.id, {
+        fecha: hoyLocal(),
+        tipo: "Entrega de cargador",
+        descripcion: `Se entrega cargador ${nombre}${serie ? ` (N° de serie ${serie})` : ""}.`,
+      });
+      return;
     }
+
+    const cambios = {};
+    const lados = item.oido === "izquierdo" ? ["izq"] : item.oido === "derecho" ? ["der"] : ["der", "izq"]; // bilateral: ambos oídos
+    lados.forEach(l => {
+      const fecha = transicion ? hoyLocal() : (pac[`audifono_${l}_fecha`] || hoyLocal());
+      cambios[`audifono_${l}`] = nombre;
+      cambios[`audifono_${l}_serie`] = serie;
+      cambios[`audifono_${l}_fecha`] = fecha;
+      cambios[`audifono_${l}_anio`] = fecha.split("-")[0];
+    });
     await db.actualizarPaciente({ ...pac, ...cambios });
   }
 
   async function actualizarConSync(item) {
+    const prev = items.find(x => x.id === item.id);
     await actualizar(item);
-    await sincronizarAudifonoPaciente(item);
+    await sincronizarAudifonoPaciente(item, prev);
   }
 
   const lista = items.filter(i => {
@@ -6869,9 +6926,10 @@ function Stock({ data, db, usuario }) {
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
+      const prev = modal === "nuevo" ? null : items.find(x => x.id === modal);
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
-      await sincronizarAudifonoPaciente(payload);
+      await sincronizarAudifonoPaciente(payload, prev);
       setModal(null);
       setForm(FORM_VACIO);
     } finally { setSaving(false); }
