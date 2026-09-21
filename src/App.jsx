@@ -6853,6 +6853,7 @@ function Stock({ data, db, usuario }) {
   const [filtroEstado, setFiltroEstado] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [saving, setSaving] = useState(false);
+  const [vista, setVista] = useState("audifonos"); // "audifonos" | "cargadores"
 
   const FORM_VACIO = {
     marca: "", modelo: "", numero_serie: "", oido: "bilateral", color: "",
@@ -6864,7 +6865,7 @@ function Stock({ data, db, usuario }) {
   const esCargador = it => it.tipo === "cargador" || /charger|cargador/i.test(`${it.marca || ""} ${it.modelo || ""}`);
 
   // Si el ítem queda "vendido" y tiene un paciente asignado:
-  //  - audífono: volcamos marca/modelo, N° de serie y fecha exacta de retiro a la ficha (der/izq/bilateral).
+  //  - audífono: volcamos marca/modelo, N° de serie y fecha exacta de retiro a la ficha (der/izq/bilateral) y agregamos una entrada en la evolución.
   //  - cargador: solo agregamos una entrada nueva en la evolución (historia clínica).
   // `prev` es el ítem antes del cambio; la fecha de retiro/entrada de evolución solo se generan
   // cuando pasa a vendido o cambia de paciente, para no pisarlas al editar el ítem después.
@@ -6897,6 +6898,16 @@ function Stock({ data, db, usuario }) {
       cambios[`audifono_${l}_anio`] = fecha.split("-")[0];
     });
     await db.actualizarPaciente({ ...pac, ...cambios });
+
+    // Evolución: entrada de entrega de audífono (solo al pasar a vendido / cambiar de paciente)
+    if (transicion) {
+      const ladoTxt = item.oido === "izquierdo" ? " (oído izquierdo)" : item.oido === "derecho" ? " (oído derecho)" : " (bilateral)";
+      await db.agregarEntradaHC(pac.id, {
+        fecha: hoyLocal(),
+        tipo: "Entrega de audífono",
+        descripcion: `Se entrega audífono ${nombre}${ladoTxt}${serie ? ` (N° de serie ${serie})` : ""}.`,
+      });
+    }
   }
 
   async function actualizarConSync(item) {
@@ -6905,7 +6916,16 @@ function Stock({ data, db, usuario }) {
     await sincronizarAudifonoPaciente(item, prev);
   }
 
-  const lista = items.filter(i => {
+  // División del stock: audífonos vs. cargadores (misma clasificación que usa esCargador)
+  const esVistaCargadores = vista === "cargadores";
+  const itemsVista = items.filter(i => esCargador(i) === esVistaCargadores);
+  const enStock = arr => arr.filter(i => i.estado !== "vendido").length;
+  const cantAud = enStock(items.filter(i => !esCargador(i)));
+  const cantCarg = enStock(items.filter(i => esCargador(i)));
+  // Solo escribimos `tipo` si la columna existe en la tabla (select("*") la trae en cada fila)
+  const tieneColTipo = items.length > 0 && "tipo" in items[0];
+
+  const lista = itemsVista.filter(i => {
     const matchEstado = filtroEstado ? i.estado === filtroEstado : i.estado !== "vendido";
     const matchBusq = !busqueda || `${i.marca} ${i.modelo} ${i.numero_serie} ${i.color} ${UBICACIONES_STOCK[i.ubicacion||""]?.label||""}`.toLowerCase().includes(busqueda.toLowerCase());
     return matchEstado && matchBusq;
@@ -6919,13 +6939,14 @@ function Stock({ data, db, usuario }) {
     grupos[key].push(item);
   });
 
-  const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, items.filter(i => i.estado === k).length]));
+  const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, itemsVista.filter(i => i.estado === k).length]));
 
   async function guardar() {
     if (!form.marca && !form.modelo) return alert("Completá al menos el modelo.");
     setSaving(true);
     try {
       const payload = { ...form, paciente_id: form.paciente_id || null, creado_por: usuario?.nombre || "" };
+      if (modal === "nuevo" && tieneColTipo) payload.tipo = esVistaCargadores ? "cargador" : "audifono";
       const prev = modal === "nuevo" ? null : items.find(x => x.id === modal);
       if (modal === "nuevo") await agregar(payload);
       else await actualizar({ ...payload, id: modal });
@@ -6945,8 +6966,18 @@ function Stock({ data, db, usuario }) {
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📦 Stock de audífonos</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: "#1a1a2e" }}>📦 Stock de {esVistaCargadores ? "cargadores" : "audífonos"}</div>
         <button onClick={() => { setForm(FORM_VACIO); setModal("nuevo"); }} style={btnPrimary}>+ Agregar</button>
+      </div>
+
+      {/* Audífonos / Cargadores */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {[["audifonos", "👂 Audífonos", cantAud], ["cargadores", "🔌 Cargadores", cantCarg]].map(([k, label, cant]) => (
+          <button key={k} onClick={() => { setVista(k); setFiltroEstado(""); }}
+            style={{ background: vista === k ? "#1a1a2e" : "#F3F4F6", color: vista === k ? "#fff" : "#4B5563", border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            {label} <span style={{ opacity: 0.7, fontWeight: 600 }}>({cant})</span>
+          </button>
+        ))}
       </div>
 
       {/* Stats */}
@@ -6959,7 +6990,7 @@ function Stock({ data, db, usuario }) {
           </div>
         ))}
         <div style={{ background: "#F0FDF4", border: "1.5px solid #BBF7D0", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46" }}>{items.length}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46" }}>{itemsVista.length}</div>
           <div style={{ fontSize: 10, color: "#065F46", fontWeight: 600 }}>Total</div>
         </div>
       </div>
@@ -6975,7 +7006,7 @@ function Stock({ data, db, usuario }) {
             <div key={modelo} style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, overflow: "hidden" }}>
               <div style={{ background: "#F8FAFC", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #E5E7EB" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>👂</span>
+                  <span style={{ fontSize: 18 }}>{esVistaCargadores ? "🔌" : "👂"}</span>
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>{modelo}</div>
                     <div style={{ fontSize: 11, color: "#888" }}>{modeloItems.length} unidad{modeloItems.length !== 1 ? "es" : ""}</div>
@@ -7000,7 +7031,7 @@ function Stock({ data, db, usuario }) {
 
       {/* Modal */}
       {modal && (
-        <Modal title={modal === "nuevo" ? "Nuevo audífono en stock" : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
+        <Modal title={modal === "nuevo" ? (esVistaCargadores ? "Nuevo cargador en stock" : "Nuevo audífono en stock") : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
             <Field label="Modelo *"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
