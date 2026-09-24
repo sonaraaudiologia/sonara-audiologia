@@ -829,7 +829,6 @@ function useSupabase() {
         : (v.observaciones || ""),
       pagos: Array.isArray(v.pagos) ? v.pagos : [],
       seguimiento: Array.isArray(v.seguimiento) ? v.seguimiento : [],
-      stock_der_id: v.stock_der_id || null, stock_izq_id: v.stock_izq_id || null,
     };
   }
 
@@ -843,7 +842,6 @@ function useSupabase() {
       seguimiento: Array.isArray(row.seguimiento) ? row.seguimiento : [],
       estados: Array.isArray(row.estados) ? row.estados : (row.estado ? [row.estado] : []),
       derivadoPor: row.derivado_por || "",
-      stock_der_id: row.stock_der_id || "", stock_izq_id: row.stock_izq_id || "",
     };
   }
 
@@ -4244,9 +4242,6 @@ function Ventas({ data, db, usuario }) {
         if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
         if (form.stock_izq_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_izq_id);
       }
-      // Volcar a la ficha del paciente (con N° de serie) al pasar a vendido o al cambiar el audífono vinculado
-      const stockCambio = ventaAnterior && ((ventaAnterior.stock_der_id || "") !== (form.stock_der_id || "") || (ventaAnterior.stock_izq_id || "") !== (form.stock_izq_id || ""));
-      if (!esTerceros && form.estado === "vendido" && (generarRec || stockCambio)) await volcarAudifonosAPaciente(form);
       if (generarRec) {
         const pac = data.pacientes.find(p => p.id === form.paciente_id);
         const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
@@ -4303,38 +4298,6 @@ function Ventas({ data, db, usuario }) {
     if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
   }
 
-  // Vuelca a la ficha del paciente los audífonos vendidos: marca/modelo, año, N° de serie y fecha de retiro.
-  // El N° de serie se lee directo de Supabase (data.stock se carga al inicio y puede no tener ítems nuevos).
-  async function volcarAudifonosAPaciente(v) {
-    if (!v.paciente_id) return;
-    const pac = data.pacientes.find(p => p.id === v.paciente_id);
-    if (!pac) return;
-    const audifonoDer = [v.marca_der, v.modelo_der].filter(Boolean).join(" ").trim();
-    const audifonoIzq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ").trim();
-    if (!audifonoDer && !audifonoIzq) return;
-    const ids = [v.stock_der_id, v.stock_izq_id].filter(Boolean);
-    let filas = [];
-    if (ids.length) {
-      const { data: rows } = await supabase.from("stock").select("*").in("id", ids);
-      filas = rows || [];
-    }
-    const serieDe = id => (id ? (filas.find(x => x.id === id)?.numero_serie || "") : "").trim();
-    const fecha = hoyLocal();
-    const anio = fecha.split("-")[0];
-    await db.actualizarPaciente({
-      ...pac,
-      audifono_der: audifonoDer || pac.audifono_der || "",
-      audifono_der_anio: audifonoDer ? anio : (pac.audifono_der_anio || ""),
-      audifono_izq: audifonoIzq || pac.audifono_izq || "",
-      audifono_izq_anio: audifonoIzq ? anio : (pac.audifono_izq_anio || ""),
-      // Si se reemplaza el audífono, N° de serie (del stock vinculado) y fecha de retiro se actualizan con él
-      audifono_der_serie: audifonoDer ? serieDe(v.stock_der_id) : (pac.audifono_der_serie || ""),
-      audifono_der_fecha: audifonoDer ? fecha : (pac.audifono_der_fecha || ""),
-      audifono_izq_serie: audifonoIzq ? serieDe(v.stock_izq_id) : (pac.audifono_izq_serie || ""),
-      audifono_izq_fecha: audifonoIzq ? fecha : (pac.audifono_izq_fecha || ""),
-    });
-  }
-
   async function cambiarEstado(ventaId, nuevoEstado) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
@@ -4362,12 +4325,26 @@ function Ventas({ data, db, usuario }) {
       });
     }
 
-    // Al vender: marcar vendidos los audífonos de stock vinculados y volcarlos a la ficha del paciente
-    if (nuevoEstado === "vendido" && v.paciente_id) {
-      for (const id of [v.stock_der_id, v.stock_izq_id].filter(Boolean)) {
-        await supabase.from("stock").update({ estado: "vendido", paciente_id: v.paciente_id }).eq("id", id);
+    // Al vender, volcar el audífono (marca/modelo) a la ficha del paciente
+    if (nuevoEstado === "vendido" && v.paciente_id && (v.marca_der || v.modelo_der || v.marca_izq || v.modelo_izq)) {
+      const pac = data.pacientes.find(p => p.id === v.paciente_id);
+      if (pac) {
+        const anioVenta = (v.fecha || today()).split("-")[0];
+        const audifonoDer = [v.marca_der, v.modelo_der].filter(Boolean).join(" ").trim();
+        const audifonoIzq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ").trim();
+        await db.actualizarPaciente({
+          ...pac,
+          audifono_der: audifonoDer || pac.audifono_der || "",
+          audifono_der_anio: audifonoDer ? anioVenta : (pac.audifono_der_anio || ""),
+          audifono_izq: audifonoIzq || pac.audifono_izq || "",
+          audifono_izq_anio: audifonoIzq ? anioVenta : (pac.audifono_izq_anio || ""),
+          // Si se reemplaza el audífono, N° de serie (del stock vinculado) y fecha de retiro se actualizan con él
+          audifono_der_serie: audifonoDer ? ((data.stock || []).find(x => x.id === v.stock_der_id)?.numero_serie || "") : (pac.audifono_der_serie || ""),
+          audifono_der_fecha: audifonoDer ? hoyLocal() : (pac.audifono_der_fecha || ""),
+          audifono_izq_serie: audifonoIzq ? ((data.stock || []).find(x => x.id === v.stock_izq_id)?.numero_serie || "") : (pac.audifono_izq_serie || ""),
+          audifono_izq_fecha: audifonoIzq ? hoyLocal() : (pac.audifono_izq_fecha || ""),
+        });
       }
-      await volcarAudifonosAPaciente(v);
     }
 
     // Si se aprueba (o se marca directamente "Pedido a Buenos Aires") y no tiene stock vinculado, ofrecer pedirlo a BS AS
@@ -7763,7 +7740,7 @@ function AppInner() {
     .reduce((s, c) => s + ((parseFloat(c.total) || 0) - (parseFloat(c.seña) || 0)), 0);
 
   return (
-    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: 960, margin: "0 auto", paddingBottom: 40, minWidth: 0 }}>
+    <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", maxWidth: tab === "turnos" ? "none" : 960, margin: "0 auto", paddingBottom: 40, minWidth: 0 }}>
       <div style={{ background: "#fff", padding: "12px 28px", borderBottom: "3px solid #1a6b6b", boxShadow: "0 2px 12px rgba(26,107,107,0.1)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <img src="/logo-sonara.png" alt="Sonara Audiología" style={{ height: 56, objectFit: "contain" }} />
