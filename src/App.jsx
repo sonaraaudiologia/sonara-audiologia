@@ -116,6 +116,28 @@ function limpiarTelefonoAR(tel) {
   return "549" + d;
 }
 
+// Firma corta del turno para el link de confirmación. Se calcula con id + paciente +
+// fecha + hora: si el turno se reprograma, el link viejo deja de ser válido (así el
+// paciente no confirma un horario que ya cambió), y nadie puede armar a mano un link
+// para otro turno cambiando el número de id.
+function firmaTurno(t) {
+  const str = `sonara|${t.id}|${t.paciente_id}|${t.fecha}|${(t.hora || "").slice(0, 5)}`;
+  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+// Link a la página pública donde el paciente confirma o cancela su turno
+function linkConfirmacionTurno(turno) {
+  if (!turno?.id || !turno?.paciente_id) return "";
+  return `${window.location.origin}/?turno=${encodeURIComponent(turno.id)}&k=${firmaTurno(turno)}`;
+}
+
 // Arma el link de wa.me con el mensaje de recordatorio precargado (el usuario
 // solo tiene que abrir el link y tocar "Enviar" — no se manda nada automáticamente).
 function linkRecordatorioWhatsApp(turno, paciente) {
@@ -124,7 +146,11 @@ function linkRecordatorioWhatsApp(turno, paciente) {
   if (!numero) return null;
   const fecha = formatFecha(turno.fecha);
   const hora = turno.hora ? turno.hora.slice(0, 5) : "";
-  const mensaje = `Hola ${paciente.nombre} 👋 Te escribimos de Sonara Audiología para recordarte tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}. Te pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1. Ante cualquier inconveniente para asistir, por favor avisanos. ¡Te esperamos!`;
+  const linkConf = linkConfirmacionTurno(turno);
+  const cierre = linkConf
+    ? `👉 Por favor confirmá o cancelá tu turno desde este link:\n${linkConf}\n\n¡Te esperamos!`
+    : `Ante cualquier inconveniente para asistir, por favor avisanos. ¡Te esperamos!`;
+  const mensaje = `Hola ${paciente.nombre} 👋 Te escribimos de Sonara Audiología para recordarte tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
 function nombreDia(dateStr) {
@@ -2510,7 +2536,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                             )}
                           </div>
                           {modalEntrada.editando && formEntrada.fecha && (
-                            (() => { const link = linkRecordatorioWhatsApp({ fecha: formEntrada.fecha, hora: formEntrada.hora }, p); return link ? (
+                            (() => { const link = linkRecordatorioWhatsApp(modalEntrada.editando, p); return link ? (
                               <a href={link} target="_blank" rel="noopener noreferrer"
                                 style={{ display: "inline-block", marginTop: 10, background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none" }}>
                                 📱 Recordar turno por WhatsApp
@@ -7819,6 +7845,152 @@ function UndoButton({ db }) {
   );
 }
 
+// ─── CONFIRMACIÓN PÚBLICA DE TURNO ───────────────────────────────────────────
+// Página sin login que abre el paciente desde el link del recordatorio de WhatsApp
+// (?turno=<id>&k=<firma>). Solo muestra su nombre, fecha y hora, y le deja
+// confirmar o cancelar. Si cancela, se crea un recordatorio para el equipo.
+function ConfirmarTurnoPublico({ turnoId, firma }) {
+  const [fase, setFase] = useState("cargando"); // cargando | listo | guardando | invalido | error
+  const [turno, setTurno] = useState(null);
+  const [pac, setPac] = useState({ nombre: "", apellido: "" });
+  const [preguntaCancelar, setPreguntaCancelar] = useState(false);
+  const [resultado, setResultado] = useState(null); // "confirmado" | "cancelado"
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: t, error } = await supabase.from("turnos")
+          .select("id, paciente_id, fecha, hora, estado").eq("id", turnoId).maybeSingle();
+        if (error) { setFase(error.code === "22P02" ? "invalido" : "error"); return; }
+        if (!t || firmaTurno(t) !== firma) { setFase("invalido"); return; }
+        const { data: p } = await supabase.from("pacientes").select("nombre, apellido").eq("id", t.paciente_id).maybeSingle();
+        setTurno(t);
+        setPac({ nombre: p?.nombre || "", apellido: p?.apellido || "" });
+        setFase("listo");
+      } catch (e) { console.error(e); setFase("error"); }
+    })();
+  }, [turnoId, firma]);
+
+  const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+  const diaTxt = turno ? DIAS[new Date(turno.fecha + "T12:00:00").getDay()] : "";
+  const horaTxt = turno?.hora ? turno.hora.slice(0, 5) : "";
+  const cuando = turno ? `${diaTxt} ${formatFecha(turno.fecha)}${horaTxt ? ` a las ${horaTxt} hs` : ""}` : "";
+
+  async function responder(nuevo) {
+    setFase("guardando");
+    try {
+      const { error } = await supabase.from("turnos").update({ estado: nuevo }).eq("id", turno.id);
+      if (error) throw error;
+      const quien = `${pac.nombre} ${pac.apellido}`.trim() || "Paciente";
+      await logAuditoria("Paciente (link WhatsApp)", "EDITAR", "turnos",
+        `${quien} ${nuevo === "confirmado" ? "confirmó" : "canceló"} su turno del ${formatFecha(turno.fecha)} ${horaTxt} hs`,
+        { estado: turno.estado }, { estado: nuevo });
+      if (nuevo === "cancelado") {
+        await supabase.from("recordatorios").insert({
+          titulo: `❌ ${quien} canceló su turno del ${formatFecha(turno.fecha)} ${horaTxt} hs`,
+          fecha: hoyLocal(), hora: "09:00", tipo: "seguimiento", paciente_id: turno.paciente_id,
+          descripcion: "Cancelado por el paciente desde el link del recordatorio de WhatsApp. El horario quedó libre.",
+          completado: false, momento: "antes",
+        });
+      }
+      setTurno(t => ({ ...t, estado: nuevo }));
+      setResultado(nuevo);
+      setPreguntaCancelar(false);
+      setFase("listo");
+    } catch (e) { console.error(e); setFase("error"); }
+  }
+
+  const caja = { background: "#fff", borderRadius: 16, padding: "28px 22px", maxWidth: 420, width: "100%", boxShadow: "0 8px 30px rgba(0,0,0,0.08)", textAlign: "center", boxSizing: "border-box" };
+  const btnGrande = { width: "100%", padding: "15px 18px", borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: "pointer", border: "none" };
+  const texto = { fontSize: 15, color: "#374151", lineHeight: 1.5, margin: "0 0 8px" };
+  const escribinos = <p style={{ ...texto, fontSize: 13, color: "#6B7280", marginTop: 14 }}>Ante cualquier duda, respondé el mensaje de WhatsApp y te ayudamos.</p>;
+
+  let contenido;
+  if (fase === "cargando") {
+    contenido = <p style={texto}>Cargando tu turno…</p>;
+  } else if (fase === "invalido") {
+    contenido = <>
+      <div style={{ fontSize: 40, marginBottom: 8 }}>🔗</div>
+      <p style={texto}>Este link no es válido o el turno fue modificado.</p>
+      {escribinos}
+    </>;
+  } else if (fase === "error") {
+    contenido = <>
+      <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
+      <p style={texto}>No pudimos procesar tu respuesta. Probá de nuevo en unos minutos.</p>
+      {escribinos}
+    </>;
+  } else if (resultado === "confirmado") {
+    contenido = <>
+      <div style={{ fontSize: 48, marginBottom: 8 }}>✅</div>
+      <h2 style={{ fontSize: 20, color: "#065F46", margin: "0 0 10px" }}>¡Listo{pac.nombre ? `, ${pac.nombre}` : ""}! Tu turno está confirmado</h2>
+      <p style={texto}>Te esperamos el <b>{cuando}</b> en Ituzaingó 1934 Of. 1.</p>
+    </>;
+  } else if (resultado === "cancelado") {
+    contenido = <>
+      <div style={{ fontSize: 48, marginBottom: 8 }}>👋</div>
+      <h2 style={{ fontSize: 20, color: "#1a1a2e", margin: "0 0 10px" }}>Tu turno fue cancelado</h2>
+      <p style={texto}>Gracias por avisarnos. Si querés reprogramarlo, escribinos por WhatsApp.</p>
+    </>;
+  } else if (turno.fecha < hoyLocal()) {
+    contenido = <><p style={texto}>Este turno ({cuando}) ya pasó.</p>{escribinos}</>;
+  } else if (turno.estado === "cancelado" || turno.estado === "suspendido") {
+    contenido = <>
+      <p style={texto}>El turno del <b>{cuando}</b> ya figura cancelado.</p>
+      <p style={texto}>Si querés un nuevo turno, escribinos por WhatsApp.</p>
+    </>;
+  } else if (turno.estado !== "pendiente" && turno.estado !== "confirmado") {
+    contenido = <><p style={texto}>Este turno ya no se puede modificar desde acá.</p>{escribinos}</>;
+  } else {
+    const yaConfirmado = turno.estado === "confirmado";
+    contenido = <>
+      <h2 style={{ fontSize: 20, color: "#1a1a2e", margin: "0 0 14px" }}>Hola{pac.nombre ? ` ${pac.nombre}` : ""} 👋</h2>
+      <p style={texto}>Tenés turno el</p>
+      <div style={{ background: "#F0F7F7", borderRadius: 12, padding: "14px 12px", margin: "6px 0 14px" }}>
+        <div style={{ fontSize: 18, fontWeight: 800, color: "#1a6b6b", textTransform: "capitalize" }}>{diaTxt} {formatFecha(turno.fecha)}</div>
+        {horaTxt && <div style={{ fontSize: 26, fontWeight: 800, color: "#1a6b6b" }}>{horaTxt} hs</div>}
+        <div style={{ fontSize: 13, color: "#4B5563", marginTop: 4 }}>📍 Ituzaingó 1934 Of. 1, Rosario</div>
+      </div>
+      {preguntaCancelar ? (
+        <>
+          <p style={{ ...texto, fontWeight: 700 }}>¿Seguro que querés cancelar tu turno?</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            <button disabled={fase === "guardando"} onClick={() => responder("cancelado")} style={{ ...btnGrande, background: "#DC2626", color: "#fff" }}>
+              {fase === "guardando" ? "Guardando…" : "Sí, cancelar turno"}
+            </button>
+            <button disabled={fase === "guardando"} onClick={() => setPreguntaCancelar(false)} style={{ ...btnGrande, background: "#F3F4F6", color: "#374151" }}>Volver</button>
+          </div>
+        </>
+      ) : (
+        <>
+          {yaConfirmado && <p style={{ ...texto, color: "#065F46", fontWeight: 700 }}>✅ Ya confirmaste este turno</p>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 10 }}>
+            {!yaConfirmado && (
+              <button disabled={fase === "guardando"} onClick={() => responder("confirmado")} style={{ ...btnGrande, background: "linear-gradient(135deg, #1a6b6b, #145555)", color: "#fff" }}>
+                {fase === "guardando" ? "Guardando…" : "✅ Confirmo mi turno"}
+              </button>
+            )}
+            <button disabled={fase === "guardando"} onClick={() => setPreguntaCancelar(true)} style={{ ...btnGrande, background: "#fff", color: "#DC2626", border: "2px solid #FCA5A5" }}>
+              ❌ No puedo ir, cancelar
+            </button>
+          </div>
+        </>
+      )}
+    </>;
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, #F0F7F7, #FFFFFF)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "system-ui, -apple-system, 'Segoe UI', sans-serif", boxSizing: "border-box" }}>
+      <img src="/logo-sonara.png" alt="Sonara Audiología" style={{ height: 64, objectFit: "contain", marginBottom: 20 }} />
+      <div style={caja}>{contenido}</div>
+    </div>
+  );
+}
+
 export default function App() {
+  // Link público de confirmación de turno: se muestra sin pedir login
+  const params = new URLSearchParams(window.location.search);
+  const turnoPublico = params.get("turno");
+  if (turnoPublico) return <ErrorBoundary><ConfirmarTurnoPublico turnoId={turnoPublico} firma={params.get("k") || ""} /></ErrorBoundary>;
   return <ErrorBoundary><AppInner /></ErrorBoundary>;
 }
