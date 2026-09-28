@@ -1387,6 +1387,11 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
   // ── Color de entrada ──────────────────────────────────────────────────────────
   function getColor(entrada) {
+    // Visitas/reuniones: siempre amarillo (salvo que se haya elegido otro color a mano)
+    if (entrada._kind !== "bloqueo" && entrada._kind !== "recordatorio" && !entrada.paciente_id
+        && (!entrada.color_custom || entrada.color_custom === TIPOS_ENTRADA.visita.color)
+        && detectarTipoEntrada(entrada) === "visita")
+      return { color: TIPOS_ENTRADA.visita.color, bg: TIPOS_ENTRADA.visita.bg };
     if (entrada.color_custom) return { color: entrada.color_custom, bg: entrada.color_custom + "22" };
     if (entrada._kind === "bloqueo") return { color: "#991B1B", bg: "#FEE2E2" };
     if (entrada._kind === "recordatorio") return { color: "#6B7280", bg: "#F3F4F6" };
@@ -1413,14 +1418,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     if (kind === "recordatorio") return "recordatorio";
     if (kind === "bloqueo") return "bloqueo";
     // Detectar visita: sin paciente y motivo incluye visita/reunión, o titulo tiene visita
-    const motivo = (entrada.motivo || "").toLowerCase();
-    const titulo = (entrada.titulo || "").toLowerCase();
-    const practicas = Array.isArray(entrada.practicas) ? entrada.practicas.join(" ").toLowerCase() : "";
-    if (!entrada.paciente_id && (
-      motivo.includes("visita") || motivo.includes("reunión") || motivo.includes("reunion") ||
-      titulo.includes("visita") || titulo.includes("reunión") ||
-      practicas.includes("visita") || practicas.includes("reunión")
-    )) return "visita";
+    const textoVisita = normalizar([entrada.motivo, entrada.titulo, Array.isArray(entrada.practicas) ? entrada.practicas.join(" ") : ""].join(" "));
+    if (!entrada.paciente_id && (textoVisita.includes("visita") || textoVisita.includes("reunion"))) return "visita";
     // También si tiene color_custom y sin paciente puede ser visita
     if (!entrada.paciente_id && entrada.color_custom && kind === "turno") return "visita";
     return "turno";
@@ -1466,7 +1465,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     setSaving(true);
     try {
       const esNueva = !modalEntrada?.editando;
-      const colorFinal = colorEntrada || null;
+      const colorFinal = colorEntrada || (tipoEntrada === "visita" ? TIPOS_ENTRADA.visita.color : null);
       const estadoFinal = tipoEntrada === "bloqueo" ? "bloqueado" : (formEntrada.estado || "pendiente");
       const esOculto = ESTADOS_OCULTOS.includes(estadoFinal);
 
@@ -1610,12 +1609,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     const esRec = entrada._kind === "recordatorio";
     const pac = !esRec && !esBloqueo ? pacientes.find(p => p.id === entrada.paciente_id) : null;
 
-    const esVisita = !pac && !esBloqueo && !esRec && (
-      (entrada.motivo||"").toLowerCase().includes("visita") ||
-      (entrada.motivo||"").toLowerCase().includes("reunión") ||
-      (entrada.motivo||"").toLowerCase().includes("reunion") ||
-      (Array.isArray(entrada.practicas) && entrada.practicas.join(" ").toLowerCase().includes("visita"))
-    );
+    const esVisita = !pac && !esBloqueo && !esRec && detectarTipoEntrada(entrada) === "visita";
 
     const esRecCompletado = esRec && entrada.completado;
 
