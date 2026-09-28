@@ -1509,7 +1509,15 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           creado_por: usuario?.nombre || "",
         };
 
-        if ((tipoEntrada === "bloqueo" || tipoEntrada === "visita") && formEntrada.profesional === "ambas") {
+        if (tipoEntrada === "visita") {
+          const profs = Array.isArray(formEntrada.profsVisita) ? formEntrada.profsVisita
+            : formEntrada.profesional === "ambas" ? PROFESIONALES.map(p => p.key)
+            : formEntrada.profesional ? [formEntrada.profesional] : [];
+          const [primera, ...resto] = profs.length ? profs : [""];
+          if (esNueva) await db.agregarTurno({ ...turno, profesional: primera });
+          else await db.actualizarTurno({ ...turno, profesional: primera, id: modalEntrada.editando.id });
+          await Promise.all(resto.map(k => db.agregarTurno({ ...turno, profesional: k })));
+        } else if (tipoEntrada === "bloqueo" && formEntrada.profesional === "ambas") {
           await Promise.all(PROFESIONALES.map(p => db.agregarTurno({ ...turno, profesional: p.key })));
         } else if (esNueva) {
           await db.agregarTurno(turno);
@@ -2660,12 +2668,31 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           {tipoEntrada === "visita" && (
             <>
               <Field label="Título / Nombre *"><input style={inputStyle} value={formEntrada.titulo || formEntrada.motivo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value, motivo: e.target.value }))} placeholder="Ej: Reunión con Dr. Pérez..." /></Field>
-              <Field label="Profesional">
-                <select style={selectStyle} value={formEntrada.profesional || ""} onChange={e => setFormEntrada(f => ({ ...f, profesional: e.target.value }))}>
-                  <option value="">— Sin asignar —</option>
-                  {PROFESIONALES.map(p => <option key={p.key}>{p.key}</option>)}
-                  <option value="ambas">Todas las profesionales</option>
-                </select>
+              <Field label="Profesionales (podés elegir más de una)">
+                {(() => {
+                  const sel = Array.isArray(formEntrada.profsVisita) ? formEntrada.profsVisita
+                    : formEntrada.profesional === "ambas" ? PROFESIONALES.map(p => p.key)
+                    : formEntrada.profesional ? [formEntrada.profesional] : [];
+                  const toggle = key => {
+                    const nuevos = sel.includes(key) ? sel.filter(k => k !== key) : [...sel, key];
+                    setFormEntrada(f => ({ ...f, profsVisita: nuevos, profesional: nuevos[0] || "" }));
+                  };
+                  return (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {PROFESIONALES.map(p => {
+                        const activo = sel.includes(p.key);
+                        return (
+                          <button key={p.key} type="button" onClick={() => toggle(p.key)}
+                            style={{ padding: "7px 12px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer",
+                              border: `1.5px solid ${activo ? p.color : "#E5E7EB"}`, background: activo ? p.color + "1A" : "#fff", color: activo ? p.color : "#666" }}>
+                            {activo ? "✓ " : ""}{p.key}
+                          </button>
+                        );
+                      })}
+                      {sel.length === 0 && <span style={{ fontSize: 12, color: "#999", alignSelf: "center" }}>Sin asignar</span>}
+                    </div>
+                  );
+                })()}
               </Field>
             </>
           )}
@@ -6959,12 +6986,29 @@ function Stock({ data, db, usuario }) {
   });
 
   // Group by modelo
-  const grupos = {};
+  // (ignora mayúsculas, tildes y espacios de más: "More 1" = "MORE 1" = "more  1")
+  const claveModelo = item => normalizar(`${item.marca || ""} ${item.modelo || ""}`).replace(/\s+/g, " ").trim();
+  const gruposNorm = {};
   lista.forEach(item => {
-    const key = `${item.marca ? item.marca + " " : ""}${item.modelo}`.trim() || "Sin modelo";
-    if (!grupos[key]) grupos[key] = [];
-    grupos[key].push(item);
+    const k = claveModelo(item) || "__sin__";
+    if (!gruposNorm[k]) gruposNorm[k] = [];
+    gruposNorm[k].push(item);
   });
+  const grupos = {};
+  Object.entries(gruposNorm).forEach(([k, arr]) => {
+    const label = k === "__sin__" ? "Sin modelo"
+      : `${arr[0].marca ? arr[0].marca.trim() + " " : ""}${(arr[0].modelo || "").trim()}`.replace(/\s+/g, " ").trim();
+    grupos[label] = [...(grupos[label] || []), ...arr];
+  });
+
+  // Sugerencias para el formulario (sin duplicados por mayúsculas/tildes)
+  const unicos = arr => {
+    const vistos = {};
+    arr.forEach(v => { const t = (v || "").trim(); const k = normalizar(t); if (t && !vistos[k]) vistos[k] = t; });
+    return Object.values(vistos).sort((a, b) => a.localeCompare(b));
+  };
+  const sugMarcas = unicos(itemsVista.map(i => i.marca));
+  const sugModelos = unicos(itemsVista.filter(i => !form.marca || normalizar(i.marca).trim() === normalizar(form.marca).trim()).map(i => i.modelo));
 
   const stats = Object.fromEntries(Object.keys(ESTADOS_STOCK).map(k => [k, itemsVista.filter(i => i.estado === k).length]));
 
@@ -7060,8 +7104,10 @@ function Stock({ data, db, usuario }) {
       {modal && (
         <Modal title={modal === "nuevo" ? (esVistaCargadores ? "Nuevo cargador en stock" : "Nuevo audífono en stock") : "Editar stock"} onClose={() => { setModal(null); setForm(FORM_VACIO); }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <Field label="Marca"><input style={inputStyle} value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
-            <Field label="Modelo *"><input style={inputStyle} value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Ej: More 1" /></Field>
+            <Field label="Marca"><input style={inputStyle} list="stock-sug-marcas" value={form.marca} onChange={e => setForm(f => ({ ...f, marca: e.target.value }))} placeholder="Ej: Oticon" /></Field>
+            <Field label="Modelo *"><input style={inputStyle} list="stock-sug-modelos" value={form.modelo} onChange={e => setForm(f => ({ ...f, modelo: e.target.value }))} placeholder="Elegí de la lista o escribí uno nuevo" /></Field>
+            <datalist id="stock-sug-marcas">{sugMarcas.map(m => <option key={m} value={m} />)}</datalist>
+            <datalist id="stock-sug-modelos">{sugModelos.map(m => <option key={m} value={m} />)}</datalist>
             <Field label="N° de serie"><input style={inputStyle} value={form.numero_serie} onChange={e => setForm(f => ({ ...f, numero_serie: e.target.value }))} /></Field>
             <Field label="Color"><input style={inputStyle} value={form.color} onChange={e => setForm(f => ({ ...f, color: e.target.value }))} placeholder="Ej: Beige..." /></Field>
             <Field label="Oído">
