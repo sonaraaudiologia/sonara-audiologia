@@ -1216,7 +1216,28 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   const [savingPac, setSavingPac] = useState(false);
   const [filtroFecha, setFiltroFecha] = useState(today());
   const [semanaBase, setSemanaBase] = useState(getLunes(today()));
-  const [filtroProfesional, setFiltroProfesional] = useState("todas");
+  // Profesionales visibles en la agenda (multi-selección). Se guarda por usuario en este navegador.
+  // Formato guardado: { [profKey]: true|false } con las elecciones explícitas; si un profesional
+  // no tiene elección guardada, se muestra salvo que tenga `ocultoPorDefecto: true` en PROFESIONALES.
+  const claveProfsVisibles = `sonara_profs_visibles_${usuario?.nombre || "general"}`;
+  const [eleccionProfs, setEleccionProfs] = useState(() => {
+    try { const v = JSON.parse(localStorage.getItem(claveProfsVisibles) || "{}"); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(claveProfsVisibles, JSON.stringify(eleccionProfs)); } catch {}
+  }, [eleccionProfs, claveProfsVisibles]);
+  const profsVisiblesCalc = PROFESIONALES.filter(p => eleccionProfs[p.key] ?? !p.ocultoPorDefecto).map(p => p.key);
+  const profsVisibles = profsVisiblesCalc.length > 0 ? profsVisiblesCalc : PROFESIONALES.map(p => p.key);
+  const verProf = (key) => profsVisibles.includes(key);
+  const todasVisibles = profsVisibles.length === PROFESIONALES.length;
+  function toggleProfVisible(key) {
+    const visible = verProf(key);
+    if (visible && profsVisibles.length === 1) return; // siempre queda al menos una
+    setEleccionProfs(prev => ({ ...prev, [key]: !visible }));
+  }
+  function mostrarTodasProfs() {
+    setEleccionProfs(Object.fromEntries(PROFESIONALES.map(p => [p.key, true])));
+  }
   const [verCumpleDia, setVerCumpleDia] = useState(null); // fecha del día a mostrar cumples
   const [verEspecialDia, setVerEspecialDia] = useState(null); // fecha del día a mostrar días especiales
 
@@ -1374,8 +1395,8 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
       ...turnos.map(t => ({ ...t, _kind: ((t.motivo||"").includes("BLOQUEADO") || t.estado === "bloqueado") ? "bloqueo" : "turno" })),
       ...recs.map(r => ({ ...r, _kind: "recordatorio", hora: r.hora || "08:00" })),
     ];
-    if (filtroProfesional !== "todas") {
-      return todas.filter(e => e._kind === "recordatorio" || e.profesional === filtroProfesional);
+    if (!todasVisibles) {
+      return todas.filter(e => e._kind === "recordatorio" || verProf(e.profesional || PROFESIONALES[0].key));
     }
     return todas;
   }
@@ -1905,13 +1926,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           {/* Filtros: profesional + cancelados */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
-              {[["todas","Todas"], ...PROFESIONALES.map(p => [p.key, p.label])].map(([v,l]) => (
-                <button key={v} type="button" onClick={() => setFiltroProfesional(v)} style={{
-                  background: filtroProfesional === v ? "#1a6b6b" : "transparent",
-                  color: filtroProfesional === v ? "#fff" : "#555",
-                  border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
-                }}>{l}</button>
-              ))}
+              <button type="button" onClick={mostrarTodasProfs} style={{
+                background: todasVisibles ? "#1a6b6b" : "transparent",
+                color: todasVisibles ? "#fff" : "#555",
+                border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+              }}>Todas</button>
+              {PROFESIONALES.map(p => {
+                const activo = verProf(p.key);
+                return (
+                  <button key={p.key} type="button" onClick={() => toggleProfVisible(p.key)}
+                    title={activo ? `Ocultar ${p.label}` : `Mostrar ${p.label}`}
+                    style={{
+                      background: activo && !todasVisibles ? "#1a6b6b" : "transparent",
+                      color: activo ? (todasVisibles ? "#555" : "#fff") : "#AAA",
+                      border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 4
+                    }}>
+                    <span style={{ fontSize: 10 }}>{activo ? "☑" : "☐"}</span>{p.label}
+                  </button>
+                );
+              })}
             </div>
             <div style={{ display: "flex", gap: 3, background: "#F3F4F6", borderRadius: 8, padding: 3 }}>
               <button type="button" onClick={() => setMostrarCancelados(false)} style={{ background: !mostrarCancelados ? "#1a6b6b" : "transparent", color: !mostrarCancelados ? "#fff" : "#555", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Sin cancelados</button>
@@ -1965,7 +1999,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </div>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <GrillaHoraria fecha={filtroFecha} entradas={entradasDia(filtroFecha).filter(e => e._kind !== "recordatorio")} slotH={SLOT_H_DIA}
-                  profKey={filtroProfesional !== "todas" ? filtroProfesional : null} />
+                  profKey={profsVisibles.length === 1 ? profsVisibles[0] : null} />
               </div>
             </div>
           </div>
@@ -2000,7 +2034,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
         const totalCols = `44px repeat(6, minmax(110px, 1fr))`;
 
-        const numProfs = filtroProfesional === "todas" ? PROFESIONALES.length : 1;
+        const numProfs = profsVisibles.length;
         const minColW = 90;
         const totalGridW = 44 + diasSemana.length * numProfs * minColW;
 
@@ -2037,7 +2071,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: hoy ? "rgba(255,255,255,0.6)" : "#888" }}>{nombreDia(fecha)}</div>
                       <div style={{ fontSize: 17, fontWeight: 800, color: hoy ? "#fff" : "#1a1a2e" }}>{numDia(fecha)}</div>
                       <div style={{ display: "flex", justifyContent: "center", gap: 4, marginTop: 2 }}>
-                        {PROFESIONALES.map((p, pi) => (filtroProfesional === "todas" || filtroProfesional === p.key) && (
+                        {PROFESIONALES.map((p, pi) => verProf(p.key) && (
                           <span key={p.key} style={{ fontSize: 8, fontWeight: 700, color: bloqueosPorProf[pi] ? "#991B1B" : p.color, background: bloqueosPorProf[pi] ? "#FEE2E2" : p.bg, borderRadius: 4, padding: "1px 4px" }}>{bloqueosPorProf[pi] ? `🔒${p.short}` : p.short}</span>
                         ))}
                       </div>
@@ -2073,7 +2107,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 {/* 6 días */}
                 <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(6, 1fr)" }}>
                   {diasSemana.map(fecha => {
-                    const profsFilt = filtroProfesional === "todas" ? PROFS_SEM : PROFS_SEM.filter(p => p.key === filtroProfesional);
+                    const profsFilt = PROFS_SEM.filter(p => verProf(p.key));
                     return (
                     <div key={fecha} style={{ borderRight: "1px solid #E5E7EB", display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
                       {/* Recordatorios "antes de empezar" — altura fija igual en todos los días */}
@@ -2237,9 +2271,9 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
             <div style={{ border: "1.5px solid #E5E7EB", borderRadius: 12, background: "#fff", overflowX: "auto", overflowY: "auto", maxHeight: "calc(100vh - 200px)", WebkitOverflowScrolling: "touch" }}>
               {/* Header profesionales sticky */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? `repeat(${PROFS.length}, 1fr)` : "1fr"}`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff", minWidth: 320 }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px repeat(${profsVisibles.length}, 1fr)`, borderBottom: "2px solid #E5E7EB", position: "sticky", top: 0, zIndex: 20, background: "#fff", minWidth: 320 }}>
                 <div style={{ background: "#F8FAFC", borderRight: "1.5px solid #E5E7EB" }} />
-                {PROFS.filter(p => filtroProfesional === "todas" || p.key === filtroProfesional).map(prof => {
+                {PROFS.filter(p => verProf(p.key)).map(prof => {
                   const ents = entradasProf(prof.key);
                   const bloqueos = ents.filter(e => e._kind === "bloqueo");
                   const normales = ents.filter(e => e._kind !== "bloqueo");
@@ -2261,12 +2295,12 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               </div>
 
               {/* Cuerpo dual */}
-              <div style={{ display: "grid", gridTemplateColumns: `44px ${filtroProfesional === "todas" ? `repeat(${PROFS.length}, 1fr)` : "1fr"}`, minWidth: 320 }}>
+              <div style={{ display: "grid", gridTemplateColumns: `44px repeat(${profsVisibles.length}, 1fr)`, minWidth: 320 }}>
                 {/* Columna horas */}
                 <ColumnaHoras slotH={SLOT_H_AG} />
 
                 {/* Columna por profesional */}
-                {PROFS.map(prof => {
+                {PROFS.filter(p => verProf(p.key)).map(prof => {
                   const ents = entradasProf(prof.key);
                   const conCols = asignarCols(ents);
 
@@ -6022,7 +6056,7 @@ const USUARIOS = [
   { nombre: "Analía Paloma",     pass: "Ana2025",    rol: "profesional", color: "#B45309", bg: "#FEF3C7", inicial: "AP" },
   { nombre: "Ayudante",          pass: "Sonara2025", rol: "ayudante",    color: "#6B7280", bg: "#F3F4F6", inicial: "AY" },
   // tabs: si está definido, el usuario SOLO ve esas pestañas (acceso restringido)
-  { nombre: "Carolina",          pass: "caro2026",   rol: "ayudante",    color: "#BE185D", bg: "#FCE7F3", inicial: "CA", tabs: ["turnos", "pacientes", "profesionales", "compras"] },
+  { nombre: "Carolina",          pass: "caro2026",   rol: "ayudante",    color: "#BE185D", bg: "#FCE7F3", inicial: "CA", tabs: ["turnos", "pacientes", "profesionales", "compras", "disponibilidad"] },
 ];
 
 function LoginScreen({ onLogin }) {
