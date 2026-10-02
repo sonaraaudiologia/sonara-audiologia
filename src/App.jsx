@@ -6021,6 +6021,8 @@ const USUARIOS = [
   { nombre: "Graciela Valles",   pass: "Gra2025",    rol: "profesional", color: "#4338CA", bg: "#EEF2FF", inicial: "GV" },
   { nombre: "Analía Paloma",     pass: "Ana2025",    rol: "profesional", color: "#B45309", bg: "#FEF3C7", inicial: "AP" },
   { nombre: "Ayudante",          pass: "Sonara2025", rol: "ayudante",    color: "#6B7280", bg: "#F3F4F6", inicial: "AY" },
+  // tabs: si está definido, el usuario SOLO ve esas pestañas (acceso restringido)
+  { nombre: "Carolina",          pass: "caro2026",   rol: "ayudante",    color: "#BE185D", bg: "#FCE7F3", inicial: "CA", tabs: ["turnos", "pacientes", "profesionales", "compras"] },
 ];
 
 function LoginScreen({ onLogin }) {
@@ -7779,7 +7781,9 @@ function AppInner() {
     { id: "fechas",         label: "Cumpleaños",    icon: "🎂" },
     { id: "stock",          label: "Stock",          icon: "📦" },
     ...(usuarioActual?.rol === "profesional" ? [{ id: "auditoria", label: "Auditoría", icon: "🔍" }] : []),
-  ];
+  ].filter(t => !Array.isArray(usuarioActual?.tabs) || usuarioActual.tabs.includes(t.id));
+  // Si el usuario tiene acceso restringido, solo puede renderizar sus pestañas permitidas
+  const puedeVer = (id) => !Array.isArray(usuarioActual?.tabs) || usuarioActual.tabs.includes(id);
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "system-ui", background: "#f0f7f7" }}>
@@ -7826,6 +7830,10 @@ function AppInner() {
         ))}
       </div>
       <div style={{ padding: "12px 10px" }}>
+        {!puedeVer(tab) && (
+          <div style={{ textAlign: "center", padding: 40, color: "#888", fontSize: 14 }}>No tenés acceso a esta sección.</div>
+        )}
+        {puedeVer(tab) && <>
         {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "turnos")} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} />}
@@ -7839,6 +7847,7 @@ function AppInner() {
         {tab === "stock"          && <Stock data={data} db={db} usuario={usuarioActual} />}
         {tab === "auditoria"      && usuarioActual?.rol === "profesional" && <Auditoria db={db} />}
         {tab === "gestion"        && usuarioActual?.rol === "profesional" && <Gestion db={db} usuario={usuarioActual} />}
+        </>}
       </div>
       <UndoButton db={db} />
     </div>
