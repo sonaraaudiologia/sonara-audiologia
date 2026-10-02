@@ -6980,8 +6980,10 @@ function Stock({ data, db, usuario }) {
   });
 
   // Group by modelo
-  // (ignora mayúsculas, tildes y espacios de más: "More 1" = "MORE 1" = "more  1")
-  const claveModelo = item => normalizar(`${item.marca || ""} ${item.modelo || ""}`).replace(/\s+/g, " ").trim();
+  // (ignora mayúsculas, tildes, espacios de más y el orden de las palabras:
+  //  "More 1" = "MORE 1" = "more  1"; "Oticon Charger 1.0 Mini RITE" = "Oticon Charger mini rite 1.0")
+  const claveTexto = txt => normalizar(txt).split(/\s+/).filter(Boolean).sort().join(" ");
+  const claveModelo = item => claveTexto(`${item.marca || ""} ${item.modelo || ""}`);
   const gruposNorm = {};
   lista.forEach(item => {
     const k = claveModelo(item) || "__sin__";
@@ -6998,7 +7000,7 @@ function Stock({ data, db, usuario }) {
   // Sugerencias para el formulario (sin duplicados por mayúsculas/tildes)
   const unicos = arr => {
     const vistos = {};
-    arr.forEach(v => { const t = (v || "").trim(); const k = normalizar(t); if (t && !vistos[k]) vistos[k] = t; });
+    arr.forEach(v => { const t = (v || "").trim(); const k = claveTexto(t); if (t && !vistos[k]) vistos[k] = t; });
     return Object.values(vistos).sort((a, b) => a.localeCompare(b));
   };
   const sugMarcas = unicos(itemsVista.map(i => i.marca));
