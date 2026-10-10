@@ -155,6 +155,16 @@ function linkRecordatorioWhatsApp(turno, paciente) {
   const mensaje = `Hola ${paciente.nombre} 👋 Te escribimos de Sonara Audiología para recordarte tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
+
+// Arma el link de wa.me con el saludo de cumpleaños precargado (mismo esquema que
+// el recordatorio: solo abre WhatsApp con el texto listo, no envía nada solo).
+function linkSaludoCumpleWhatsApp(paciente) {
+  if (!paciente?.telefono) return null;
+  const numero = limpiarTelefonoAR(paciente.telefono);
+  if (!numero) return null;
+  const mensaje = `¡Feliz cumpleaños, ${paciente.nombre}! 🎂🎉\n\nDesde Sonara Audiología te deseamos un día hermoso, para disfrutar junto a las voces y los sonidos que más querés.\n\n¡Un abrazo grande de todo el equipo! 💙`;
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+}
 function nombreDia(dateStr) {
   return ["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"][new Date(dateStr + "T12:00:00").getDay()];
 }
@@ -544,6 +554,16 @@ function Dashboard({ data, onNavigate }) {
     .filter(t => t.fecha === manana && t.paciente_id && !ESTADOS_OCULTOS.includes(t.estado) && t.estado !== "bloqueado" && !(t.motivo||"").includes("BLOQUEADO"))
     .sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
 
+  // Pacientes que cumplen años hoy (para el panel de saludos por WhatsApp)
+  const cumplesHoy = data.pacientes
+    .filter(p => {
+      const fn = p.fechaNac || p.fecha_nac;
+      if (!fn) return false;
+      const [, m, dd] = fn.split("-");
+      return parseInt(dd, 10) === new Date().getDate() && parseInt(m, 10) === new Date().getMonth() + 1;
+    })
+    .sort((a,b) => `${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`));
+
   const busquedaResultados = busqueda.length > 1 ? [
     ...data.pacientes.filter(p => normalizar(`${p.nombre} ${p.apellido} ${p.dni||""}`).includes(normalizar(busqueda))).slice(0,4).map(p => ({ tipo: "paciente", label: `${p.apellido}, ${p.nombre}`, sub: p.telefono || p.dni || "", id: p.id })),
     ...data.turnos.filter(t => t.fecha >= hoy && (t.motivo||"").toLowerCase().includes(busqueda.toLowerCase())).slice(0,3).map(t => ({ tipo: "turno", label: t.motivo || "Turno", sub: `${formatFecha(t.fecha)} ${t.hora}`, id: t.id })),
@@ -672,6 +692,43 @@ function Dashboard({ data, onNavigate }) {
                       <a href={link} target="_blank" rel="noopener noreferrer"
                         style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
                         📱 Enviar
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: 11, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "7px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>Sin teléfono</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )
+        }
+      </div>
+
+      {/* Saludos de cumpleaños por WhatsApp (pacientes que cumplen hoy) */}
+      <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>🎂 Cumpleaños de hoy por WhatsApp</div>
+          <span style={{ fontSize: 12, color: "#888" }}>{cumplesHoy.length} paciente{cumplesHoy.length !== 1 ? "s" : ""}</span>
+        </div>
+        {cumplesHoy.length === 0
+          ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>Ningún paciente cumple años hoy</div>
+          : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {cumplesHoy.map(pac => {
+                const link = linkSaludoCumpleWhatsApp(pac);
+                return (
+                  <div key={pac.id} style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", borderRadius: 8, background: "#FFF7ED", border: "1px solid #FED7AA" }}>
+                    <span style={{ fontSize: 18, minWidth: 40, textAlign: "center" }}>🎉</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {pac.apellido}, {pac.nombre}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#888" }}>{pac.telefono || "Sin teléfono cargado"}</div>
+                    </div>
+                    {link ? (
+                      <a href={link} target="_blank" rel="noopener noreferrer"
+                        style={{ background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", textDecoration: "none", whiteSpace: "nowrap" }}>
+                        📱 Saludar
                       </a>
                     ) : (
                       <span style={{ fontSize: 11, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "7px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>Sin teléfono</span>
@@ -2396,7 +2453,21 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <div style={{ fontWeight: 700, fontSize: 15 }}>🎉 {c.nombre}</div>
                       <div style={{ fontSize: 12, color: "#888" }}>{c.tipo} · {nombreDia(c.fecha)} {numDia(c.fecha)}</div>
                     </div>
-                    {c._kind === "paciente" && <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>}
+                    {c._kind === "paciente" && (() => {
+                      const pac = data.pacientes.find(p => p.id === c.id);
+                      const link = pac ? linkSaludoCumpleWhatsApp(pac) : null;
+                      return (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          {link && (
+                            <a href={link} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+                              style={{ background: "#25D366", color: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap" }}>
+                              📱 Saludar
+                            </a>
+                          )}
+                          <span style={{ fontSize: 12, color: "#92400E", fontWeight: 600 }}>Ver ficha →</span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>
