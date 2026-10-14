@@ -91,6 +91,42 @@ function sumarMeses(fechaStr, meses) {
   return d.toISOString().split("T")[0];
 }
 
+// ─── RECORDATORIOS REPETIDOS ──────────────────────────────────────────────────
+// Frecuencias disponibles al agendar un recordatorio.
+const FRECUENCIAS_REC = [
+  { key: "",          label: "No se repite" },
+  { key: "semanal",   label: "Cada semana" },
+  { key: "quincenal", label: "Cada 2 semanas" },
+  { key: "mensual",   label: "Cada mes" },
+  { key: "anual",     label: "Cada año" },
+];
+const MAX_REPETICIONES_REC = 104;
+// Suma meses sin "desbordar" (31/01 + 1 mes = 28/02 o 29/02, no 03/03).
+function sumarMesesClamp(fechaStr, meses) {
+  const [y, m, d] = fechaStr.split("-").map(Number);
+  const total = (m - 1) + meses;
+  const ny = y + Math.floor(total / 12);
+  const nm = ((total % 12) + 12) % 12;
+  const ultimoDia = new Date(ny, nm + 1, 0).getDate();
+  return `${ny}-${String(nm + 1).padStart(2, "0")}-${String(Math.min(d, ultimoDia)).padStart(2, "0")}`;
+}
+// Devuelve todas las fechas de la serie (incluida la primera) entre fechaInicio y fechaHasta.
+function fechasRepeticion(fechaInicio, frecuencia, fechaHasta) {
+  if (!frecuencia || !fechaHasta || fechaHasta < fechaInicio) return [fechaInicio];
+  const fechas = [];
+  for (let i = 0; i < MAX_REPETICIONES_REC; i++) {
+    const f = frecuencia === "semanal" ? addDays(fechaInicio, 7 * i)
+      : frecuencia === "quincenal" ? addDays(fechaInicio, 14 * i)
+      : frecuencia === "mensual" ? sumarMesesClamp(fechaInicio, i)
+      : frecuencia === "anual" ? sumarMesesClamp(fechaInicio, 12 * i)
+      : fechaInicio;
+    if (f > fechaHasta) break;
+    fechas.push(f);
+    if (!["semanal", "quincenal", "mensual", "anual"].includes(frecuencia)) break;
+  }
+  return fechas;
+}
+
 // ─── WHATSAPP — recordatorio manual de turnos ─────────────────────────────────
 // Limpia y normaliza un número de teléfono argentino al formato que espera wa.me
 // (54 9 + código de área + número, sin el "15" local ni el "0" de larga distancia).
@@ -781,7 +817,19 @@ function useSupabase() {
     }
 
     try {
-      if (accion.tipo === "eliminar") {
+      if (accion.tipo === "eliminar_varios") {
+        await supabase.from(accion.tabla).insert(accion.items.map(it => ({ ...it })));
+        const { data: rows } = await supabase.from(accion.tabla).select("*");
+        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
+      } else if (accion.tipo === "crear_varios") {
+        const ids = accion.items.map(it => it.id);
+        await supabase.from(accion.tabla).delete().in("id", ids);
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => !ids.includes(x.id)) }));
+      } else if (accion.tipo === "actualizar_varios") {
+        await Promise.all(accion.itemsAnteriores.map(it => supabase.from(accion.tabla).update(it).eq("id", it.id)));
+        const mapa = Object.fromEntries(accion.itemsAnteriores.map(it => [it.id, it]));
+        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => mapa[x.id] ? { ...x, ...mapa[x.id] } : x) }));
+      } else if (accion.tipo === "eliminar") {
         await supabase.from(accion.tabla).insert({ ...accion.item });
         const { data: rows } = await supabase.from(accion.tabla).select("*");
         if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
@@ -936,6 +984,7 @@ function useSupabase() {
       tipo: r.tipo || "seguimiento", paciente_id: r.paciente_id || null,
       descripcion: r.descripcion || "", completado: r.completado || false,
       momento: r.momento || "despues",
+      ...(r.serie_id ? { serie_id: r.serie_id } : {}),
     };
   }
 
@@ -1165,6 +1214,38 @@ function useSupabase() {
     }
   }, [data.recordatorios]);
 
+  // ── Recordatorios repetidos (series) ──────────────────────────────────────
+  const agregarRecordatoriosSerie = useCallback(async (recs) => {
+    const { data: rows, error } = await supabase.from("recordatorios").insert(recs.map(toDBRec)).select();
+    if (error) { alert("No se pudieron crear los recordatorios repetidos: " + error.message + (String(error.message).includes("serie_id") ? "\n\nFalta correr en Supabase:\nALTER TABLE recordatorios ADD COLUMN IF NOT EXISTS serie_id text;" : "")); return []; }
+    if (rows?.length) {
+      setData(d => ({ ...d, recordatorios: [...d.recordatorios, ...rows] }));
+      pushUndo({ tipo: "crear_varios", tabla: "recordatorios", items: rows, descripcion: `Recordatorio "${rows[0].titulo}" (${rows.length} repeticiones) creado` });
+      logAuditoria(window.__sonaraUsuario, "CREAR", "recordatorios", `Recordatorio "${rows[0].titulo}" repetido x${rows.length}`, null, rows[0]);
+    }
+    return rows || [];
+  }, []);
+
+  const actualizarRecordatoriosSerie = useCallback(async (ids, cambios) => {
+    const anteriores = data.recordatorios.filter(r => ids.includes(r.id));
+    if (!anteriores.length) return;
+    const { error } = await supabase.from("recordatorios").update(cambios).in("id", ids);
+    if (!error) {
+      setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => ids.includes(r.id) ? { ...r, ...cambios } : r) }));
+      pushUndo({ tipo: "actualizar_varios", tabla: "recordatorios", itemsAnteriores: anteriores.map(r => ({ ...r })), descripcion: `${anteriores.length} recordatorios de la serie editados` });
+    }
+  }, [data.recordatorios]);
+
+  const eliminarRecordatoriosSerie = useCallback(async (ids) => {
+    const items = data.recordatorios.filter(r => ids.includes(r.id));
+    if (!items.length) return;
+    const { error } = await supabase.from("recordatorios").delete().in("id", ids);
+    if (!error) {
+      setData(d => ({ ...d, recordatorios: d.recordatorios.filter(r => !ids.includes(r.id)) }));
+      pushUndo({ tipo: "eliminar_varios", tabla: "recordatorios", items, descripcion: `${items.length} recordatorios de la serie eliminados` });
+    }
+  }, [data.recordatorios]);
+
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
@@ -1172,6 +1253,7 @@ function useSupabase() {
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
+    agregarRecordatoriosSerie, actualizarRecordatoriosSerie, eliminarRecordatoriosSerie,
   };
 }
 
@@ -1561,8 +1643,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           completado: false,
           momento: formEntrada.momento || "despues",
         };
-        if (esNueva) await db.agregarRecordatorio(rec);
-        else await db.actualizarRecordatorio({ ...rec, id: modalEntrada.editando.id });
+        if (esNueva) {
+          const fechas = fechasRepeticion(formEntrada.fecha, formEntrada.repetir || "", formEntrada.repetir_hasta || "");
+          if (fechas.length > 1) {
+            const serie_id = `serie_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            await db.agregarRecordatoriosSerie(fechas.map(f => ({ ...rec, fecha: f, serie_id })));
+          } else {
+            await db.agregarRecordatorio(rec);
+          }
+        } else {
+          const original = modalEntrada.editando;
+          await db.actualizarRecordatorio({ ...rec, id: original.id, completado: original.completado || false, serie_id: original.serie_id });
+          if (original.serie_id) {
+            const siguientes = data.recordatorios.filter(r => r.serie_id === original.serie_id && r.id !== original.id && r.fecha > original.fecha && !r.completado);
+            if (siguientes.length && window.confirm(`Este recordatorio se repite. ¿Aplicar los cambios (título, paciente, notas, momento) también a las ${siguientes.length} repeticiones siguientes?`)) {
+              await db.actualizarRecordatoriosSerie(siguientes.map(r => r.id), {
+                titulo: rec.titulo, paciente_id: rec.paciente_id, descripcion: rec.descripcion, momento: rec.momento,
+              });
+            }
+          }
+        }
 
       } else {
         // turno o bloqueo
@@ -1643,9 +1743,22 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
     } catch (e) { /* localStorage no disponible */ }
   }
 
+  // Elimina un recordatorio; si es parte de una serie, ofrece borrar también las siguientes.
+  async function eliminarRecConSerie(r, yaConfirmado = false) {
+    if (!yaConfirmado && !window.confirm("¿Eliminar este recordatorio?")) return;
+    const siguientes = r.serie_id
+      ? data.recordatorios.filter(x => x.serie_id === r.serie_id && x.id !== r.id && x.fecha > r.fecha)
+      : [];
+    if (siguientes.length && window.confirm(`Este recordatorio se repite. ¿Eliminar también las ${siguientes.length} repeticiones siguientes?\n\nAceptar = sí, todas · Cancelar = solo este`)) {
+      await db.eliminarRecordatoriosSerie([r.id, ...siguientes.map(x => x.id)]);
+    } else {
+      await db.eliminarRecordatorio(r.id);
+    }
+  }
+
   async function eliminarEntrada(entrada) {
     if (!window.confirm("¿Eliminar esta entrada?")) return;
-    if (entrada._kind === "recordatorio") await db.eliminarRecordatorio(entrada.id);
+    if (entrada._kind === "recordatorio") await eliminarRecConSerie(entrada, true);
     else { marcarFeriadoExcluido(entrada); await db.eliminarTurno(entrada.id); }
   }
 
@@ -1845,7 +1958,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               <div style={{ flex: 1, minWidth: 0, fontSize: 10, fontWeight: 600, color: r.completado ? "#9CA3AF" : "#374151", textDecoration: r.completado ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                 {r.completado && "✓ "}{r.titulo}
               </div>
-              <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
+              <button type="button" onClick={e => { e.stopPropagation(); eliminarRecConSerie(r); }}
                 style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 11, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
@@ -1879,7 +1992,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 {r.descripcion && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2, lineHeight: 1.4, wordBreak: "break-word" }}>{r.descripcion}</div>}
                 {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <div style={{ fontSize: 10, color: "#6B7280", marginTop: 1 }}>👤 {p.apellido}, {p.nombre}</div> : null; })()}
               </div>
-              <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
+              <button type="button" onClick={e => { e.stopPropagation(); eliminarRecConSerie(r); }}
                 style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 14, padding: 0, flexShrink: 0, lineHeight: 1 }}>×</button>
             </div>
           ))}
@@ -2035,7 +2148,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#059669", flexShrink: 0 }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: r.completado ? "#9CA3AF" : "#374151", textDecoration: r.completado ? "line-through" : "none" }}>{r.completado && "✓ "}{r.titulo}</span>
             {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
-            <button type="button" onClick={e => { e.stopPropagation(); if (window.confirm("¿Eliminar este recordatorio?")) db.eliminarRecordatorio(r.id); }}
+            <button type="button" onClick={e => { e.stopPropagation(); eliminarRecConSerie(r); }}
               style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
           </div>
         );
@@ -2763,6 +2876,40 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                   </button>
                 </div>
               </Field>
+              {!modalEntrada?.editando ? (
+                <div style={{ display: "grid", gridTemplateColumns: formEntrada.repetir ? "1fr 1fr" : "1fr", gap: 12 }}>
+                  <Field label="🔁 Repetir">
+                    <select style={selectStyle} value={formEntrada.repetir || ""}
+                      onChange={e => {
+                        const v = e.target.value;
+                        setFormEntrada(f => ({
+                          ...f, repetir: v,
+                          repetir_hasta: v ? (f.repetir_hasta || sumarMesesClamp(f.fecha || today(), v === "anual" ? 36 : 3)) : "",
+                        }));
+                      }}>
+                      {FRECUENCIAS_REC.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+                    </select>
+                  </Field>
+                  {formEntrada.repetir && (
+                    <Field label="Hasta">
+                      <input type="date" style={inputStyle} min={formEntrada.fecha || ""} value={formEntrada.repetir_hasta || ""}
+                        onChange={e => setFormEntrada(f => ({ ...f, repetir_hasta: e.target.value }))} />
+                    </Field>
+                  )}
+                  {formEntrada.repetir && formEntrada.fecha && (() => {
+                    const n = fechasRepeticion(formEntrada.fecha, formEntrada.repetir, formEntrada.repetir_hasta || "").length;
+                    return (
+                      <div style={{ gridColumn: "1 / -1", fontSize: 12, color: "#1a6b6b", background: "#e0f4f4", borderRadius: 8, padding: "6px 10px", marginTop: -4 }}>
+                        Se van a crear <b>{n}</b> recordatorio{n === 1 ? "" : "s"}{n >= MAX_REPETICIONES_REC ? ` (máximo ${MAX_REPETICIONES_REC})` : ""}.
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : modalEntrada.editando.serie_id ? (
+                <div style={{ fontSize: 12, color: "#6B7280", background: "#F3F4F6", borderRadius: 8, padding: "6px 10px" }}>
+                  🔁 Este recordatorio forma parte de una serie repetida. Al guardar o eliminar te pregunto si aplicarlo también a los siguientes.
+                </div>
+              ) : null}
             </>
           )}
 
