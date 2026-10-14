@@ -150,9 +150,9 @@ function linkRecordatorioWhatsApp(turno, paciente) {
   const hora = turno.hora ? turno.hora.slice(0, 5) : "";
   const linkConf = linkConfirmacionTurno(turno);
   const cierre = linkConf
-    ? `👉 Por favor confirmá o cancelá tu turno desde este link:\n${linkConf}\n\n¡Te esperamos!`
+    ? `👉 Por favor confirmá o cancelá tu turno desde este link:\n${linkConf}`
     : `Ante cualquier inconveniente para asistir, por favor avisanos. ¡Te esperamos!`;
-  const mensaje = `Hola ${paciente.nombre} 👋 Te escribimos de Sonara Audiología para recordarte tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
+  const mensaje = `Hola ${paciente.nombre} 👋 Sonara Audiología te recuerda tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
 
