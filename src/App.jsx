@@ -575,6 +575,115 @@ function CopyButton({ text, label }) {
   );
 }
 
+// ─── ANOTADOR DE AUDÍFONOS A PEDIR ────────────────────────────────────────────
+// Recordatorio interno, independiente de stock. Tabla propia: pedidos_pendientes.
+// Al tildar un ítem se marca completado y desaparece de la lista.
+function AnotadorPedidos() {
+  const [items, setItems] = useState([]);
+  const [texto, setTexto] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [errorTabla, setErrorTabla] = useState("");
+
+  useEffect(() => {
+    let activo = true;
+    (async () => {
+      const { data: rows, error } = await supabase.from("pedidos_pendientes").select("*").eq("completado", false).order("created_at");
+      if (!activo) return;
+      if (error) { setErrorTabla(error.message); return; }
+      setItems(rows || []);
+    })();
+    const ch = supabase.channel("realtime-pedidos_pendientes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "pedidos_pendientes" }, payload => {
+        setItems(prev => {
+          if (payload.eventType === "INSERT") {
+            if (payload.new.completado || prev.find(r => r.id === payload.new.id)) return prev;
+            return [...prev, payload.new];
+          }
+          if (payload.eventType === "UPDATE") {
+            if (payload.new.completado) return prev.filter(r => r.id !== payload.new.id);
+            return prev.find(r => r.id === payload.new.id)
+              ? prev.map(r => r.id === payload.new.id ? payload.new : r)
+              : [...prev, payload.new].sort((a,b) => (a.created_at||"").localeCompare(b.created_at||""));
+          }
+          if (payload.eventType === "DELETE") return prev.filter(r => r.id !== payload.old.id);
+          return prev;
+        });
+      }).subscribe();
+    return () => { activo = false; supabase.removeChannel(ch); };
+  }, []);
+
+  async function agregar() {
+    const t = texto.trim();
+    if (!t || guardando) return;
+    setGuardando(true);
+    const { data: row, error } = await supabase.from("pedidos_pendientes")
+      .insert({ texto: t, creado_por: window.__sonaraUsuario || null }).select().single();
+    setGuardando(false);
+    if (error) { alert("No se pudo guardar: " + error.message); return; }
+    setItems(prev => prev.find(r => r.id === row.id) ? prev : [...prev, row]);
+    setTexto("");
+  }
+
+  async function tildar(item) {
+    setItems(prev => prev.filter(r => r.id !== item.id));
+    const { error } = await supabase.from("pedidos_pendientes")
+      .update({ completado: true, completado_por: window.__sonaraUsuario || null, completado_at: new Date().toISOString() })
+      .eq("id", item.id);
+    if (error) {
+      alert("No se pudo marcar como pedido: " + error.message);
+      setItems(prev => [...prev, item].sort((a,b) => (a.created_at||"").localeCompare(b.created_at||"")));
+      return;
+    }
+    logAuditoria(window.__sonaraUsuario, "ACTUALIZAR", "pedidos_pendientes", `Pedido "${item.texto}" marcado como realizado`, item, null);
+  }
+
+  return (
+    <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📝 Audífonos a pedir</div>
+        <span style={{ fontSize: 12, color: "#888" }}>{items.length} pendiente{items.length !== 1 ? "s" : ""}</span>
+      </div>
+      {errorTabla ? (
+        <div style={{ fontSize: 12, color: "#B91C1C", background: "#FEE2E2", borderRadius: 8, padding: "10px 12px" }}>
+          No se pudo cargar el anotador ({errorTabla}). Falta crear la tabla <b>pedidos_pendientes</b> en Supabase.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input value={texto} onChange={e => setTexto(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") agregar(); }}
+              placeholder="Ej: Oticon Intent 1 miniRITE R beige — Pérez (der)"
+              style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #E5E7EB", fontSize: 13, outline: "none", minWidth: 0 }} />
+            <button onClick={agregar} disabled={!texto.trim() || guardando}
+              style={{ background: texto.trim() ? "#1a6b6b" : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: texto.trim() ? "pointer" : "default", whiteSpace: "nowrap" }}>
+              + Anotar
+            </button>
+          </div>
+          {items.length === 0
+            ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 12 }}>No hay audífonos pendientes de pedir</div>
+            : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {items.map(it => (
+                  <label key={it.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: "#FAFBFF", border: "1px solid #F0F0F0", cursor: "pointer" }}>
+                    <input type="checkbox" checked={false} onChange={() => tildar(it)}
+                      style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", accentColor: "#1a6b6b" }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", wordBreak: "break-word" }}>{it.texto}</div>
+                      <div style={{ fontSize: 11, color: "#888" }}>
+                        {it.created_at ? new Date(it.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : ""}{it.creado_por ? ` · ${it.creado_por}` : ""}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )
+          }
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
 function Dashboard({ data, onNavigate }) {
   const hoy = today();
@@ -659,6 +768,9 @@ function Dashboard({ data, onNavigate }) {
           </div>
         ))}
       </div>
+
+      {/* Anotador de audífonos a pedir */}
+      <AnotadorPedidos />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Turnos hoy */}
