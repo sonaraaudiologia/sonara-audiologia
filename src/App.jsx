@@ -577,7 +577,7 @@ function CopyButton({ text, label }) {
 
 // ─── ANOTADOR DE AUDÍFONOS A PEDIR ────────────────────────────────────────────
 // Recordatorio interno, independiente de stock. Tabla propia: pedidos_pendientes.
-// Al tildar un ítem se marca completado y desaparece de la lista.
+// Al tildar un ítem (solo el cuadrado) se marca completado y desaparece de la lista.
 function AnotadorPedidos() {
   const [items, setItems] = useState([]);
   const [texto, setTexto] = useState("");
@@ -664,7 +664,7 @@ function AnotadorPedidos() {
             : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {items.map(it => (
-                  <label key={it.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: "#FAFBFF", border: "1px solid #F0F0F0", cursor: "pointer" }}>
+                  <div key={it.id} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 8, background: "#FAFBFF", border: "1px solid #F0F0F0" }}>
                     <input type="checkbox" checked={false} onChange={() => tildar(it)}
                       style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", accentColor: "#1a6b6b" }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -673,7 +673,7 @@ function AnotadorPedidos() {
                         {it.created_at ? new Date(it.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : ""}{it.creado_por ? ` · ${it.creado_por}` : ""}
                       </div>
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
             )
@@ -907,54 +907,125 @@ function useSupabase() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const undoStack = React.useRef([]);
+  const redoStack = React.useRef([]);
+  const undoProcesando = React.useRef(false);
+
+  function emitirUndo() {
+    window.__sonaraUndo = undoStack.current;
+    window.__sonaraRedo = redoStack.current;
+    window.dispatchEvent(new Event("sonara-undo-update"));
+  }
 
   function pushUndo(accion) {
-    undoStack.current = [accion, ...undoStack.current.slice(0, 9)];
-    window.__sonaraUndo = undoStack.current;
-    window.dispatchEvent(new Event("sonara-undo-update"));
+    undoStack.current = [accion, ...undoStack.current.slice(0, 19)];
+    redoStack.current = []; // una acción nueva invalida lo que se podía rehacer
+    emitirUndo();
+  }
+
+  // Columnas calculadas por Postgres que no se pueden escribir
+  const COLUMNAS_GENERADAS = { compras: ["saldo"] };
+  function limpiarFila(tabla, fila) {
+    const out = { ...fila };
+    (COLUMNAS_GENERADAS[tabla] || []).forEach(k => delete out[k]);
+    return out;
+  }
+  function chequear(res) {
+    if (res && res.error) throw new Error(res.error.message);
+    return res;
+  }
+  // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
+  function transformar(tabla, rows) {
+    if (tabla === "ventas") return rows.map(fromDBVenta);
+    if (tabla === "pacientes") return rows.map(fromDB);
+    return rows;
+  }
+  const ORDEN_TABLAS = {
+    pacientes: [["apellido", true]],
+    turnos: [["fecha", true], ["hora", true]],
+    ventas: [["fecha", false]],
+    recordatorios: [["fecha", true], ["hora", true]],
+    compras: [["fecha", false]],
+  };
+  async function recargarTabla(tabla) {
+    let q = supabase.from(tabla).select("*");
+    (ORDEN_TABLAS[tabla] || []).forEach(([col, asc]) => { q = q.order(col, { ascending: asc }); });
+    const { data: rows, error } = await q;
+    if (error) throw new Error(error.message);
+    setData(d => ({ ...d, [tabla]: transformar(tabla, rows || []) }));
+  }
+
+  async function insertarFilas(tabla, filas) {
+    chequear(await supabase.from(tabla).insert(filas.map(f => limpiarFila(tabla, f))));
+  }
+  async function borrarFilas(tabla, ids) {
+    chequear(await supabase.from(tabla).delete().in("id", ids));
+  }
+  async function actualizarFilas(tabla, filas) {
+    for (const f of filas) {
+      chequear(await supabase.from(tabla).update(limpiarFila(tabla, f)).eq("id", f.id));
+    }
+  }
+
+  // Aplica una acción hacia atrás (deshacer) o hacia adelante (rehacer)
+  async function aplicarAccion(accion, sentido) {
+    const atras = sentido === "deshacer";
+    const t = accion.tabla;
+    switch (accion.tipo) {
+      case "crear":
+        if (atras) await borrarFilas(t, [accion.item.id]); else await insertarFilas(t, [accion.item]);
+        break;
+      case "eliminar":
+        if (atras) await insertarFilas(t, [accion.item]); else await borrarFilas(t, [accion.item.id]);
+        break;
+      case "actualizar":
+        await actualizarFilas(t, [atras ? accion.itemAnterior : accion.item]);
+        break;
+      case "crear_varios":
+        if (atras) await borrarFilas(t, accion.items.map(it => it.id)); else await insertarFilas(t, accion.items);
+        break;
+      case "eliminar_varios":
+        if (atras) await insertarFilas(t, accion.items); else await borrarFilas(t, accion.items.map(it => it.id));
+        break;
+      case "actualizar_varios":
+        if (atras) await actualizarFilas(t, accion.itemsAnteriores);
+        else chequear(await supabase.from(t).update(accion.cambios).in("id", accion.itemsAnteriores.map(it => it.id)));
+        break;
+      default:
+        throw new Error("Tipo de acción desconocido: " + accion.tipo);
+    }
+    await recargarTabla(t);
   }
 
   async function deshacerUltima() {
     const accion = undoStack.current[0];
-    if (!accion) return;
-    undoStack.current = undoStack.current.slice(1);
-    window.__sonaraUndo = undoStack.current;
-    window.dispatchEvent(new Event("sonara-undo-update"));
-
-    // Transforma filas crudas de Supabase al formato que usa cada tabla en el estado local
-    function transformar(tabla, rows) {
-      if (tabla === "ventas") return rows.map(fromDBVenta);
-      if (tabla === "pacientes") return rows.map(fromDB);
-      return rows;
-    }
-
+    if (!accion || undoProcesando.current) return;
+    undoProcesando.current = true;
     try {
-      if (accion.tipo === "eliminar_varios") {
-        await supabase.from(accion.tabla).insert(accion.items.map(it => ({ ...it })));
-        const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
-      } else if (accion.tipo === "crear_varios") {
-        const ids = accion.items.map(it => it.id);
-        await supabase.from(accion.tabla).delete().in("id", ids);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => !ids.includes(x.id)) }));
-      } else if (accion.tipo === "actualizar_varios") {
-        await Promise.all(accion.itemsAnteriores.map(it => supabase.from(accion.tabla).update(it).eq("id", it.id)));
-        const mapa = Object.fromEntries(accion.itemsAnteriores.map(it => [it.id, it]));
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => mapa[x.id] ? { ...x, ...mapa[x.id] } : x) }));
-      } else if (accion.tipo === "eliminar") {
-        await supabase.from(accion.tabla).insert({ ...accion.item });
-        const { data: rows } = await supabase.from(accion.tabla).select("*");
-        if (rows) setData(d => ({ ...d, [accion.tabla]: transformar(accion.tabla, rows) }));
-      } else if (accion.tipo === "crear") {
-        await supabase.from(accion.tabla).delete().eq("id", accion.item.id);
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].filter(x => x.id !== accion.item.id) }));
-      } else if (accion.tipo === "actualizar") {
-        await supabase.from(accion.tabla).update(accion.itemAnterior).eq("id", accion.itemAnterior.id);
-        const itemTransformado = transformar(accion.tabla, [accion.itemAnterior])[0];
-        setData(d => ({ ...d, [accion.tabla]: d[accion.tabla].map(x => x.id === accion.itemAnterior.id ? itemTransformado : x) }));
-      }
+      await aplicarAccion(accion, "deshacer");
+      undoStack.current = undoStack.current.slice(1);
+      redoStack.current = [accion, ...redoStack.current.slice(0, 19)];
+      emitirUndo();
+      logAuditoria(window.__sonaraUsuario, "DESHACER", accion.tabla, accion.descripcion, null, null);
       alert(`↩ Deshecho: ${accion.descripcion}`);
-    } catch(e) { alert("Error al deshacer: " + e.message); }
+    } catch(e) {
+      alert("No se pudo deshacer: " + e.message);
+    } finally { undoProcesando.current = false; }
+  }
+
+  async function rehacerUltima() {
+    const accion = redoStack.current[0];
+    if (!accion || undoProcesando.current) return;
+    undoProcesando.current = true;
+    try {
+      await aplicarAccion(accion, "rehacer");
+      redoStack.current = redoStack.current.slice(1);
+      undoStack.current = [accion, ...undoStack.current.slice(0, 19)];
+      emitirUndo();
+      logAuditoria(window.__sonaraUsuario, "REHACER", accion.tabla, accion.descripcion, null, null);
+      alert(`↪ Rehecho: ${accion.descripcion}`);
+    } catch(e) {
+      alert("No se pudo rehacer: " + e.message);
+    } finally { undoProcesando.current = false; }
   }
 
   useEffect(() => {
@@ -1121,7 +1192,7 @@ function useSupabase() {
     if (!error) {
       setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload) } : p) }));
       if (itemAnterior) {
-        pushUndo({ tipo: "actualizar", tabla: "pacientes", item: payload, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
+        pushUndo({ tipo: "actualizar", tabla: "pacientes", item: { ...payload, id: pac.id }, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "pacientes", `Paciente ${pac.apellido}, ${pac.nombre}`, toDB(itemAnterior), payload);
       }
     }
@@ -1129,11 +1200,12 @@ function useSupabase() {
 
   const eliminarPaciente = useCallback(async (id) => {
     const item = data.pacientes.find(p => p.id === id);
+    const { data: crudo } = await supabase.from("pacientes").select("*").eq("id", id).maybeSingle();
     const { error } = await supabase.from("pacientes").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, pacientes: d.pacientes.filter(p => p.id !== id) }));
       if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "pacientes", item, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
+        pushUndo({ tipo: "eliminar", tabla: "pacientes", item: crudo || { ...toDB(item), id: item.id }, descripcion: `Paciente ${item.apellido}, ${item.nombre} eliminado` });
         logAuditoria(window.__sonaraUsuario, "ELIMINAR", "pacientes", `Paciente ${item.apellido}, ${item.nombre}`, item, null);
       }
     }
@@ -1232,11 +1304,12 @@ function useSupabase() {
 
   const eliminarVenta = useCallback(async (id) => {
     const item = data.ventas.find(v => v.id === id);
+    const { data: crudo } = await supabase.from("ventas").select("*").eq("id", id).maybeSingle();
     const { error } = await supabase.from("ventas").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, ventas: d.ventas.filter(v => v.id !== id) }));
       if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "ventas", item, descripcion: `Venta eliminada` });
+        pushUndo({ tipo: "eliminar", tabla: "ventas", item: crudo || { ...toDBVenta(item), id: item.id }, descripcion: `Venta eliminada` });
         logAuditoria(window.__sonaraUsuario, "ELIMINAR", "ventas", `Venta ${item.fecha}`, item, null);
       }
     }
@@ -1275,7 +1348,7 @@ function useSupabase() {
     if (!error) {
       setData(d => ({ ...d, compras: d.compras.map(c => c.id === compra.id ? updated : c) }));
       if (itemAnterior) {
-        pushUndo({ tipo: "actualizar", tabla: "compras", item: updated, itemAnterior, descripcion: `Insumo editado` });
+        pushUndo({ tipo: "actualizar", tabla: "compras", item: { ...payload, id: compra.id }, itemAnterior, descripcion: `Insumo editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "compras", `Insumo del ${compra.fecha || ""}`, itemAnterior, updated);
       }
       return { ok: true };
@@ -1344,7 +1417,7 @@ function useSupabase() {
     const { error } = await supabase.from("recordatorios").update(cambios).in("id", ids);
     if (!error) {
       setData(d => ({ ...d, recordatorios: d.recordatorios.map(r => ids.includes(r.id) ? { ...r, ...cambios } : r) }));
-      pushUndo({ tipo: "actualizar_varios", tabla: "recordatorios", itemsAnteriores: anteriores.map(r => ({ ...r })), descripcion: `${anteriores.length} recordatorios de la serie editados` });
+      pushUndo({ tipo: "actualizar_varios", tabla: "recordatorios", itemsAnteriores: anteriores.map(r => ({ ...r })), cambios, descripcion: `${anteriores.length} recordatorios de la serie editados` });
     }
   }, [data.recordatorios]);
 
@@ -1361,7 +1434,7 @@ function useSupabase() {
   return {
     data, loading, error,
     agregarPaciente, actualizarPaciente, eliminarPaciente, agregarEntradaHC, actualizarEntradaHC, eliminarEntradaHC,
-    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima,
+    agregarTurno, actualizarTurno, eliminarTurno, deshacerUltima, rehacerUltima,
     agregarVenta, actualizarVenta, eliminarVenta,
     agregarCompra, actualizarCompra, eliminarCompra,
     agregarRecordatorio, actualizarRecordatorio, eliminarRecordatorio,
@@ -8221,39 +8294,62 @@ function AppInner() {
 }
 
 
-// ─── UNDO BUTTON ──────────────────────────────────────────────────────────────
+// ─── UNDO / REDO BUTTONS ──────────────────────────────────────────────────────
 function UndoButton({ db }) {
   const [ultimo, setUltimo] = React.useState(null);
+  const [ultimoRedo, setUltimoRedo] = React.useState(null);
+  const [ocupado, setOcupado] = React.useState(false);
 
   React.useEffect(() => {
     function update() {
-      const stack = window.__sonaraUndo || [];
-      setUltimo(stack[0] || null);
+      setUltimo((window.__sonaraUndo || [])[0] || null);
+      setUltimoRedo((window.__sonaraRedo || [])[0] || null);
     }
     window.addEventListener("sonara-undo-update", update);
     update();
     return () => window.removeEventListener("sonara-undo-update", update);
   }, []);
 
+  async function ejecutar(fn) {
+    if (ocupado) return;
+    setOcupado(true);
+    try { await fn(); } finally { setOcupado(false); }
+  }
+
+  const estiloBtn = (activo) => ({
+    background: activo ? "#1a1a2e" : "#E5E7EB",
+    color: activo ? "#fff" : "#9CA3AF",
+    border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
+    cursor: activo ? "pointer" : "not-allowed",
+    boxShadow: activo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
+    display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s",
+    opacity: ocupado ? 0.6 : 1,
+  });
+  const hoverOn = (activo) => e => { if (activo) e.currentTarget.style.background = "#1a6b6b"; };
+  const hoverOff = (activo) => e => { if (activo) e.currentTarget.style.background = "#1a1a2e"; };
+
   return (
     <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-      <button
-        onClick={() => ultimo && db.deshacerUltima()}
-        disabled={!ultimo}
-        style={{
-          background: ultimo ? "#1a1a2e" : "#E5E7EB",
-          color: ultimo ? "#fff" : "#9CA3AF",
-          border: "none", borderRadius: 12, padding: "10px 18px", fontSize: 13, fontWeight: 700,
-          cursor: ultimo ? "pointer" : "not-allowed",
-          boxShadow: ultimo ? "0 4px 20px rgba(0,0,0,0.25)" : "none",
-          display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s"
-        }}
-        onMouseEnter={e => { if (ultimo) e.currentTarget.style.background = "#1a6b6b"; }}
-        onMouseLeave={e => { if (ultimo) e.currentTarget.style.background = "#1a1a2e"; }}
-        title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
-      >
-        ↩ Deshacer
-      </button>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => ultimo && ejecutar(db.deshacerUltima)}
+          disabled={!ultimo || ocupado}
+          style={estiloBtn(!!ultimo)}
+          onMouseEnter={hoverOn(!!ultimo)} onMouseLeave={hoverOff(!!ultimo)}
+          title={ultimo ? `Deshacer: ${ultimo.descripcion}` : "No hay acciones para deshacer"}
+        >
+          ↩ Deshacer
+        </button>
+        <button
+          onClick={() => ultimoRedo && ejecutar(db.rehacerUltima)}
+          disabled={!ultimoRedo || ocupado}
+          style={estiloBtn(!!ultimoRedo)}
+          onMouseEnter={hoverOn(!!ultimoRedo)} onMouseLeave={hoverOff(!!ultimoRedo)}
+          title={ultimoRedo ? `Rehacer: ${ultimoRedo.descripcion}` : "No hay acciones para rehacer"}
+        >
+          ↪ Rehacer
+        </button>
+      </div>
       {ultimo && (
         <div style={{ background: "rgba(0,0,0,0.7)", color: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 11, maxWidth: 250, textAlign: "right" }}>
           {ultimo.descripcion}
