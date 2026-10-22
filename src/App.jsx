@@ -575,7 +575,7 @@ function CopyButton({ text, label }) {
   );
 }
 
-// ─── ANOTADOR DE PEDIDOS VARIOS ────────────────────────────────────────────
+// ─── ANOTADOR DE PEDIDOS ────────────────────────────────────────────
 // Recordatorio interno, independiente de stock. Tabla propia: pedidos_pendientes.
 // Al tildar un ítem (solo el cuadrado) se marca completado y desaparece de la lista.
 function AnotadorPedidos() {
@@ -640,7 +640,7 @@ function AnotadorPedidos() {
   return (
     <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📝 Pedidos varios</div>
+        <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📝 Pedidos</div>
         <span style={{ fontSize: 12, color: "#888" }}>{items.length} pendiente{items.length !== 1 ? "s" : ""}</span>
       </div>
       {errorTabla ? (
@@ -769,7 +769,7 @@ function Dashboard({ data, onNavigate }) {
         ))}
       </div>
 
-      {/* Anotador de pedidos varios */}
+      {/* Anotador de pedidos */}
       <AnotadorPedidos />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -3868,6 +3868,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
   const [filtroOS, setFiltroOS] = useState("");
   const [filtroDerivante, setFiltroDerivante] = useState("");
+  const { items: externos } = useDerivadores(); // catálogo de obras sociales y profesionales derivantes
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
@@ -3898,26 +3899,35 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
     const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     const osPac = (p.obraSocial || p.obra_social || "").trim();
-    const matchOS = filtroOS === "" || (filtroOS === "__particular__" ? osPac === "" : normalizar(osPac) === filtroOS);
+    const matchOS = filtroOS === "" || (filtroOS === "__particular__" ? osPac === "" : coincideFiltro(osPac, filtroOS));
     const derPac = (p.derivadoPor || p.derivado_por || "").trim();
-    const matchDer = filtroDerivante === "" || (filtroDerivante === "__sin__" ? derPac === "" : normalizar(derPac) === filtroDerivante);
+    const matchDer = filtroDerivante === "" || (filtroDerivante === "__sin__" ? derPac === "" : coincideFiltro(derPac, filtroDerivante));
     return matchBusqueda && matchEtiqueta && matchOS && matchDer;
   });
 
-  // Opciones de filtro: valores distintos cargados en los pacientes (sin distinguir mayúsculas/acentos)
-  function opcionesDistintas(campoA, campoB) {
+  // Opciones de filtro: catálogo completo (sección Derivadores / Obras sociales) + lo cargado en las fichas.
+  // Coincidencia sin mayúsculas/acentos; el texto de la ficha puede contener el nombre del catálogo
+  // (ej: "LICITACIÓN Ministerio" coincide con "Ministerio").
+  function coincideFiltro(valorPac, clave) {
+    const v = normalizar(valorPac || "").trim();
+    return v !== "" && (v === clave || v.includes(clave));
+  }
+  function armarOpciones(nombresCatalogo, campoA, campoB) {
     const mapa = new Map();
+    nombresCatalogo.forEach(nom => {
+      const val = (nom || "").trim();
+      if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
+    });
     data.pacientes.forEach(p => {
       const val = (p[campoA] || p[campoB] || "").trim();
-      if (!val) return;
-      const k = normalizar(val);
-      if (!mapa.has(k)) mapa.set(k, { key: k, label: val, n: 0 });
-      mapa.get(k).n++;
+      if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
     });
-    return [...mapa.values()].sort((a,b) => a.label.localeCompare(b.label, "es"));
+    return [...mapa.values()]
+      .map(o => ({ ...o, n: data.pacientes.filter(p => coincideFiltro(p[campoA] || p[campoB], o.key)).length }))
+      .sort((a,b) => a.label.localeCompare(b.label, "es"));
   }
-  const opcionesOS = opcionesDistintas("obraSocial", "obra_social");
-  const opcionesDerivante = opcionesDistintas("derivadoPor", "derivado_por");
+  const opcionesOS = armarOpciones(externos.filter(x => x.tipo === "obra_social").map(x => x.nombre), "obraSocial", "obra_social");
+  const opcionesDerivante = armarOpciones(externos.filter(x => x.tipo !== "obra_social").map(x => x.nombre), "derivadoPor", "derivado_por");
 
   async function guardar() {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
