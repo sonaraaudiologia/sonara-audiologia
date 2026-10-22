@@ -4110,22 +4110,6 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
               </span>
             )}
           </div>
-          {/* Filtro por etiqueta */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-            <button onClick={() => setFiltroEtiqueta("")} style={{
-              background: filtroEtiqueta === "" ? "#1a1a2e" : "#F3F4F6",
-              color: filtroEtiqueta === "" ? "#fff" : "#6B7280",
-              border: "none", borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
-            }}>Todos</button>
-            {todasEtiquetas.map(e => (
-              <button key={e.id} onClick={() => setFiltroEtiqueta(filtroEtiqueta === e.id ? "" : e.id)} style={{
-                background: filtroEtiqueta === e.id ? e.bg : "#F3F4F6",
-                color: filtroEtiqueta === e.id ? e.color : "#6B7280",
-                border: filtroEtiqueta === e.id ? `1.5px solid ${e.color}44` : "1.5px solid #E5E7EB",
-                borderRadius: 20, padding: "3px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer"
-              }}>{e.label}</button>
-            ))}
-          </div>
         </div>
         <button onClick={() => {
           setForm({ nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "", direccion: "", localidad: "", obraSocial: "", nroAfiliado: "", diagnostico: "", antecedentes: "", notas: "", derivadoPor: "", audifono: "", etiquetas: [] });
