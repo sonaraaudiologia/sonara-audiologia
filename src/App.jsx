@@ -566,9 +566,18 @@ function Field({ label, children }) {
 }
 
 // ─── OBRA SOCIAL: separar combinadas + selector desplegable ──────────────────
-// "IAPOS y OSDE", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE" → ["IAPOS", "OSDE"]
+// "IAPOS y OSDE", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE", "PAMI o Británica", "IAPOS-PAMI-UNIVERSIDAD" → separadas.
+// OS_CON_GUION: nombres que llevan guion propio y NO se deben partir (agregar acá si aparece otra).
+const OS_CON_GUION = ["Hospital Italiano - La Casa del Médico Mutual"];
+// Clave para comparar/deduplicar: sin acentos, minúsculas, espacios simples, sin puntos/guiones sueltos en los bordes
+function claveOS(str) { return normalizar(str).replace(/\s+/g, " ").replace(/^[\s.\-–—]+|[\s.\-–—]+$/g, "").trim(); }
+// Valores que no son una obra social (se representan con la opción "Particular / sin obra social")
+const OS_NO_VALIDAS = ["particular", "sin obra social", "no tiene", "no", "ninguna", "-", "s/os", "sin os"];
 function separarOS(str) {
-  return (str || "").split(/\s*(?:[,\/+;]|\s+y\s+)\s*/i).map(s => s.trim()).filter(Boolean);
+  const prot = new Set(OS_CON_GUION.map(x => normalizar(x).replace(/\s+/g, " ").trim()));
+  return (str || "").split(/\s*(?:[,\/+;]|\s+y\s+|\s+o\s+)\s*/i)
+    .flatMap(parte => prot.has(normalizar(parte).replace(/\s+/g, " ").trim()) ? [parte] : parte.split(/\s*[-–—]\s*/))
+    .map(s => s.replace(/^[\s.\-–—]+|[\s.\-–—]+$/g, "").trim()).filter(Boolean);
 }
 
 // Desplegable de obra social: catálogo (Derivadores → Obras sociales) + lo cargado en las fichas.
@@ -579,9 +588,13 @@ function SelectObraSocial({ value, onChange, pacientes }) {
   const [agregandoIdx, setAgregandoIdx] = useState(null);
   const [nueva, setNueva] = useState("");
 
+  const catalogoOS = externos.filter(x => x.tipo === "obra_social").map(x => x.nombre);
   const mapa = new Map();
-  const sumar = v => { const t = (v || "").trim(); if (t && !mapa.has(normalizar(t))) mapa.set(normalizar(t), t); };
-  externos.filter(x => x.tipo === "obra_social").forEach(x => sumar(x.nombre));
+  const sumar = v => {
+    const t = (v || "").replace(/\s+/g, " ").trim(), k = claveOS(t);
+    if (k && !OS_NO_VALIDAS.includes(k) && !mapa.has(k)) mapa.set(k, t);
+  };
+  catalogoOS.forEach(n => separarOS(n).forEach(sumar));
   (pacientes || []).forEach(p => separarOS(p.obraSocial || p.obra_social).forEach(sumar));
   const opciones = [...mapa.values()].sort((a, b) => a.localeCompare(b, "es"));
 
@@ -589,7 +602,14 @@ function SelectObraSocial({ value, onChange, pacientes }) {
   const lista = partes.length ? [...partes] : [""];
   if (slotExtra) lista.push("");
 
-  function guardarLista(l) { onChange(l.map(x => (x || "").trim()).filter(Boolean).join(" y ")); }
+  function guardarLista(l) {
+    const vistos = new Set();
+    onChange(l.map(x => (x || "").trim()).filter(x => {
+      const k = claveOS(x);
+      if (!k || vistos.has(k)) return false;
+      vistos.add(k); return true;
+    }).join(" y "));
+  }
   function setParte(i, v) {
     if (v === "__nueva__") { setAgregandoIdx(i); setNueva(""); return; }
     const l = [...lista]; l[i] = v;
@@ -603,9 +623,9 @@ function SelectObraSocial({ value, onChange, pacientes }) {
   async function confirmarNueva() {
     const nom = nueva.trim();
     if (!nom) return;
-    const existente = opciones.find(o => normalizar(o) === normalizar(nom));
+    const existente = opciones.find(o => claveOS(o) === claveOS(nom));
     const final = existente || nom;
-    if (!existente && !externos.some(x => x.tipo === "obra_social" && normalizar(x.nombre) === normalizar(nom))) {
+    if (!existente && !externos.some(x => x.tipo === "obra_social" && claveOS(x.nombre) === claveOS(nom))) {
       try { await agregar({ ...FORM_OS_VACIO, nombre: nom }); } catch (e) { console.error(e); }
     }
     const i = agregandoIdx;
@@ -625,7 +645,7 @@ function SelectObraSocial({ value, onChange, pacientes }) {
             <button type="button" onClick={() => setAgregandoIdx(null)} style={{ border: "1px solid #DDD", background: "#fff", borderRadius: 8, padding: "0 10px", cursor: "pointer" }}>✕</button>
           </div>
         );
-        const valSel = opciones.find(o => normalizar(o) === normalizar(parte)) || parte;
+        const valSel = OS_NO_VALIDAS.includes(claveOS(parte)) ? "" : (opciones.find(o => claveOS(o) === claveOS(parte)) || parte);
         return (
           <div key={i} style={{ display: "flex", gap: 6 }}>
             <select style={{ ...inputStyle, flex: 1 }} value={valSel} onChange={e => setParte(i, e.target.value)}>
@@ -4018,7 +4038,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
     const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
     const osPac = (p.obraSocial || p.obra_social || "").trim();
-    const matchOS = filtroOS === "" || (filtroOS === "__particular__" ? osPac === "" : coincideFiltro(osPac, filtroOS));
+    const matchOS = filtroOS === "" || (filtroOS === "__particular__" ? (osPac === "" || OS_NO_VALIDAS.includes(claveOS(osPac))) : coincideFiltro(osPac, filtroOS));
     const derPac = (p.derivadoPor || p.derivado_por || "").trim();
     const matchDer = filtroDerivante === "" || (filtroDerivante === "__sin__" ? derPac === "" : coincideFiltro(derPac, filtroDerivante));
     return matchBusqueda && matchEtiqueta && matchOS && matchDer;
@@ -4029,20 +4049,24 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
   // (ej: "LICITACIÓN Ministerio" coincide con "Ministerio").
   function coincideFiltro(valorPac, clave) {
     const v = normalizar(valorPac || "").trim();
-    return v !== "" && (v === clave || v.includes(clave) || separarOS(v).some(x => x === clave));
+    return v !== "" && (v === clave || v.includes(clave) || separarOS(v).some(x => claveOS(x) === clave));
   }
   function armarOpciones(nombresCatalogo, campoA, campoB) {
     const mapa = new Map();
     nombresCatalogo.forEach(nom => {
-      const val = (nom || "").trim();
-      if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
+      const vals = campoA === "obraSocial" ? separarOS(nom) : [(nom || "").trim()];
+      vals.forEach(val => {
+        const k = campoA === "obraSocial" ? claveOS(val) : normalizar(val);
+        if (k && !(campoA === "obraSocial" && OS_NO_VALIDAS.includes(k)) && !mapa.has(k)) mapa.set(k, { key: k, label: val });
+      });
     });
     data.pacientes.forEach(p => {
       const crudo = (p[campoA] || p[campoB] || "").trim();
       // Obras sociales combinadas ("IAPOS y OSDE") cuentan como opciones separadas
       const vals = campoA === "obraSocial" ? separarOS(crudo) : (crudo ? [crudo] : []);
       vals.forEach(val => {
-        if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
+        const k = campoA === "obraSocial" ? claveOS(val) : normalizar(val);
+        if (k && !(campoA === "obraSocial" && OS_NO_VALIDAS.includes(k)) && !mapa.has(k)) mapa.set(k, { key: k, label: val });
       });
     });
     return [...mapa.values()]
