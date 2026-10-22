@@ -575,7 +575,7 @@ function CopyButton({ text, label }) {
   );
 }
 
-// ─── ANOTADOR DE AUDÍFONOS A PEDIR ────────────────────────────────────────────
+// ─── ANOTADOR DE PEDIDOS VARIOS ────────────────────────────────────────────
 // Recordatorio interno, independiente de stock. Tabla propia: pedidos_pendientes.
 // Al tildar un ítem (solo el cuadrado) se marca completado y desaparece de la lista.
 function AnotadorPedidos() {
@@ -640,7 +640,7 @@ function AnotadorPedidos() {
   return (
     <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📝 Audífonos a pedir</div>
+        <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📝 Pedidos varios</div>
         <span style={{ fontSize: 12, color: "#888" }}>{items.length} pendiente{items.length !== 1 ? "s" : ""}</span>
       </div>
       {errorTabla ? (
@@ -652,7 +652,7 @@ function AnotadorPedidos() {
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <input value={texto} onChange={e => setTexto(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") agregar(); }}
-              placeholder="Ej: Oticon Intent 1 miniRITE R beige — Pérez (der)"
+              placeholder="Ej: Oticon Intent 1 miniRITE R beige — Pérez (der) · Pilas 312 · Domos 8mm"
               style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1.5px solid #E5E7EB", fontSize: 13, outline: "none", minWidth: 0 }} />
             <button onClick={agregar} disabled={!texto.trim() || guardando}
               style={{ background: texto.trim() ? "#1a6b6b" : "#CBD5E1", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: texto.trim() ? "pointer" : "default", whiteSpace: "nowrap" }}>
@@ -660,7 +660,7 @@ function AnotadorPedidos() {
             </button>
           </div>
           {items.length === 0
-            ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 12 }}>No hay audífonos pendientes de pedir</div>
+            ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 12 }}>No hay pedidos pendientes</div>
             : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {items.map(it => (
@@ -769,7 +769,7 @@ function Dashboard({ data, onNavigate }) {
         ))}
       </div>
 
-      {/* Anotador de audífonos a pedir */}
+      {/* Anotador de pedidos varios */}
       <AnotadorPedidos />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
@@ -1534,7 +1534,7 @@ function TarjetaTurno({ t, pacNombre, onEditar, onEliminar, mostrarFecha, saldoP
   );
 }
 
-function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente }) {
+function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente, onAbrirVenta }) {
   const { getDisp } = useDisponibilidad();
   const { fechas: fechasEspeciales } = useFechasEspeciales();
   const [vista, setVista] = useState("semana");
@@ -2810,6 +2810,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
           db={db}
           usuario={usuario}
           onClose={() => setFichaPacienteId(null)}
+          onAbrirVenta={onAbrirVenta}
         />
       )}
 
@@ -3304,7 +3305,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
 
 // ─── PACIENTES ────────────────────────────────────────────────────────────────
 // ─── FICHA PACIENTE MODAL ─────────────────────────────────────────────────────
-function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
+function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta }) {
   const [tab, setTab] = useState("hc");
   const [saving, setSaving] = useState(false);
 
@@ -3676,6 +3677,14 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
                         )}
                         {saldo > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginTop: 4 }}>💰 Saldo: ${saldo.toLocaleString("es-AR")}</div>}
                         {pagos.length > 0 && <div style={{ fontSize: 11, color: "#888" }}>{pagos.length} pago{pagos.length > 1 ? "s" : ""} registrado{pagos.length > 1 ? "s" : ""}</div>}
+                        {onAbrirVenta && (
+                          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                            <button type="button" onClick={() => { onClose(); onAbrirVenta(v.id); }}
+                              style={{ background: "#fff", color: cv.color, border: `1.5px solid ${cv.color}55`, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                              🧾 Ver / editar en Presupuestos
+                            </button>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -3861,7 +3870,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose }) {
 }
 
 
-function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
+function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAbrirVenta }) {
   const [modal, setModal] = useState(null);
   const [verHC, setVerHC] = useState(null);
   const [verRapido, setVerRapido] = useState(null);
@@ -3869,6 +3878,8 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
 
   const [busqueda, setBusqueda] = useState("");
   const [filtroEtiqueta, setFiltroEtiqueta] = useState("");
+  const [filtroOS, setFiltroOS] = useState("");
+  const [filtroDerivante, setFiltroDerivante] = useState("");
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: "", apellido: "", dni: "", fechaNac: "", telefono: "", email: "",
@@ -3898,8 +3909,27 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
   const pacientes = data.pacientes.filter(p => {
     const matchBusqueda = busqueda === "" || normalizar(`${p.nombre} ${p.apellido} ${p.dni || ""}`).includes(normalizar(busqueda));
     const matchEtiqueta = filtroEtiqueta === "" || (p.etiquetas || []).includes(filtroEtiqueta);
-    return matchBusqueda && matchEtiqueta;
+    const osPac = (p.obraSocial || p.obra_social || "").trim();
+    const matchOS = filtroOS === "" || (filtroOS === "__particular__" ? osPac === "" : normalizar(osPac) === filtroOS);
+    const derPac = (p.derivadoPor || p.derivado_por || "").trim();
+    const matchDer = filtroDerivante === "" || (filtroDerivante === "__sin__" ? derPac === "" : normalizar(derPac) === filtroDerivante);
+    return matchBusqueda && matchEtiqueta && matchOS && matchDer;
   });
+
+  // Opciones de filtro: valores distintos cargados en los pacientes (sin distinguir mayúsculas/acentos)
+  function opcionesDistintas(campoA, campoB) {
+    const mapa = new Map();
+    data.pacientes.forEach(p => {
+      const val = (p[campoA] || p[campoB] || "").trim();
+      if (!val) return;
+      const k = normalizar(val);
+      if (!mapa.has(k)) mapa.set(k, { key: k, label: val, n: 0 });
+      mapa.get(k).n++;
+    });
+    return [...mapa.values()].sort((a,b) => a.label.localeCompare(b.label, "es"));
+  }
+  const opcionesOS = opcionesDistintas("obraSocial", "obra_social");
+  const opcionesDerivante = opcionesDistintas("derivadoPor", "derivado_por");
 
   async function guardar() {
     if (!form.nombre || !form.apellido) return alert("Nombre y apellido son obligatorios.");
@@ -4024,7 +4054,25 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
       {/* Barra de búsqueda y filtros */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <input style={{ ...inputStyle, maxWidth: 300 }} placeholder="Buscar por nombre o DNI..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input style={{ ...inputStyle, maxWidth: 300 }} placeholder="Buscar por nombre o DNI..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+            <select style={{ ...selectStyle, maxWidth: 210, borderColor: filtroOS ? "#4338CA" : undefined }} value={filtroOS} onChange={e => setFiltroOS(e.target.value)}>
+              <option value="">🏥 Todas las obras sociales</option>
+              <option value="__particular__">Particular / sin obra social</option>
+              {opcionesOS.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
+            </select>
+            <select style={{ ...selectStyle, maxWidth: 210, borderColor: filtroDerivante ? "#4338CA" : undefined }} value={filtroDerivante} onChange={e => setFiltroDerivante(e.target.value)}>
+              <option value="">👨‍⚕️ Todos los derivantes</option>
+              <option value="__sin__">Sin derivante</option>
+              {opcionesDerivante.map(o => <option key={o.key} value={o.key}>{o.label} ({o.n})</option>)}
+            </select>
+            {(filtroOS || filtroDerivante) && (
+              <span style={{ fontSize: 12, color: "#4338CA", fontWeight: 600 }}>
+                {pacientes.length} paciente{pacientes.length !== 1 ? "s" : ""}
+                <button onClick={() => { setFiltroOS(""); setFiltroDerivante(""); }} style={{ marginLeft: 6, background: "none", border: "none", color: "#888", cursor: "pointer", fontSize: 12, textDecoration: "underline" }}>limpiar</button>
+              </span>
+            )}
+          </div>
           {/* Filtro por etiqueta */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
             <button onClick={() => setFiltroEtiqueta("")} style={{
@@ -4279,6 +4327,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado }) {
           db={db}
           usuario={usuario}
           onClose={() => setFichaAbierta(null)}
+          onAbrirVenta={onAbrirVenta}
         />
       )}
 
@@ -4661,7 +4710,7 @@ function ObjetivoBar({ ventas, objetivo, editando = false }) {
     </div>
   );
 }
-function Ventas({ data, db, usuario }) {
+function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
   const [filtroEstado, setFiltroEstado] = useState("");
   const [filtroMes, setFiltroMes] = useState(() => {
     const h = new Date();
@@ -4707,6 +4756,16 @@ function Ventas({ data, db, usuario }) {
   }).sort((a,b) => b.fecha.localeCompare(a.fecha));
 
   const ventaActual = verDetalle ? data.ventas.find(v => v.id === verDetalle) : null;
+
+  // Abrir un presupuesto puntual cuando se llega desde la ficha del paciente
+  useEffect(() => {
+    if (!ventaAAbrir) return;
+    if (data.ventas.find(v => v.id === ventaAAbrir)) {
+      setFiltroMes(""); setFiltroEstado(""); setBusqueda("");
+      setVerDetalle(ventaAAbrir);
+    }
+    if (onVentaAbierta) onVentaAbierta();
+  }, [ventaAAbrir]);
 
   function saldoReal(v) {
     const pagos = Array.isArray(v.pagos) ? v.pagos : [];
@@ -8199,6 +8258,8 @@ function AppInner() {
   });
   const [tab, setTab] = useState("turnos");
   const [pacienteAEditar, setPacienteAEditar] = useState(null);
+  const [ventaAAbrir, setVentaAAbrir] = useState(null);
+  const abrirVenta = id => { setVentaAAbrir(id); setTab("ventas"); };
   const db = useSupabase();
   const { data, loading, error } = db;
 
@@ -8277,9 +8338,9 @@ function AppInner() {
         )}
         {puedeVer(tab) && <>
         {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "turnos")} />}
-        {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} />}
-        {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} />}
-        {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} />}
+        {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} onAbrirVenta={abrirVenta} />}
+        {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} onAbrirVenta={abrirVenta} />}
+        {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} ventaAAbrir={ventaAAbrir} onVentaAbierta={() => setVentaAAbrir(null)} />}
         {tab === "compras"       && <Compras data={data} db={db} usuario={usuarioActual} />}
 
         {tab === "estadisticas"  && <Estadisticas data={data} />}
