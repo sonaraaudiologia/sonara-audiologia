@@ -516,7 +516,58 @@ const COLORES_ESTADO = {
 };
 const ESTADOS_OCULTOS = ["cancelado", "suspendido"]; // no aparecen en agenda
 
-const INSUMOS_LISTA = ["Pilas", "Spaguetti", "Free tube", "Domo", "Codos", "Deshumidificador", "Molde", "Tapones auditivos", "Cambio de filtro", "Rueda de filtros", "Calibración", "Audiometría", "Logoaudiometría", "Otro"];
+// Lista de precios (planilla "Precios INSUMOS" → hoja Servicios/Insumos). precio = SONARA, especial = PAMI/Ministerio/Hospitales.
+// Para actualizar precios, editar solo los números de esta lista.
+const PRECIOS_INSUMOS = [
+  // Insumos
+  { nombre: "Pilas", precio: 12000 },
+  { nombre: "Spaguettis", precio: 10000 },
+  { nombre: "Spaguetti + servicio de cambio", precio: 15000 },
+  { nombre: "Free tube", precio: 20000 },
+  { nombre: "Domo", precio: 7000 },
+  { nombre: "Free tube + domo", precio: 25000 },
+  { nombre: "Codos", precio: 20000 },
+  { nombre: "Sujetador", precio: 10000 },
+  { nombre: "Deshumidificador", precio: 15000 },
+  { nombre: "Tester de pilas", precio: 10000 },
+  { nombre: "Rueda de filtro (x6)", precio: 35000 },
+  { nombre: "Cambio de filtro (x1)", precio: 10000 },
+  { nombre: "Molde rígido", precio: 60000, especial: 75000 },
+  { nombre: "Molde silicona", precio: 65000, especial: 80000 },
+  { nombre: "Molde RIC", precio: 65000 },
+  { nombre: "Speaker", precio: 180000 },
+  { nombre: "Tapones auditivos", precio: null },
+  // Servicios técnicos
+  { nombre: "Cambio pulsador de volumen", precio: 20000 },
+  { nombre: "Cambio portapilas", precio: 25000 },
+  { nombre: "Limpieza", precio: 40000 },
+  { nombre: "Cambio de pila de litio", precio: 80000 },
+  { nombre: "Reparación (costo + 75%)", precio: null },
+  // Prácticas
+  { nombre: "Consulta", precio: 45000, especial: 35000 },
+  { nombre: "Audiometría", precio: 50000, especial: 40000 },
+  { nombre: "Audio + logo", precio: 70000, especial: 50000 },
+  { nombre: "Acufenometría y pruebas supraliminares", precio: 40000 },
+  { nombre: "Audiometría por el juego", precio: 80000 },
+  { nombre: "Calibración OTA", precio: 80000, especial: 60000 },
+  { nombre: "Calibración (audífono comprado afuera, u$s 200)", precio: null },
+  { nombre: "Calibración osteo", precio: 100000 },
+  { nombre: "Calibración IC", precio: 120000, especial: 90000 },
+  { nombre: "Calibración IC bilateral", precio: 160000, especial: 120000 },
+  { nombre: "Encendido IC", precio: 250000 },
+  { nombre: "Rendimiento OTA / evaluación habla", precio: 80000 },
+  { nombre: "Asesoría / supervisión a profesionales", precio: 100000 },
+  { nombre: "Otro", precio: null },
+];
+const INSUMOS_LISTA = PRECIOS_INSUMOS.map(i => i.nombre);
+function precioInsumo(nombre, especial = false) {
+  const it = PRECIOS_INSUMOS.find(i => i.nombre === nombre);
+  if (!it) return "";
+  const p = especial && it.especial != null ? it.especial : it.precio;
+  return p != null ? String(p) : "";
+}
+// "especial" se mantiene entre ítems para no tener que tildarlo de nuevo en cada uno
+const insumoVacio = (especial = false) => ({ nombre: "Pilas", cantidad: 1, precio: precioInsumo("Pilas", especial), especial });
 
 
 const FORM_TURNO_VACIO = { paciente_id: "", fecha: today(), hora: "09:00", hora_fin: "09:30", motivo: "", practicas: [], profesional: "", estado: "pendiente", notas: "" };
@@ -1889,7 +1940,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
   const [insumoFormT, setInsumoFormT] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
-  const [insumoActualT, setInsumoActualT] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [insumoActualT, setInsumoActualT] = useState(insumoVacio());
 
   const pacientes = data.pacientes;
   const diasSemana = Array.from({ length: 6 }, (_, i) => addDays(semanaBase, i));
@@ -3432,7 +3483,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                 <div style={{ marginTop: 10, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: 12 }}>
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
                     <Field label="Insumo">
-                      <select style={selectStyle} value={insumoActualT.nombre} onChange={e => setInsumoActualT(i => ({ ...i, nombre: e.target.value }))}>
+                      <select style={selectStyle} value={insumoActualT.nombre} onChange={e => setInsumoActualT(i => ({ ...i, nombre: e.target.value, precio: precioInsumo(e.target.value, i.especial) }))}>
                         {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
                       </select>
                     </Field>
@@ -3443,9 +3494,13 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       const nuevos = [...insumoFormT.insumos, nuevo];
                       const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
                       setInsumoFormT(f => ({ ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total }));
-                      setInsumoActualT({ nombre: "Pilas", cantidad: 1, precio: "" });
+                      setInsumoActualT(i => insumoVacio(i.especial));
                     }} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
                   </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6B7280", marginBottom: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!insumoActualT.especial} onChange={e => { const esp = e.target.checked; setInsumoActualT(i => ({ ...i, especial: esp, precio: precioInsumo(i.nombre, esp) })); }} />
+                    Precio especial (PAMI / Ministerio / Hospitales)
+                  </label>
                   {insumoFormT.insumos.map(i => (
                     <div key={i.id} style={{ display: "flex", justifyContent: "space-between", background: "#fff", borderRadius: 6, padding: "4px 8px", marginBottom: 4, fontSize: 12 }}>
                       <span>{i.nombre} x{i.cantidad}{i.precio ? ` · $${parseFloat(i.precio).toLocaleString("es-AR")}` : ""}</span>
@@ -3522,7 +3577,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
 
   // Insumos state
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
-  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [insumoActual, setInsumoActual] = useState(insumoVacio());
   const [verDetalleInsumo, setVerDetalleInsumo] = useState(null);
   const [pagoInsumoForm, setPagoInsumoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
@@ -3597,7 +3652,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
       const total = nuevos.reduce((s,i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
       return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
     });
-    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+    setInsumoActual(i => insumoVacio(i.especial));
   }
 
   async function guardarInsumo() {
@@ -3751,7 +3806,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#92400E", marginBottom: 12 }}>🛍️ Cargar nuevo insumo</div>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
                   <Field label="Insumo">
-                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value, precio: precioInsumo(e.target.value, i.especial) }))}>
                       {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
                     </select>
                   </Field>
@@ -3759,6 +3814,10 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
                   <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} /></Field>
                   <button type="button" onClick={agregarInsumoItem} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
                 </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6B7280", marginBottom: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!insumoActual.especial} onChange={e => { const esp = e.target.checked; setInsumoActual(i => ({ ...i, especial: esp, precio: precioInsumo(i.nombre, esp) })); }} />
+                  Precio especial (PAMI / Ministerio / Hospitales)
+                </label>
                 {insumoForm.insumos.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
                     {insumoForm.insumos.map(i => (
@@ -4107,7 +4166,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
   const [ventaForm, setVentaForm] = useState({ fecha: today(), marca_der: "", modelo_der: "", marca_izq: "", modelo_izq: "", precio: "", obraSocialCubre: "", condicion_pago_os: "", saldoPaciente: "", condicion_pago_paciente: "", estado: "presupuestado", observaciones: "" });
   const [editPacModal, setEditPacModal] = useState(false);
   const [insumoForm, setInsumoForm] = useState({ fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "" });
-  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [insumoActual, setInsumoActual] = useState(insumoVacio());
 
   const [etiquetasCustom] = useState(() => {
     try { return JSON.parse(localStorage.getItem("etiquetas_custom") || "[]"); } catch { return []; }
@@ -4224,7 +4283,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
       const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
       return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
     });
-    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+    setInsumoActual(i => insumoVacio(i.especial));
   }
 
   function quitarInsumoItem(id) {
@@ -4756,7 +4815,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
               <div style={{ background: "#fff", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, alignItems: "end", marginBottom: 8 }}>
                   <Field label="Insumo">
-                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                    <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value, precio: precioInsumo(e.target.value, i.especial) }))}>
                       {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
                     </select>
                   </Field>
@@ -4764,6 +4823,10 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
                   <Field label="Precio $"><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} /></Field>
                   <button type="button" onClick={agregarInsumoItem} style={{ ...btnPrimary, padding: "8px 12px", marginBottom: 14 }}>+</button>
                 </div>
+                <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6B7280", marginBottom: 8, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!insumoActual.especial} onChange={e => { const esp = e.target.checked; setInsumoActual(i => ({ ...i, especial: esp, precio: precioInsumo(i.nombre, esp) })); }} />
+                  Precio especial (PAMI / Ministerio / Hospitales)
+                </label>
                 {insumoForm.insumos.length === 0
                   ? <div style={{ fontSize: 12, color: "#aaa", textAlign: "center" }}>Agregá insumos con +</div>
                   : insumoForm.insumos.map(i => (
@@ -5483,7 +5546,7 @@ function Compras({ data, db, usuario }) {
   const [busquedaPac, setBusquedaPac] = useState("");
   const [filtroEstado, setFiltroEstado] = useState("");
   const [form, setForm] = useState({ paciente_id: "", fecha: today(), insumos: [], total: "", seña: "", estado: "pendiente", notas: "", pagos: [] });
-  const [insumoActual, setInsumoActual] = useState({ nombre: "Pilas", cantidad: 1, precio: "" });
+  const [insumoActual, setInsumoActual] = useState(insumoVacio());
   const [verDetalleCompra, setVerDetalleCompra] = useState(null);
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
 
@@ -5521,7 +5584,7 @@ function Compras({ data, db, usuario }) {
       const total = nuevos.reduce((s, i) => s + (parseFloat(i.precio)||0) * (parseInt(i.cantidad)||1), 0);
       return { ...f, insumos: nuevos, total: total > 0 ? String(total) : f.total };
     });
-    setInsumoActual({ nombre: "Pilas", cantidad: 1, precio: "" });
+    setInsumoActual(i => insumoVacio(i.especial));
   }
 
   function quitarInsumo(id) {
@@ -5652,7 +5715,7 @@ function Compras({ data, db, usuario }) {
             <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 10 }}>🛍️ Insumos</div>
             <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8, marginBottom: 8, alignItems: "end" }}>
               <Field label="Insumo">
-                <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value }))}>
+                <select style={selectStyle} value={insumoActual.nombre} onChange={e => setInsumoActual(i => ({ ...i, nombre: e.target.value, precio: precioInsumo(e.target.value, i.especial) }))}>
                   {INSUMOS_LISTA.map(ins => <option key={ins}>{ins}</option>)}
                 </select>
               </Field>
@@ -5660,6 +5723,10 @@ function Compras({ data, db, usuario }) {
               <Field label="Precio unit."><input type="number" style={inputStyle} value={insumoActual.precio} onChange={e => setInsumoActual(i => ({ ...i, precio: e.target.value }))} placeholder="$" /></Field>
               <button onClick={agregarInsumo} style={{ ...btnPrimary, padding: "8px 14px", marginBottom: 14 }}>+</button>
             </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6B7280", marginBottom: 8, cursor: "pointer" }}>
+              <input type="checkbox" checked={!!insumoActual.especial} onChange={e => { const esp = e.target.checked; setInsumoActual(i => ({ ...i, especial: esp, precio: precioInsumo(i.nombre, esp) })); }} />
+              Precio especial (PAMI / Ministerio / Hospitales)
+            </label>
             {form.insumos.length === 0
               ? <div style={{ fontSize: 13, color: "#aaa", textAlign: "center", padding: "8px 0" }}>Agregá insumos con el botón "+"</div>
               : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
