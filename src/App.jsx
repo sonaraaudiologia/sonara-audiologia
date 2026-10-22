@@ -566,7 +566,7 @@ function Field({ label, children }) {
 }
 
 // ─── OBRA SOCIAL: separar combinadas + selector desplegable ──────────────────
-// "IAPOS y OSDE", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE", "PAMI o Británica", "IAPOS-PAMI-UNIVERSIDAD" → separadas.
+// "IAPOS y OSDE", "OSDE e IAPOS", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE", "PAMI o Británica", "IAPOS-PAMI-UNIVERSIDAD" → separadas.
 // OS_CON_GUION: nombres que llevan guion propio y NO se deben partir (agregar acá si aparece otra).
 const OS_CON_GUION = ["Hospital Italiano - La Casa del Médico Mutual"];
 // Clave para comparar/deduplicar: sin acentos, minúsculas, espacios simples, sin puntos/guiones sueltos en los bordes
@@ -575,7 +575,7 @@ function claveOS(str) { return normalizar(str).replace(/\s+/g, " ").replace(/^[\
 const OS_NO_VALIDAS = ["particular", "sin obra social", "no tiene", "no", "ninguna", "-", "s/os", "sin os"];
 function separarOS(str) {
   const prot = new Set(OS_CON_GUION.map(x => normalizar(x).replace(/\s+/g, " ").trim()));
-  return (str || "").split(/\s*(?:[,\/+;]|\s+y\s+|\s+o\s+)\s*/i)
+  return (str || "").split(/\s*(?:[,\/+;&]|\s+(?:y|e|o)\s+)\s*/i)
     .flatMap(parte => prot.has(normalizar(parte).replace(/\s+/g, " ").trim()) ? [parte] : parte.split(/\s*[-–—]\s*/))
     .map(s => s.replace(/^[\s.\-–—]+|[\s.\-–—]+$/g, "").trim()).filter(Boolean);
 }
