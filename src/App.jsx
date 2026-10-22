@@ -565,6 +565,86 @@ function Field({ label, children }) {
   );
 }
 
+// ─── OBRA SOCIAL: separar combinadas + selector desplegable ──────────────────
+// "IAPOS y OSDE", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE" → ["IAPOS", "OSDE"]
+function separarOS(str) {
+  return (str || "").split(/\s*(?:[,\/+;]|\s+y\s+)\s*/i).map(s => s.trim()).filter(Boolean);
+}
+
+// Desplegable de obra social: catálogo (Derivadores → Obras sociales) + lo cargado en las fichas.
+// Permite una 2da obra social (se guarda como "A y B") y agregar una nueva al catálogo.
+function SelectObraSocial({ value, onChange, pacientes }) {
+  const { items: externos, agregar } = useDerivadores();
+  const [slotExtra, setSlotExtra] = useState(false);
+  const [agregandoIdx, setAgregandoIdx] = useState(null);
+  const [nueva, setNueva] = useState("");
+
+  const mapa = new Map();
+  const sumar = v => { const t = (v || "").trim(); if (t && !mapa.has(normalizar(t))) mapa.set(normalizar(t), t); };
+  externos.filter(x => x.tipo === "obra_social").forEach(x => sumar(x.nombre));
+  (pacientes || []).forEach(p => separarOS(p.obraSocial || p.obra_social).forEach(sumar));
+  const opciones = [...mapa.values()].sort((a, b) => a.localeCompare(b, "es"));
+
+  const partes = separarOS(value);
+  const lista = partes.length ? [...partes] : [""];
+  if (slotExtra) lista.push("");
+
+  function guardarLista(l) { onChange(l.map(x => (x || "").trim()).filter(Boolean).join(" y ")); }
+  function setParte(i, v) {
+    if (v === "__nueva__") { setAgregandoIdx(i); setNueva(""); return; }
+    const l = [...lista]; l[i] = v;
+    if (i >= partes.length) setSlotExtra(false);
+    guardarLista(l);
+  }
+  function quitarParte(i) {
+    if (i >= partes.length) { setSlotExtra(false); return; }
+    guardarLista(lista.filter((_, j) => j !== i));
+  }
+  async function confirmarNueva() {
+    const nom = nueva.trim();
+    if (!nom) return;
+    const existente = opciones.find(o => normalizar(o) === normalizar(nom));
+    const final = existente || nom;
+    if (!existente && !externos.some(x => x.tipo === "obra_social" && normalizar(x.nombre) === normalizar(nom))) {
+      try { await agregar({ ...FORM_OS_VACIO, nombre: nom }); } catch (e) { console.error(e); }
+    }
+    const i = agregandoIdx;
+    setAgregandoIdx(null); setNueva("");
+    setParte(i, final);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {lista.map((parte, i) => {
+        if (agregandoIdx === i) return (
+          <div key={i} style={{ display: "flex", gap: 6 }}>
+            <input autoFocus style={{ ...inputStyle, flex: 1 }} placeholder="Nombre de la nueva obra social" value={nueva}
+              onChange={e => setNueva(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); confirmarNueva(); } if (e.key === "Escape") setAgregandoIdx(null); }} />
+            <button type="button" onClick={confirmarNueva} style={{ border: "none", background: "#4338CA", color: "#fff", borderRadius: 8, padding: "0 12px", fontWeight: 700, cursor: "pointer" }}>OK</button>
+            <button type="button" onClick={() => setAgregandoIdx(null)} style={{ border: "1px solid #DDD", background: "#fff", borderRadius: 8, padding: "0 10px", cursor: "pointer" }}>✕</button>
+          </div>
+        );
+        const valSel = opciones.find(o => normalizar(o) === normalizar(parte)) || parte;
+        return (
+          <div key={i} style={{ display: "flex", gap: 6 }}>
+            <select style={{ ...inputStyle, flex: 1 }} value={valSel} onChange={e => setParte(i, e.target.value)}>
+              <option value="">{i === 0 ? "Particular / sin obra social" : "— Elegir 2da obra social —"}</option>
+              {valSel && !opciones.includes(valSel) && <option value={valSel}>{valSel}</option>}
+              {opciones.map(o => <option key={o} value={o}>{o}</option>)}
+              <option value="__nueva__">➕ Agregar nueva…</option>
+            </select>
+            {i > 0 && <button type="button" title="Quitar" onClick={() => quitarParte(i)} style={{ border: "1px solid #DDD", background: "#fff", borderRadius: 8, padding: "0 10px", cursor: "pointer" }}>✕</button>}
+          </div>
+        );
+      })}
+      {!slotExtra && partes.length > 0 && agregandoIdx === null && (
+        <button type="button" onClick={() => setSlotExtra(true)} style={{ alignSelf: "flex-start", border: "none", background: "none", color: "#4338CA", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>＋ Otra obra social</button>
+      )}
+    </div>
+  );
+}
+
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -3038,7 +3118,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
                       <Field label="Apellido *"><input style={inputStyle} value={formNuevoPac.apellido} onChange={e => setFormNuevoPac(f => ({ ...f, apellido: e.target.value }))} /></Field>
                       <Field label="DNI"><input style={inputStyle} value={formNuevoPac.dni} onChange={e => setFormNuevoPac(f => ({ ...f, dni: e.target.value }))} /></Field>
                       <Field label="Teléfono"><input style={inputStyle} value={formNuevoPac.telefono} onChange={e => setFormNuevoPac(f => ({ ...f, telefono: e.target.value }))} /></Field>
-                      <Field label="Obra social"><input style={inputStyle} value={formNuevoPac.obraSocial} onChange={e => setFormNuevoPac(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
+                      <Field label="Obra social"><SelectObraSocial pacientes={data.pacientes} value={formNuevoPac.obraSocial} onChange={v => setFormNuevoPac(f => ({ ...f, obraSocial: v }))} /></Field>
                       <Field label="Fecha de nac."><input type="date" style={inputStyle} value={formNuevoPac.fechaNac} onChange={e => setFormNuevoPac(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
                     </div>
                     <Field label="Derivado por">
@@ -3843,7 +3923,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
                     <Field label="Fecha nac."><input type="date" style={inputStyle} value={form.fechaNac||form.fecha_nac||""} onChange={e => setForm(f => ({...f, fechaNac: e.target.value}))} /></Field>
                     <Field label="Dirección"><input style={inputStyle} value={form.direccion||""} onChange={e => setForm(f => ({...f, direccion: e.target.value}))} /></Field>
                     <Field label="Localidad"><input style={inputStyle} value={form.localidad||""} onChange={e => setForm(f => ({...f, localidad: e.target.value}))} /></Field>
-                    <Field label="Obra social"><input style={inputStyle} value={form.obraSocial||form.obra_social||""} onChange={e => setForm(f => ({...f, obraSocial: e.target.value}))} /></Field>
+                    <Field label="Obra social"><SelectObraSocial pacientes={data.pacientes} value={form.obraSocial||form.obra_social||""} onChange={v => setForm(f => ({...f, obraSocial: v}))} /></Field>
                     <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado||form.nro_afiliado||""} onChange={e => setForm(f => ({...f, nroAfiliado: e.target.value}))} /></Field>
                   </div>
                   <Field label="Derivado por"><DerivadoPorSelector value={form.derivadoPor||form.derivado_por||""} onChange={v => setForm(f => ({...f, derivadoPor: v}))} /></Field>
@@ -3949,7 +4029,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
   // (ej: "LICITACIÓN Ministerio" coincide con "Ministerio").
   function coincideFiltro(valorPac, clave) {
     const v = normalizar(valorPac || "").trim();
-    return v !== "" && (v === clave || v.includes(clave));
+    return v !== "" && (v === clave || v.includes(clave) || separarOS(v).some(x => x === clave));
   }
   function armarOpciones(nombresCatalogo, campoA, campoB) {
     const mapa = new Map();
@@ -3958,8 +4038,12 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
       if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
     });
     data.pacientes.forEach(p => {
-      const val = (p[campoA] || p[campoB] || "").trim();
-      if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
+      const crudo = (p[campoA] || p[campoB] || "").trim();
+      // Obras sociales combinadas ("IAPOS y OSDE") cuentan como opciones separadas
+      const vals = campoA === "obraSocial" ? separarOS(crudo) : (crudo ? [crudo] : []);
+      vals.forEach(val => {
+        if (val && !mapa.has(normalizar(val))) mapa.set(normalizar(val), { key: normalizar(val), label: val });
+      });
     });
     return [...mapa.values()]
       .map(o => ({ ...o, n: data.pacientes.filter(p => coincideFiltro(p[campoA] || p[campoB], o.key)).length }))
@@ -4257,7 +4341,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
           <div style={{ height: 1, background: "#F0F0F0", margin: "12px 0 14px" }} />
           <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10 }}>Cobertura</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 4 }}>
-            <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
+            <Field label="Obra social"><SelectObraSocial pacientes={data.pacientes} value={form.obraSocial} onChange={v => setForm(f => ({ ...f, obraSocial: v }))} /></Field>
             <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
           </div>
 
@@ -4472,7 +4556,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
                 <Field label="Apellido *"><input style={inputStyle} value={form.apellido} onChange={e => setForm(f => ({ ...f, apellido: e.target.value }))} /></Field>
                 <Field label="Teléfono"><input style={inputStyle} value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></Field>
                 <Field label="Email"><input style={inputStyle} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} /></Field>
-                <Field label="Obra social"><input style={inputStyle} value={form.obraSocial} onChange={e => setForm(f => ({ ...f, obraSocial: e.target.value }))} /></Field>
+                <Field label="Obra social"><SelectObraSocial pacientes={data.pacientes} value={form.obraSocial} onChange={v => setForm(f => ({ ...f, obraSocial: v }))} /></Field>
                 <Field label="Nro. afiliado"><input style={inputStyle} value={form.nroAfiliado} onChange={e => setForm(f => ({ ...f, nroAfiliado: e.target.value }))} /></Field>
                 <Field label="Audífono actual"><input style={inputStyle} value={form.audifono || ""} onChange={e => setForm(f => ({ ...f, audifono: e.target.value }))} /></Field>
                 <Field label="Fecha de nac."><input type="date" style={inputStyle} value={form.fechaNac} onChange={e => setForm(f => ({ ...f, fechaNac: e.target.value }))} /></Field>
