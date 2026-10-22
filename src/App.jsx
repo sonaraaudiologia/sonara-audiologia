@@ -1036,10 +1036,12 @@ function useSupabase() {
         .on("postgres_changes", { event: "*", schema: "public", table: tabla }, payload => {
           setData(prev => {
             const lista = [...prev[tabla]];
+            // Convertir la fila cruda al formato que usa la app (ventas/pacientes)
+            const nueva = payload.new && payload.new.id ? transformar(tabla, [payload.new])[0] : payload.new;
             if (payload.eventType === "INSERT") {
-              if (!lista.find(r => r.id === payload.new.id)) return { ...prev, [tabla]: [...lista, payload.new] };
+              if (!lista.find(r => r.id === nueva.id)) return { ...prev, [tabla]: [...lista, nueva] };
             } else if (payload.eventType === "UPDATE") {
-              return { ...prev, [tabla]: lista.map(r => r.id === payload.new.id ? payload.new : r) };
+              return { ...prev, [tabla]: lista.map(r => r.id === nueva.id ? nueva : r) };
             } else if (payload.eventType === "DELETE") {
               return { ...prev, [tabla]: lista.filter(r => r.id !== payload.old.id) };
             }
@@ -1242,13 +1244,14 @@ function useSupabase() {
   }, [data.pacientes]);
 
   // ── CRUD Turnos ───────────────────────────────────────────────────────────
-  const agregarTurno = useCallback(async (turno) => {
+  const agregarTurno = useCallback(async (turno, opciones = {}) => {
     const payload = toDBTurno(turno);
     const { data: row, error } = await supabase.from("turnos").insert(payload).select().single();
     if (error) { console.error("Error turno:", error); return; }
     setData(d => ({ ...d, turnos: [...d.turnos, row] }));
     if (row) {
-      pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
+      // Las acciones automáticas (ej. bloqueos de feriados) no van a la pila de deshacer
+      if (!opciones.sinUndo) pushUndo({ tipo: "crear", tabla: "turnos", item: row, descripcion: `Turno ${row.fecha} ${row.hora?.slice(0,5)} creado` });
       logAuditoria(window.__sonaraUsuario, "CREAR", "turnos", `Turno del ${row.fecha} ${row.hora?.slice(0,5)} — ${row.motivo || ""}`, null, row);
     }
   }, []);
@@ -1661,7 +1664,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             profesional: f.prof,
             estado: "bloqueado",
             notas: "feriado-auto",
-          });
+          }, { sinUndo: true });
         } catch (e) { console.error("Error creando bloqueo de feriado:", e); }
       }
     })();
