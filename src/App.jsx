@@ -127,6 +127,29 @@ function fechasRepeticion(fechaInicio, frecuencia, fechaHasta) {
   return fechas;
 }
 
+// ─── SEGUIMIENTO POSVENTA ─────────────────────────────────────────────────────
+// Recordatorios automáticos contados desde la fecha de retiro (entrega) del audífono.
+// Para agregar/quitar un plazo, tocar solo esta lista.
+const SEGUIMIENTO_POSVENTA = [
+  { meses: 1,  etiqueta: "1 mes" },
+  { meses: 6,  etiqueta: "6 meses" },
+  { meses: 12, etiqueta: "1 año" },
+];
+const MENSAJES_POSVENTA = {
+  "1 mes":   n => `Hola ${n} 👋 Te escribimos de Sonara Audiología. Ya pasó un mes desde que empezaste a usar tus audífonos y queríamos saber cómo te estás adaptando. ¿Cómo te sentís con ellos? Si notás algo que te moleste o querés hacer algún ajuste, avisanos y coordinamos un turno.`,
+  "6 meses": n => `Hola ${n} 👋 Te escribimos de Sonara Audiología. Ya pasaron 6 meses desde que retiraste tus audífonos y queríamos saber cómo te está yendo. Es un buen momento para un control y limpieza de los equipos. ¿Te coordinamos un turno?`,
+  "1 año":   n => `Hola ${n} 👋 Te escribimos de Sonara Audiología. ¡Se cumple un año desde que empezaste a usar tus audífonos! Te recomendamos hacer el control anual para revisar tu audición y el funcionamiento de los equipos. ¿Te coordinamos un turno?`,
+};
+// Link de wa.me para un recordatorio de posventa (solo abre WhatsApp con el texto listo).
+function linkPosventaWhatsApp(rec, paciente) {
+  if (rec?.tipo !== "posventa" || !paciente?.telefono) return null;
+  const numero = limpiarTelefonoAR(paciente.telefono);
+  if (!numero) return null;
+  const etapa = SEGUIMIENTO_POSVENTA.find(s => (rec.titulo || "").startsWith(`Posventa ${s.etiqueta} ·`));
+  const armar = MENSAJES_POSVENTA[etapa?.etiqueta] || MENSAJES_POSVENTA["1 mes"];
+  return `https://wa.me/${numero}?text=${encodeURIComponent(armar(paciente.nombre || ""))}`;
+}
+
 // ─── WHATSAPP — recordatorio manual de turnos ─────────────────────────────────
 // Limpia y normaliza un número de teléfono argentino al formato que espera wa.me
 // (54 9 + código de área + número, sin el "15" local ni el "0" de larga distancia).
@@ -945,6 +968,15 @@ function Dashboard({ data, onNavigate }) {
                   <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e" }}>{r.titulo}</div>
                   <div style={{ fontSize: 11, color: "#888" }}>{formatFecha(r.fecha)}{r.hora ? ` · ${r.hora.slice(0,5)}` : ""}</div>
                 </div>
+                {r.tipo === "posventa" && (() => {
+                  const link = linkPosventaWhatsApp(r, data.pacientes.find(p => p.id === r.paciente_id));
+                  return link ? (
+                    <a href={link} target="_blank" rel="noopener noreferrer" title="Escribirle por WhatsApp"
+                      style={{ background: "#25D366", color: "#fff", borderRadius: 8, padding: "5px 10px", fontSize: 11, fontWeight: 700, textDecoration: "none", whiteSpace: "nowrap", alignSelf: "center" }}>
+                      📱 Enviar
+                    </a>
+                  ) : null;
+                })()}
               </div>
             ))
           }
@@ -1310,6 +1342,41 @@ function useSupabase() {
     };
   }
 
+  // ── Posventa: (re)programa los recordatorios de seguimiento de un paciente ──
+  // Se llama cuando cambia la fecha de retiro de un audífono. Borra los de posventa
+  // pendientes (no completados) y crea los nuevos; solo los que caen de hoy en adelante.
+  const programarPosventa = useCallback(async (pac, fechaEntrega) => {
+    if (!pac?.id || !fechaEntrega) return;
+    const { data: viejos } = await supabase.from("recordatorios").select("id")
+      .eq("paciente_id", pac.id).eq("tipo", "posventa").eq("completado", false);
+    const idsViejos = (viejos || []).map(r => r.id);
+    if (idsViejos.length) await supabase.from("recordatorios").delete().in("id", idsViejos);
+    const hoy = hoyLocal();
+    const nombre = `${pac.apellido || ""}, ${pac.nombre || ""}`;
+    const equipo = [...new Set([pac.audifono_der, pac.audifono_izq].filter(Boolean))].join(" / ");
+    const nuevos = SEGUIMIENTO_POSVENTA.map(s => ({
+      titulo: `Posventa ${s.etiqueta} · ${nombre}`,
+      fecha: sumarMesesClamp(fechaEntrega, s.meses), hora: "09:00", tipo: "posventa", paciente_id: pac.id,
+      descripcion: `Seguimiento posventa: ${s.etiqueta} desde la entrega (${formatFecha(fechaEntrega)})${equipo ? ` · ${equipo}` : ""}.`,
+      completado: false,
+    })).filter(r => r.fecha >= hoy);
+    let rows = [];
+    if (nuevos.length) {
+      const { data: ins, error } = await supabase.from("recordatorios").insert(nuevos.map(toDBRec)).select();
+      if (!error) rows = ins || [];
+    }
+    setData(d => ({ ...d, recordatorios: [...d.recordatorios.filter(r => !idsViejos.includes(r.id)), ...rows] }));
+    if (rows.length) logAuditoria(window.__sonaraUsuario, "CREAR", "recordatorios", `Posventa programada · ${nombre} (${rows.length})`, null, rows[0]);
+  }, []);
+
+  // Devuelve la fecha de retiro más reciente que cambió entre `anterior` y `nuevo` (o null)
+  function fechaRetiroNueva(nuevo, anterior) {
+    const fechas = ["der", "izq"]
+      .map(l => nuevo?.[`audifono_${l}_fecha`] && nuevo[`audifono_${l}_fecha`] !== (anterior?.[`audifono_${l}_fecha`] || "") ? nuevo[`audifono_${l}_fecha`] : null)
+      .filter(Boolean).sort();
+    return fechas.length ? fechas[fechas.length - 1] : null;
+  }
+
   // ── CRUD Pacientes ────────────────────────────────────────────────────────
   const agregarPaciente = useCallback(async (pac) => {
     const payload = toDB(pac);
@@ -1319,6 +1386,8 @@ function useSupabase() {
       setData(d => ({ ...d, pacientes: [...d.pacientes, p] }));
       pushUndo({ tipo: "crear", tabla: "pacientes", item: row, descripcion: `Paciente ${row.apellido}, ${row.nombre} creado` });
       logAuditoria(window.__sonaraUsuario, "CREAR", "pacientes", `Paciente ${row.apellido}, ${row.nombre}`, null, row);
+      const fRetiro = fechaRetiroNueva(p, null);
+      if (fRetiro) await programarPosventa(p, fRetiro);
       return p;
     }
     return null;
@@ -1334,6 +1403,9 @@ function useSupabase() {
         pushUndo({ tipo: "actualizar", tabla: "pacientes", item: { ...payload, id: pac.id }, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "pacientes", `Paciente ${pac.apellido}, ${pac.nombre}`, toDB(itemAnterior), payload);
       }
+      // Si cambió la fecha de retiro de un audífono → (re)programar seguimiento posventa
+      const fRetiro = fechaRetiroNueva(pac, itemAnterior);
+      if (fRetiro) await programarPosventa(pac, fRetiro);
     }
   }, [data.pacientes]);
 
@@ -2473,6 +2545,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
               style={{ width: 13, height: 13, cursor: "pointer", accentColor: "#059669", flexShrink: 0 }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: r.completado ? "#9CA3AF" : "#374151", textDecoration: r.completado ? "line-through" : "none" }}>{r.completado && "✓ "}{r.titulo}</span>
             {r.paciente_id && (() => { const p = data.pacientes.find(x => x.id === r.paciente_id); return p ? <span style={{ fontSize: 10, color: "#888" }}>· 👤 {p.apellido}, {p.nombre}</span> : null; })()}
+            {!r.completado && (() => { const link = linkPosventaWhatsApp(r, data.pacientes.find(x => x.id === r.paciente_id)); return link ? <a href={link} target="_blank" rel="noopener noreferrer" title="Escribirle por WhatsApp" onClick={e => e.stopPropagation()} style={{ fontSize: 12, textDecoration: "none", flexShrink: 0 }}>📱</a> : null; })()}
             <button type="button" onClick={e => { e.stopPropagation(); eliminarRecConSerie(r); }}
               style={{ background: "none", border: "none", color: "#D1D5DB", cursor: "pointer", fontSize: 13, padding: 0, marginLeft: 2, flexShrink: 0 }}>×</button>
           </div>
@@ -4909,7 +4982,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     try {
       const esNueva = modal === "nuevo";
       const ventaAnterior = !esNueva && data.ventas.find(v => v.id === modal);
-      const generarRec = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
+      const pasaAVendido = form.estado === "vendido" && ventaAnterior?.estado !== "vendido";
       const ventaId = esNueva ? null : modal;
       const payload = esTerceros ? { ...form, paciente_id: null, stock_der_id: "", stock_izq_id: "" } : { ...form };
       if (esNueva) await db.agregarVenta({ ...payload, seguimiento: [], pagos: [] });
@@ -4919,12 +4992,8 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
         if (form.stock_der_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_der_id);
         if (form.stock_izq_id) await supabase.from("stock").update({ estado: "vendido", paciente_id: form.paciente_id }).eq("id", form.stock_izq_id);
       }
-      if (generarRec) {
-        const pac = data.pacientes.find(p => p.id === form.paciente_id);
-        const nombre = pac ? `${pac.apellido}, ${pac.nombre}` : "Paciente";
-        await db.agregarRecordatorio({ titulo: `Control 3 meses · ${nombre}`, fecha: sumarMeses(form.fecha, 3), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control 3 meses.`, completado: false });
-        await db.agregarRecordatorio({ titulo: `Control anual · ${nombre}`, fecha: sumarMeses(form.fecha, 12), hora: "09:00", tipo: "control", paciente_id: form.paciente_id, descripcion: `Control anual.`, completado: false });
-      }
+      // Al pasar a vendido (también desde el modal): volcar audífono a la ficha → programa la posventa
+      if (pasaAVendido && !esTerceros) await volcarAudifonoAFicha(payload);
       setModal(null);
     } finally { setSaving(false); }
   }
@@ -4975,6 +5044,30 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
   }
 
+  // Al vender, volcar el audífono (marca/modelo, N° de serie, fecha de retiro) a la ficha del paciente.
+  // Al setear la fecha de retiro, actualizarPaciente programa también el seguimiento posventa.
+  async function volcarAudifonoAFicha(v) {
+    if (!v?.paciente_id || !(v.marca_der || v.modelo_der || v.marca_izq || v.modelo_izq)) return;
+    const pac = data.pacientes.find(p => p.id === v.paciente_id);
+    if (pac) {
+      const anioVenta = (v.fecha || today()).split("-")[0];
+      const audifonoDer = [v.marca_der, v.modelo_der].filter(Boolean).join(" ").trim();
+      const audifonoIzq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ").trim();
+      await db.actualizarPaciente({
+        ...pac,
+        audifono_der: audifonoDer || pac.audifono_der || "",
+        audifono_der_anio: audifonoDer ? anioVenta : (pac.audifono_der_anio || ""),
+        audifono_izq: audifonoIzq || pac.audifono_izq || "",
+        audifono_izq_anio: audifonoIzq ? anioVenta : (pac.audifono_izq_anio || ""),
+        // Si se reemplaza el audífono, N° de serie (del stock vinculado) y fecha de retiro se actualizan con él
+        audifono_der_serie: audifonoDer ? ((data.stock || []).find(x => x.id === v.stock_der_id)?.numero_serie || "") : (pac.audifono_der_serie || ""),
+        audifono_der_fecha: audifonoDer ? hoyLocal() : (pac.audifono_der_fecha || ""),
+        audifono_izq_serie: audifonoIzq ? ((data.stock || []).find(x => x.id === v.stock_izq_id)?.numero_serie || "") : (pac.audifono_izq_serie || ""),
+        audifono_izq_fecha: audifonoIzq ? hoyLocal() : (pac.audifono_izq_fecha || ""),
+      });
+    }
+  }
+
   async function cambiarEstado(ventaId, nuevoEstado) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
@@ -5003,26 +5096,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     }
 
     // Al vender, volcar el audífono (marca/modelo) a la ficha del paciente
-    if (nuevoEstado === "vendido" && v.paciente_id && (v.marca_der || v.modelo_der || v.marca_izq || v.modelo_izq)) {
-      const pac = data.pacientes.find(p => p.id === v.paciente_id);
-      if (pac) {
-        const anioVenta = (v.fecha || today()).split("-")[0];
-        const audifonoDer = [v.marca_der, v.modelo_der].filter(Boolean).join(" ").trim();
-        const audifonoIzq = [v.marca_izq, v.modelo_izq].filter(Boolean).join(" ").trim();
-        await db.actualizarPaciente({
-          ...pac,
-          audifono_der: audifonoDer || pac.audifono_der || "",
-          audifono_der_anio: audifonoDer ? anioVenta : (pac.audifono_der_anio || ""),
-          audifono_izq: audifonoIzq || pac.audifono_izq || "",
-          audifono_izq_anio: audifonoIzq ? anioVenta : (pac.audifono_izq_anio || ""),
-          // Si se reemplaza el audífono, N° de serie (del stock vinculado) y fecha de retiro se actualizan con él
-          audifono_der_serie: audifonoDer ? ((data.stock || []).find(x => x.id === v.stock_der_id)?.numero_serie || "") : (pac.audifono_der_serie || ""),
-          audifono_der_fecha: audifonoDer ? hoyLocal() : (pac.audifono_der_fecha || ""),
-          audifono_izq_serie: audifonoIzq ? ((data.stock || []).find(x => x.id === v.stock_izq_id)?.numero_serie || "") : (pac.audifono_izq_serie || ""),
-          audifono_izq_fecha: audifonoIzq ? hoyLocal() : (pac.audifono_izq_fecha || ""),
-        });
-      }
-    }
+    if (nuevoEstado === "vendido") await volcarAudifonoAFicha(v);
 
     // Si se aprueba (o se marca directamente "Pedido a Buenos Aires") y no tiene stock vinculado, ofrecer pedirlo a BS AS
     if (["aprobado","señado","facturado_os","pedido_ba"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
