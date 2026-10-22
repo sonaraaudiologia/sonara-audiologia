@@ -583,6 +583,8 @@ function AnotadorPedidos() {
   const [texto, setTexto] = useState("");
   const [guardando, setGuardando] = useState(false);
   const [errorTabla, setErrorTabla] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editTexto, setEditTexto] = useState("");
 
   useEffect(() => {
     let activo = true;
@@ -622,6 +624,24 @@ function AnotadorPedidos() {
     if (error) { alert("No se pudo guardar: " + error.message); return; }
     setItems(prev => prev.find(r => r.id === row.id) ? prev : [...prev, row]);
     setTexto("");
+  }
+
+  function empezarEdicion(item) { setEditId(item.id); setEditTexto(item.texto || ""); }
+  function cancelarEdicion() { setEditId(null); setEditTexto(""); }
+
+  async function guardarEdicion(item) {
+    const t = editTexto.trim();
+    if (!t) return alert("El pedido no puede quedar vacío.");
+    if (t === item.texto) { cancelarEdicion(); return; }
+    setItems(prev => prev.map(r => r.id === item.id ? { ...r, texto: t } : r));
+    cancelarEdicion();
+    const { error } = await supabase.from("pedidos_pendientes").update({ texto: t }).eq("id", item.id);
+    if (error) {
+      alert("No se pudo guardar la edición: " + error.message);
+      setItems(prev => prev.map(r => r.id === item.id ? item : r));
+      return;
+    }
+    logAuditoria(window.__sonaraUsuario, "ACTUALIZAR", "pedidos_pendientes", `Pedido editado: "${item.texto}" → "${t}"`, item, { ...item, texto: t });
   }
 
   async function tildar(item) {
@@ -668,11 +688,28 @@ function AnotadorPedidos() {
                     <input type="checkbox" checked={false} onChange={() => tildar(it)}
                       style={{ marginTop: 2, width: 16, height: 16, cursor: "pointer", accentColor: "#1a6b6b" }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", wordBreak: "break-word" }}>{it.texto}</div>
+                      {editId === it.id ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input autoFocus value={editTexto} onChange={e => setEditTexto(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") guardarEdicion(it); if (e.key === "Escape") cancelarEdicion(); }}
+                            style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: 7, border: "1.5px solid #1a6b6b", fontSize: 13, outline: "none" }} />
+                          <button type="button" onClick={() => guardarEdicion(it)} title="Guardar"
+                            style={{ background: "#1a6b6b", color: "#fff", border: "none", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✓</button>
+                          <button type="button" onClick={cancelarEdicion} title="Cancelar"
+                            style={{ background: "#F3F4F6", color: "#555", border: "none", borderRadius: 7, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>✕</button>
+                        </div>
+                      ) : (
+                        <div onClick={() => empezarEdicion(it)} title="Clic para editar"
+                          style={{ fontSize: 13, fontWeight: 600, color: "#1a1a2e", wordBreak: "break-word", cursor: "text" }}>{it.texto}</div>
+                      )}
                       <div style={{ fontSize: 11, color: "#888" }}>
                         {it.created_at ? new Date(it.created_at).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" }) : ""}{it.creado_por ? ` · ${it.creado_por}` : ""}
                       </div>
                     </div>
+                    {editId !== it.id && (
+                      <button type="button" onClick={() => empezarEdicion(it)} title="Editar pedido"
+                        style={{ background: "none", border: "none", color: "#9CA3AF", cursor: "pointer", fontSize: 14, padding: "0 2px", flexShrink: 0 }}>✏️</button>
+                    )}
                   </div>
                 ))}
               </div>
