@@ -3649,7 +3649,9 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
                     const totalPagado = pagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
                     const saldo = (parseFloat(v.precio)||0) - totalPagado;
                     return (
-                      <div key={v.id} style={{ background: cv.bg, border: `1.5px solid ${cv.color}33`, borderRadius: 10, padding: "12px 14px" }}>
+                      <div key={v.id} onClick={onAbrirVenta ? () => { onClose(); onAbrirVenta(v.id); } : undefined}
+                        title={onAbrirVenta ? "Abrir en Presupuestos para modificar" : undefined}
+                        style={{ background: cv.bg, border: `1.5px solid ${cv.color}33`, borderRadius: 10, padding: "12px 14px", cursor: onAbrirVenta ? "pointer" : "default" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                           <div>
                             <span style={{ background: cv.color, color: "#fff", borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>{cv.label}</span>
@@ -3667,7 +3669,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
                         {pagos.length > 0 && <div style={{ fontSize: 11, color: "#888" }}>{pagos.length} pago{pagos.length > 1 ? "s" : ""} registrado{pagos.length > 1 ? "s" : ""}</div>}
                         {onAbrirVenta && (
                           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
-                            <button type="button" onClick={() => { onClose(); onAbrirVenta(v.id); }}
+                            <button type="button" onClick={e => { e.stopPropagation(); onClose(); onAbrirVenta(v.id); }}
                               style={{ background: "#fff", color: cv.color, border: `1.5px solid ${cv.color}55`, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                               🧾 Ver / editar en Presupuestos
                             </button>
