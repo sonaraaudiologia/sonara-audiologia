@@ -845,7 +845,7 @@ function AnotadorPedidos() {
 }
 
 // ─── DASHBOARD ────────────────────────────────────────────────────────────────
-function Dashboard({ data, onNavigate }) {
+function Dashboard({ data, db, onNavigate }) {
   const hoy = today();
   const [busqueda, setBusqueda] = useState("");
 
@@ -977,6 +977,13 @@ function Dashboard({ data, onNavigate }) {
                     </a>
                   ) : null;
                 })()}
+                {db && (
+                  <button onClick={async () => { await db.actualizarRecordatorio({ ...r, completado: true }); }}
+                    title="Marcar como hecho"
+                    style={{ background: "#ECFDF5", color: "#059669", border: "1px solid #A7F3D0", borderRadius: 8, padding: "4px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer", alignSelf: "center", flexShrink: 0 }}>
+                    ✓
+                  </button>
+                )}
               </div>
             ))
           }
@@ -8540,7 +8547,7 @@ function AppInner() {
           <div style={{ textAlign: "center", padding: 40, color: "#888", fontSize: 14 }}>No tenés acceso a esta sección.</div>
         )}
         {puedeVer(tab) && <>
-        {tab === "dashboard"     && <Dashboard data={data} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "turnos")} />}
+        {tab === "dashboard"     && <Dashboard data={data} db={db} onNavigate={id => setTab(id === "turno" ? "turnos" : id === "paciente" ? "pacientes" : "turnos")} />}
         {tab === "turnos"        && <Turnos data={data} db={db} saldoPaciente={saldoPaciente} usuario={usuarioActual} onNavigate={setTab} onEditarPaciente={id => { setPacienteAEditar(id); setTab("pacientes"); }} onAbrirVenta={abrirVenta} />}
         {tab === "pacientes"     && <Pacientes data={data} db={db} usuario={usuarioActual} pacienteAEditar={pacienteAEditar} onPacienteEditado={() => setPacienteAEditar(null)} onAbrirVenta={abrirVenta} />}
         {tab === "ventas"        && <Ventas data={data} db={db} usuario={usuarioActual} ventaAAbrir={ventaAAbrir} onVentaAbierta={() => setVentaAAbrir(null)} />}
