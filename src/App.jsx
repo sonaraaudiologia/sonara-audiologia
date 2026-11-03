@@ -1536,13 +1536,13 @@ function useSupabase() {
     }
   }, [data.turnos]);
 
-  const eliminarTurno = useCallback(async (id) => {
+  const eliminarTurno = useCallback(async (id, opciones = {}) => {
     const item = data.turnos.find(t => t.id === id);
     const { error } = await supabase.from("turnos").delete().eq("id", id);
     if (!error) {
       setData(d => ({ ...d, turnos: d.turnos.filter(t => t.id !== id) }));
       if (item) {
-        pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
+        if (!opciones.sinUndo) pushUndo({ tipo: "eliminar", tabla: "turnos", item, descripcion: `Turno ${item.fecha} ${item.hora?.slice(0,5)} eliminado` });
         logAuditoria(window.__sonaraUsuario, "ELIMINAR", "turnos", `Turno del ${item.fecha} ${item.hora?.slice(0,5)} — ${item.motivo || ""}`, item, null);
       }
     }
@@ -1897,12 +1897,16 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
   // profesional en cada feriado nacional (año actual y siguiente, desde hoy
   // en adelante), si todavía no existe uno cargado para esa fecha.
   const feriadosIntentadosRef = useRef(new Set());
+  const feriadosLimpiadosRef = useRef(new Set());
+  const { ajustes: feriadosAjustes, cargado: feriadosCargados } = useFeriadosAjustes();
   useEffect(() => {
-    if (!data.turnos) return;
+    // Esperamos a tener los ajustes manuales (feriados habilitados/agregados) para no crear bloqueos de más
+    if (!data.turnos || !feriadosCargados) return;
     const hoy = today();
     const anioActual = new Date().getFullYear();
-    const feriados = [...new Set([...getFeriadosArgentina(anioActual), ...getFeriadosArgentina(anioActual + 1)])]
+    const feriados = [...new Set([...getFeriadosArgentina(anioActual, feriadosAjustes), ...getFeriadosArgentina(anioActual + 1, feriadosAjustes)])]
       .filter(f => f >= hoy);
+    const setFeriados = new Set(feriados);
 
     let excluidos = [];
     try { excluidos = JSON.parse(localStorage.getItem("sonara_feriados_excluidos") || "[]"); } catch (e) { /* ignore */ }
@@ -1917,10 +1921,26 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         if (!yaExiste) faltantes.push({ fecha, prof: prof.key, key });
       }
     }
-    if (faltantes.length === 0) return;
+
+    // Bloqueos automáticos de fechas que ya no son feriado (feriado trasladado o habilitado para atender)
+    const sobrantes = data.turnos.filter(t =>
+      t.notas === "feriado-auto" && t.estado === "bloqueado" && t.fecha >= hoy &&
+      !setFeriados.has(t.fecha) && !feriadosLimpiadosRef.current.has(t.id)
+    );
+
+    if (faltantes.length === 0 && sobrantes.length === 0) return;
 
     faltantes.forEach(f => feriadosIntentadosRef.current.add(f.key));
+    sobrantes.forEach(t => {
+      feriadosLimpiadosRef.current.add(t.id);
+      // si después se vuelve a marcar como feriado, que se pueda recrear
+      feriadosIntentadosRef.current.delete(`${t.fecha}|${t.profesional}`);
+    });
     (async () => {
+      for (const t of sobrantes) {
+        try { await db.eliminarTurno(t.id, { sinUndo: true }); }
+        catch (e) { console.error("Error quitando bloqueo de feriado:", e); }
+      }
       for (const f of faltantes) {
         try {
           await db.agregarTurno({
@@ -1935,7 +1955,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         } catch (e) { console.error("Error creando bloqueo de feriado:", e); }
       }
     })();
-  }, [data.turnos, db]);
+  }, [data.turnos, db, feriadosAjustes, feriadosCargados]);
 
   // Insumos desde agenda
   const [mostrarInsumos, setMostrarInsumos] = useState(false);
@@ -6866,7 +6886,7 @@ function LoginScreen({ onLogin }) {
 
 
 // ─── FERIADOS ARGENTINA ────────────────────────────────────────────────────────
-function getFeriadosArgentina(anio) {
+function getFeriadosArgentina(anio, ajustes = []) {
   // Feriados fijos
   const fijos = [
     `${anio}-01-01`, // Año nuevo
@@ -6888,7 +6908,45 @@ function getFeriadosArgentina(anio) {
   const easter = calcEaster(anio);
   fijos.push(addDays(easter, -2)); // Viernes Santo
   fijos.push(addDays(easter, -1)); // Sábado Santo
-  return fijos;
+  if (!ajustes || ajustes.length === 0) return fijos;
+  // Ajustes manuales (tabla feriados_ajustes): activo=false quita un feriado, activo=true agrega uno
+  const quitados = new Set(ajustes.filter(a => !a.activo).map(a => a.fecha));
+  const agregados = ajustes.filter(a => a.activo && a.fecha.startsWith(`${anio}-`)).map(a => a.fecha);
+  return [...new Set([...fijos.filter(f => !quitados.has(f)), ...agregados])].sort();
+}
+
+// Ajustes manuales de feriados, compartidos por toda la clínica (Supabase: feriados_ajustes)
+function useFeriadosAjustes() {
+  const [ajustes, setAjustes] = useState([]);
+  const [cargado, setCargado] = useState(false);
+
+  useEffect(() => {
+    cargar();
+    const ch = supabase.channel("realtime-feriados-" + Math.random().toString(36).slice(2,6))
+      .on("postgres_changes", { event: "*", schema: "public", table: "feriados_ajustes" }, cargar)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  async function cargar() {
+    const { data, error } = await supabase.from("feriados_ajustes").select("*");
+    if (error) console.error("Error cargando ajustes de feriados:", error);
+    else setAjustes((data || []).map(r => ({ fecha: String(r.fecha).slice(0, 10), activo: !!r.activo })));
+    setCargado(true);
+  }
+
+  // esFeriado=true → la fecha queda como feriado; false → se atiende normalmente
+  async function setFeriado(fecha, esFeriado) {
+    const esBase = getFeriadosArgentina(Number(fecha.slice(0, 4))).includes(fecha);
+    const { error } = esFeriado === esBase
+      ? await supabase.from("feriados_ajustes").delete().eq("fecha", fecha)
+      : await supabase.from("feriados_ajustes").upsert({ fecha, activo: esFeriado }, { onConflict: "fecha" });
+    if (error) { alert("❌ No se pudo guardar el cambio de feriado: " + error.message); return false; }
+    await cargar();
+    return true;
+  }
+
+  return { ajustes, cargado, setFeriado };
 }
 
 function calcEaster(year) {
@@ -6946,6 +7004,8 @@ function Disponibilidad({ usuario }) {
   const [anioActual, setAnioActual] = useState(hoy.getFullYear());
   const [profSelec, setProfSelec] = useState("Lic. Cecilia Miatello");
   const { guardar, getDisp } = useDisponibilidad();
+  const { ajustes: feriadosAjustes, setFeriado } = useFeriadosAjustes();
+  const [nuevoFeriado, setNuevoFeriado] = useState("");
   const [saving, setSaving] = useState(false);
   const [diaSeleccionado, setDiaSeleccionado] = useState(null); // { fecha, d, dispDia }
   const [excepcionForm, setExcepcionForm] = useState({ activo: true, franjas: [{ horaDesde: "08:00", horaHasta: "18:00" }] });
@@ -6995,7 +7055,7 @@ function Disponibilidad({ usuario }) {
   function getDiasDelMes() {
     const dias = [];
     const ultimoDia = new Date(anioActual, mesActual, 0);
-    const feriadosAnio = getFeriadosArgentina(anioActual);
+    const feriadosAnio = getFeriadosArgentina(anioActual, feriadosAjustes);
 
     for (let d = 1; d <= ultimoDia.getDate(); d++) {
       const fecha = new Date(anioActual, mesActual - 1, d);
@@ -7013,8 +7073,18 @@ function Disponibilidad({ usuario }) {
   }
 
   const diasMes = getDiasDelMes();
-  const feriados = getFeriadosArgentina(anioActual);
+  const feriados = getFeriadosArgentina(anioActual, feriadosAjustes);
   const prof = PROFS_DISP.find(p => p.key === profSelec);
+
+  async function habilitarFeriado(fecha) {
+    if (!window.confirm(`¿Habilitar el ${formatFecha(fecha)} como día de atención?\n\nDeja de ser feriado para toda la clínica y se quitan los bloqueos automáticos de la agenda.`)) return;
+    await setFeriado(fecha, false);
+  }
+  async function marcarFeriado(fecha) {
+    if (!fecha) return;
+    if (!window.confirm(`¿Marcar el ${formatFecha(fecha)} como feriado?\n\nSe bloquea la agenda de todas las profesionales ese día.`)) return;
+    if (await setFeriado(fecha, true)) { setDiaSeleccionado(null); setNuevoFeriado(""); }
+  }
 
   return (
     <div>
@@ -7118,8 +7188,9 @@ function Disponibilidad({ usuario }) {
               const disponible = !esFeriado && !esDomingo && dispEfectiva?.activo;
               const seleccionado = diaSeleccionado?.fecha === fecha;
               return (
-                <div key={d} onClick={() => {
-                  if (esFeriado || esDomingo) return;
+                <div key={d} title={esFeriado ? "Click para habilitar este feriado" : undefined} onClick={() => {
+                  if (esDomingo) return;
+                  if (esFeriado) { habilitarFeriado(fecha); return; }
                   if (seleccionado) { setDiaSeleccionado(null); return; }
                   setDiaSeleccionado({ fecha, d, dispDia: dispEfectiva });
                   setExcepcionForm({
@@ -7131,7 +7202,7 @@ function Disponibilidad({ usuario }) {
                   background: seleccionado ? prof?.color : esFeriado ? "#FEE2E2" : esDomingo ? "#F9FAFB" : disponible ? prof?.bg : "#F3F4F6",
                   color: seleccionado ? "#fff" : esFeriado ? "#991B1B" : esDomingo ? "#ddd" : disponible ? prof?.color : "#aaa",
                   border: seleccionado ? `2px solid ${prof?.color}` : esFeriado ? "1px solid #FECACA" : disponible ? `1px solid ${prof?.color}33` : "1px solid transparent",
-                  cursor: esFeriado || esDomingo ? "default" : "pointer",
+                  cursor: esDomingo ? "default" : "pointer",
                   position: "relative",
                 }}>
                   {d}
@@ -7219,6 +7290,10 @@ function Disponibilidad({ usuario }) {
                   </button>
                 )}
               </div>
+              <button type="button" onClick={() => marcarFeriado(diaSeleccionado.fecha)}
+                style={{ marginTop: 8, background: "none", border: "none", color: "#DC2626", fontSize: 12, fontWeight: 600, cursor: "pointer", padding: 0 }}>
+                🗓️ Marcar este día como feriado
+              </button>
             </div>
           )}
 
@@ -7228,16 +7303,34 @@ function Disponibilidad({ usuario }) {
             Punto naranja = excepción individual guardada para ese día
           </div>
 
-          {/* Feriados del mes */}
+          {/* Feriados del mes (editables) */}
           {(() => {
-            const feriadosMes = feriados.filter(f => f.startsWith(`${anioActual}-${String(mesActual).padStart(2,"0")}`));
-            if (feriadosMes.length === 0) return null;
+            const prefijo = `${anioActual}-${String(mesActual).padStart(2,"0")}`;
+            const feriadosMes = feriados.filter(f => f.startsWith(prefijo));
+            const habilitadosMes = getFeriadosArgentina(anioActual).filter(f => f.startsWith(prefijo) && !feriados.includes(f));
             return (
               <div style={{ marginTop: 14, background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 10, padding: "10px 14px" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginBottom: 6 }}>🗓️ Feriados del mes</div>
+                {feriadosMes.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin feriados este mes</div>}
                 {feriadosMes.map(f => (
-                  <div key={f} style={{ fontSize: 12, color: "#DC2626" }}>• {formatFecha(f)}</div>
+                  <div key={f} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "#DC2626", marginBottom: 3 }}>
+                    <span>• {formatFecha(f)}</span>
+                    <button type="button" onClick={() => habilitarFeriado(f)}
+                      style={{ background: "none", border: "none", color: "#991B1B", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>Habilitar</button>
+                  </div>
                 ))}
+                {habilitadosMes.map(f => (
+                  <div key={f} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12, color: "#9CA3AF", marginBottom: 3 }}>
+                    <span><s>{formatFecha(f)}</s> · se atiende</span>
+                    <button type="button" onClick={() => marcarFeriado(f)}
+                      style={{ background: "none", border: "none", color: "#991B1B", fontSize: 11, cursor: "pointer", textDecoration: "underline" }}>Restaurar</button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                  <input type="date" value={nuevoFeriado} onChange={e => setNuevoFeriado(e.target.value)} style={{ ...inputStyle, fontSize: 12, padding: "4px 8px", flex: 1 }} />
+                  <button type="button" disabled={!nuevoFeriado} onClick={() => marcarFeriado(nuevoFeriado)}
+                    style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "4px 10px", fontSize: 12, fontWeight: 700, cursor: nuevoFeriado ? "pointer" : "default", opacity: nuevoFeriado ? 1 : 0.5 }}>+ Agregar feriado</button>
+                </div>
               </div>
             );
           })()}
