@@ -5189,11 +5189,17 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     if (nuevoEstado === "vendido") await volcarAudifonoAFicha(v);
 
     // Si se aprueba (o se marca directamente "Pedido a Buenos Aires") y no tiene stock vinculado, ofrecer pedirlo a BS AS
-    if (["aprobado","señado","facturado_os","pedido_ba"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
+    // La pregunta se hace UNA sola vez: si el presupuesto ya estaba aprobado/señado/facturado OS, no se vuelve a preguntar
+    const ESTADOS_APROBACION = ["aprobado","señado","facturado_os","pedido_ba"];
+    const yaAprobadoAntes = estadosPrev.some(e => ESTADOS_APROBACION.includes(e));
+    const esPedidoDirecto = nuevoEstado === "pedido_ba";
+    // Evitar duplicar el pedido si ya hay un ítem "pedido_ba" en stock para este paciente y modelo
+    const yaPedidoEnStock = (data.stock || []).some(s => s.estado === "pedido_ba" && s.paciente_id === v.paciente_id &&
+      ((v.modelo_der && s.modelo === v.modelo_der) || (v.modelo_izq && s.modelo === v.modelo_izq)));
+    if (ESTADOS_APROBACION.includes(nuevoEstado) && (esPedidoDirecto || !yaAprobadoAntes) && !yaPedidoEnStock && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
       const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
                     v.marca_izq && v.modelo_izq ? `${v.marca_izq} ${v.modelo_izq} (oído izq.)` : null]
                    .filter(Boolean).join(" + ");
-      const esPedidoDirecto = nuevoEstado === "pedido_ba";
       if (desc && (esPedidoDirecto || window.confirm(`Este presupuesto se aprobó y no tiene audífono vinculado en stock.\n\n${desc}\n\n¿Agregar a "Pedido a Buenos Aires" en Stock?`))) {
         const pac = data.pacientes.find(p => p.id === v.paciente_id);
         const nombrePac = pac ? `${pac.apellido}, ${pac.nombre}` : (v.obra_social_directa || (v.observaciones||"").split(" · ")[0] || "");
