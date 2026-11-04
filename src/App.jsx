@@ -4390,7 +4390,7 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
           {pacientes.map(p => {
             const abierto = verRapido === p.id;
             const turnosPac = data.turnos.filter(t => t.paciente_id === p.id).sort((a,b) => (b.fecha+b.hora).localeCompare(a.fecha+a.hora));
-            const proximoTurno = data.turnos.filter(t => t.paciente_id === p.id && t.fecha >= today()).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
+            const proximoTurno = data.turnos.filter(t => t.paciente_id === p.id && t.fecha >= today() && !ESTADOS_OCULTOS.includes(t.estado)).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora))[0];
             const saldo = data.compras.filter(c => c.paciente_id === p.id && c.estado === "pendiente").reduce((s,c) => s + ((parseFloat(c.total)||0) - (parseFloat(c.seña)||0)), 0);
             return (
             <div key={p.id} style={{ background: "#fff", border: `1.5px solid ${abierto ? "#6366F1" : "#F0F0F0"}`, borderRadius: 12, overflow: "hidden", transition: "border-color 0.15s" }}>
@@ -4455,13 +4455,16 @@ function Pacientes({ data, db, usuario, pacienteAEditar, onPacienteEditado, onAb
                     </div>
                     {/* Turnos */}
                     <div style={{ background: "#fff", borderRadius: 8, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Turnos ({turnosPac.length})</div>
-                      {turnosPac.slice(0,3).map(t => (
-                        <div key={t.id} style={{ fontSize: 12, color: "#555", marginBottom: 3 }}>
-                          <span style={{ fontWeight: 600 }}>{formatFecha(t.fecha)}</span> {t.hora?.slice(0,5)} · {t.motivo || (Array.isArray(t.practicas) && t.practicas[0]) || "—"}
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#4338CA", marginBottom: 6, textTransform: "uppercase" }}>Próximo turno</div>
+                      {proximoTurno ? (
+                        <div style={{ fontSize: 12, color: "#555" }}>
+                          <span style={{ fontWeight: 600 }}>{formatFecha(proximoTurno.fecha)}</span> {proximoTurno.hora?.slice(0,5)} · {proximoTurno.motivo || (Array.isArray(proximoTurno.practicas) && proximoTurno.practicas[0]) || "—"}
+                          {proximoTurno.profesional && <div style={{ fontSize: 11, color: "#888", marginTop: 2 }}>{proximoTurno.profesional}</div>}
                         </div>
-                      ))}
-                      {turnosPac.length === 0 && <div style={{ fontSize: 12, color: "#aaa" }}>Sin turnos</div>}
+                      ) : (
+                        <div style={{ fontSize: 12, color: "#aaa" }}>Sin turno próximo</div>
+                      )}
+                      {turnosPac.length > 0 && <div style={{ fontSize: 10, color: "#aaa", marginTop: 4 }}>{turnosPac.length} turno{turnosPac.length !== 1 ? "s" : ""} en total</div>}
                     </div>
                   </div>
 
@@ -5189,17 +5192,11 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     if (nuevoEstado === "vendido") await volcarAudifonoAFicha(v);
 
     // Si se aprueba (o se marca directamente "Pedido a Buenos Aires") y no tiene stock vinculado, ofrecer pedirlo a BS AS
-    // La pregunta se hace UNA sola vez: si el presupuesto ya estaba aprobado/señado/facturado OS, no se vuelve a preguntar
-    const ESTADOS_APROBACION = ["aprobado","señado","facturado_os","pedido_ba"];
-    const yaAprobadoAntes = estadosPrev.some(e => ESTADOS_APROBACION.includes(e));
-    const esPedidoDirecto = nuevoEstado === "pedido_ba";
-    // Evitar duplicar el pedido si ya hay un ítem "pedido_ba" en stock para este paciente y modelo
-    const yaPedidoEnStock = (data.stock || []).some(s => s.estado === "pedido_ba" && s.paciente_id === v.paciente_id &&
-      ((v.modelo_der && s.modelo === v.modelo_der) || (v.modelo_izq && s.modelo === v.modelo_izq)));
-    if (ESTADOS_APROBACION.includes(nuevoEstado) && (esPedidoDirecto || !yaAprobadoAntes) && !yaPedidoEnStock && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
+    if (["aprobado","señado","facturado_os","pedido_ba"].includes(nuevoEstado) && !v.stock_der_id && !v.stock_izq_id && (v.marca_der || v.marca_izq)) {
       const desc = [v.marca_der && v.modelo_der ? `${v.marca_der} ${v.modelo_der} (oído der.)` : null,
                     v.marca_izq && v.modelo_izq ? `${v.marca_izq} ${v.modelo_izq} (oído izq.)` : null]
                    .filter(Boolean).join(" + ");
+      const esPedidoDirecto = nuevoEstado === "pedido_ba";
       if (desc && (esPedidoDirecto || window.confirm(`Este presupuesto se aprobó y no tiene audífono vinculado en stock.\n\n${desc}\n\n¿Agregar a "Pedido a Buenos Aires" en Stock?`))) {
         const pac = data.pacientes.find(p => p.id === v.paciente_id);
         const nombrePac = pac ? `${pac.apellido}, ${pac.nombre}` : (v.obra_social_directa || (v.observaciones||"").split(" · ")[0] || "");
