@@ -7934,28 +7934,38 @@ function Stock({ data, db, usuario }) {
       .sort((a, b) => (b.mismoModelo - a.mismoModelo) || `${a.marca} ${a.modelo}`.localeCompare(`${b.marca} ${b.modelo}`));
   }
 
-  async function vincularPedidoConStock(pedido, unidad) {
-    const pac = data.pacientes.find(p => p.id === pedido.paciente_id);
+  // estadoDestino: "reservado" (queda en Stock › Reservado con el paciente) o "vendido" (pasa a la ficha del paciente)
+  async function vincularPedidoConStock(pedido, unidad, estadoDestino = "reservado") {
+    const pac = data.pacientes.find(p => String(p.id) === String(pedido.paciente_id));
     const nombrePac = pac ? `${pac.apellido}, ${pac.nombre}` : "";
     const descU = [unidad.marca, unidad.modelo].filter(Boolean).join(" ") + (unidad.numero_serie ? ` (Serie ${unidad.numero_serie})` : "");
-    if (!window.confirm(`¿Vincular el pedido de ${nombrePac || "este paciente"} con:\n\n${descU}\n\nLa unidad queda "Reservado" para el paciente y se elimina el registro provisorio de "Pedido a BS AS".`)) return false;
+    const esVenta = estadoDestino === "vendido";
+    const txtDestino = esVenta
+      ? `La unidad queda "Vendido" a ${nombrePac || "el paciente"} y se carga en su ficha (Audífonos actuales + evolución).`
+      : `La unidad queda "Reservado" para ${nombrePac || "el paciente"} (la ves en Stock › Reservado).`;
+    if (!window.confirm(`¿Vincular el pedido de ${nombrePac || "este paciente"} con:\n\n${descU}\n\n${txtDestino}\nEl registro provisorio de "Pedido a BS AS" se elimina.`)) return false;
 
-    // 1) La unidad real pasa a reservada para el paciente
+    // 1) La unidad real pasa al estado elegido para el paciente
     // (se quita `mismoModelo`, que es solo para ordenar el desplegable y no es columna de la tabla)
     const { mismoModelo, ...unidadLimpia } = unidad;
-    const err = await actualizar({
-      ...unidadLimpia, paciente_id: pedido.paciente_id, estado: "reservado",
+    const unidadPrev = items.find(x => String(x.id) === String(unidad.id)) || unidadLimpia;
+    const unidadNueva = {
+      ...unidadLimpia, paciente_id: pedido.paciente_id, estado: estadoDestino,
       oido: unidad.oido && unidad.oido !== "bilateral" ? unidad.oido : (pedido.oido || unidad.oido),
       notas: [unidad.notas, `Vinculado a pedido BS AS · ${nombrePac}`, pedido.notas].filter(Boolean).join(" · "),
-    });
+    };
+    const err = await actualizar(unidadNueva);
     if (err) { alert(`No se pudo vincular la unidad: ${err.message || err}\n\nEl pedido a BS AS NO se borró.`); return false; }
 
-    // Verificación en la base: solo seguimos si la unidad quedó realmente "Reservado" para el paciente
+    // Verificación en la base: solo seguimos si la unidad quedó realmente en el estado elegido para el paciente
     const { data: check, error: errCheck } = await supabase.from("stock").select("id, estado, paciente_id").eq("id", unidad.id).maybeSingle();
-    if (errCheck || !check || check.estado !== "reservado" || String(check.paciente_id) !== String(pedido.paciente_id)) {
-      alert("No se pudo confirmar que la unidad haya quedado Reservada para el paciente.\n\nEl pedido a BS AS NO se borró. Revisá la unidad y volvé a intentar.");
+    if (errCheck || !check || check.estado !== estadoDestino || String(check.paciente_id) !== String(pedido.paciente_id)) {
+      alert(`No se pudo confirmar que la unidad haya quedado "${(ESTADOS_STOCK[estadoDestino] || {}).label || estadoDestino}" para el paciente.\n\nEl pedido a BS AS NO se borró. Revisá la unidad y volvé a intentar.`);
       return false;
     }
+
+    // Solo si se vende: volcar a la ficha del paciente + entrada en la evolución
+    if (esVenta) await sincronizarAudifonoPaciente(unidadNueva, unidadPrev);
 
     // 2) Si hay una venta del paciente con ese audífono y sin stock vinculado en ese lado, la enlazamos
     if (db && data.ventas) {
@@ -7971,7 +7981,7 @@ function Stock({ data, db, usuario }) {
     // 3) Se elimina el registro provisorio del pedido (ya verificado que la unidad quedó reservada)
     await eliminar(pedido.id);
     // Si se estaba mirando el filtro "Pedido a BS AS", pasamos a "Reservado" para ver dónde quedó
-    if (filtroEstado === "pedido_ba") setFiltroEstado("reservado");
+    if (filtroEstado === "pedido_ba") setFiltroEstado(estadoDestino);
     return true;
   }
 
@@ -8162,13 +8172,17 @@ function Stock({ data, db, usuario }) {
                         </option>
                       ))}
                     </select>
-                    <button type="button" disabled={!vincIdModal} onClick={async () => {
-                        const u = cands.find(c => c.id === vincIdModal);
-                        if (u && await vincularPedidoConStock(pedido, u)) { setModal(null); setForm(FORM_VACIO); setVincIdModal(""); }
-                      }}
-                      style={{ background: vincIdModal ? "#C2410C" : "#FDBA74", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: vincIdModal ? "pointer" : "default" }}>
-                      Vincular
-                    </button>
+                    {[["reservado", "Reservar", "#92400E", "#FCD34D"], ["vendido", "Vender", "#1E40AF", "#93C5FD"]].map(([est, label, col, colOff]) => (
+                      <button key={est} type="button" disabled={!vincIdModal} onClick={async () => {
+                          const u = cands.find(c => String(c.id) === String(vincIdModal));
+                          if (!u) return alert("No se encontró la unidad elegida. Cerrá y volvé a abrir el pedido.");
+                          if (await vincularPedidoConStock(pedido, u, est)) { setModal(null); setForm(FORM_VACIO); setVincIdModal(""); }
+                        }}
+                        title={est === "vendido" ? "Queda Vendido y se carga en la ficha del paciente" : "Queda Reservado para el paciente"}
+                        style={{ background: vincIdModal ? col : colOff, color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: vincIdModal ? "pointer" : "default" }}>
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
