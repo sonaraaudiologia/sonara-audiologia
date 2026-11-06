@@ -7731,12 +7731,16 @@ function useStock() {
     return row;
   }
   async function actualizar(item) {
-    await supabase.from("stock").update(item).eq("id", item.id);
+    const { error } = await supabase.from("stock").update(item).eq("id", item.id);
+    if (error) { console.error("Error actualizando stock:", error); return error; }
     setItems(s => s.map(x => x.id === item.id ? { ...x, ...item } : x));
+    return null;
   }
   async function eliminar(id) {
-    await supabase.from("stock").delete().eq("id", id);
+    const { error } = await supabase.from("stock").delete().eq("id", id);
+    if (error) { console.error("Error eliminando stock:", error); alert(`No se pudo eliminar el registro de stock: ${error.message}`); return error; }
     setItems(s => s.filter(x => x.id !== id));
+    return null;
   }
   return { items, loading, agregar, actualizar, eliminar };
 }
@@ -7928,11 +7932,14 @@ function Stock({ data, db, usuario }) {
     if (!window.confirm(`¿Vincular el pedido de ${nombrePac || "este paciente"} con:\n\n${descU}\n\nLa unidad queda "Reservado" para el paciente y se elimina el registro provisorio de "Pedido a BS AS".`)) return false;
 
     // 1) La unidad real pasa a reservada para el paciente
-    await actualizar({
-      ...unidad, paciente_id: pedido.paciente_id, estado: "reservado",
+    // (se quita `mismoModelo`, que es solo para ordenar el desplegable y no es columna de la tabla)
+    const { mismoModelo, ...unidadLimpia } = unidad;
+    const err = await actualizar({
+      ...unidadLimpia, paciente_id: pedido.paciente_id, estado: "reservado",
       oido: unidad.oido && unidad.oido !== "bilateral" ? unidad.oido : (pedido.oido || unidad.oido),
       notas: [unidad.notas, `Vinculado a pedido BS AS · ${nombrePac}`].filter(Boolean).join(" · "),
     });
+    if (err) { alert(`No se pudo vincular la unidad: ${err.message || err}\n\nNo se modificó nada.`); return false; }
 
     // 2) Si hay una venta del paciente con ese audífono y sin stock vinculado en ese lado, la enlazamos
     if (db && data.ventas) {
@@ -8002,7 +8009,10 @@ function Stock({ data, db, usuario }) {
       if (modal === "nuevo" && tieneColTipo) payload.tipo = esVistaCargadores ? "cargador" : "audifono";
       const prev = modal === "nuevo" ? null : items.find(x => x.id === modal);
       if (modal === "nuevo") await agregar(payload);
-      else await actualizar({ ...payload, id: modal });
+      else {
+        const err = await actualizar({ ...payload, id: modal });
+        if (err) { alert(`No se pudo guardar el cambio: ${err.message || err}`); return; }
+      }
       await sincronizarAudifonoPaciente(payload, prev);
       setModal(null);
       setForm(FORM_VACIO);
