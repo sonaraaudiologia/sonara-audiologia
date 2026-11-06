@@ -7910,6 +7910,46 @@ function Stock({ data, db, usuario }) {
     await sincronizarAudifonoPaciente(item, prev);
   }
 
+  // ── Vincular un "Pedido a BS AS" (registro provisorio con paciente) con la unidad real que llegó ──
+  // Candidatas: mismo tipo (audífono/cargador), disponibles o reservadas sin paciente. Primero las del mismo modelo.
+  function candidatosVinculo(pedido) {
+    const clave = claveTexto(`${pedido.marca || ""} ${pedido.modelo || ""}`);
+    return items
+      .filter(x => x.id !== pedido.id && esCargador(x) === esCargador(pedido)
+        && ["disponible", "reservado"].includes(x.estado) && !x.paciente_id)
+      .map(x => ({ ...x, mismoModelo: claveTexto(`${x.marca || ""} ${x.modelo || ""}`) === clave }))
+      .sort((a, b) => (b.mismoModelo - a.mismoModelo) || `${a.marca} ${a.modelo}`.localeCompare(`${b.marca} ${b.modelo}`));
+  }
+
+  async function vincularPedidoConStock(pedido, unidad) {
+    const pac = data.pacientes.find(p => p.id === pedido.paciente_id);
+    const nombrePac = pac ? `${pac.apellido}, ${pac.nombre}` : "";
+    const descU = [unidad.marca, unidad.modelo].filter(Boolean).join(" ") + (unidad.numero_serie ? ` (Serie ${unidad.numero_serie})` : "");
+    if (!window.confirm(`¿Vincular el pedido de ${nombrePac || "este paciente"} con:\n\n${descU}\n\nLa unidad queda "Reservado" para el paciente y se elimina el registro provisorio de "Pedido a BS AS".`)) return false;
+
+    // 1) La unidad real pasa a reservada para el paciente
+    await actualizar({
+      ...unidad, paciente_id: pedido.paciente_id, estado: "reservado",
+      oido: unidad.oido && unidad.oido !== "bilateral" ? unidad.oido : (pedido.oido || unidad.oido),
+      notas: [unidad.notas, `Vinculado a pedido BS AS · ${nombrePac}`].filter(Boolean).join(" · "),
+    });
+
+    // 2) Si hay una venta del paciente con ese audífono y sin stock vinculado en ese lado, la enlazamos
+    if (db && data.ventas) {
+      const lado = pedido.oido === "izquierdo" ? "izq" : "der";
+      const clave = claveTexto(`${pedido.marca || ""} ${pedido.modelo || ""}`);
+      const venta = data.ventas
+        .filter(v => v.paciente_id === pedido.paciente_id && !v[`stock_${lado}_id`]
+          && claveTexto(`${v[`marca_${lado}`] || ""} ${v[`modelo_${lado}`] || ""}`) === clave)
+        .sort((a, b) => (b.fecha || "").localeCompare(a.fecha || ""))[0];
+      if (venta) await db.actualizarVenta({ ...venta, [`stock_${lado}_id`]: unidad.id });
+    }
+
+    // 3) Se elimina el registro provisorio del pedido
+    await eliminar(pedido.id);
+    return true;
+  }
+
   // División del stock: audífonos vs. cargadores (misma clasificación que usa esCargador)
   const esVistaCargadores = vista === "cargadores";
   const itemsVista = items.filter(i => esCargador(i) === esVistaCargadores);
@@ -7971,8 +8011,10 @@ function Stock({ data, db, usuario }) {
 
   function abrirEditar(item) {
     setForm({ ...FORM_VACIO, ...item });
+    setVincIdModal("");
     setModal(item.id);
   }
+  const [vincIdModal, setVincIdModal] = useState("");
 
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: "#aaa" }}>⏳ Cargando...</div>;
 
@@ -8074,6 +8116,36 @@ function Stock({ data, db, usuario }) {
           <Field label="Asignar a paciente">
             <SelectorPaciente pacientes={data.pacientes} placeholder="— Sin asignar —" value={form.paciente_id || ""} onChange={id => setForm(f => ({ ...f, paciente_id: id || null }))} />
           </Field>
+          {modal !== "nuevo" && form.estado === "pedido_ba" && form.paciente_id && (() => {
+            const pedido = { ...(items.find(x => x.id === modal) || {}), ...form, id: modal };
+            const cands = candidatosVinculo(pedido);
+            return (
+              <div style={{ background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 8, padding: "8px 12px", marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#C2410C", marginBottom: 6 }}>🔗 Vincular con unidad de stock (llegó el audífono):</div>
+                {cands.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#9A3412" }}>No hay unidades disponibles/reservadas sin paciente. Cargá primero la unidad que llegó con su N° de serie.</div>
+                ) : (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    <select style={{ ...selectStyle, flex: 1, minWidth: 220 }} value={vincIdModal} onChange={e => setVincIdModal(e.target.value)}>
+                      <option value="">— Elegí la unidad —</option>
+                      {cands.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.mismoModelo ? "★ " : ""}{[c.marca, c.modelo].filter(Boolean).join(" ")}{c.numero_serie ? ` · Serie ${c.numero_serie}` : ""}{c.oido && c.oido !== "bilateral" ? ` · ${c.oido}` : ""} · {(ESTADOS_STOCK[c.estado] || {}).label || c.estado}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="button" disabled={!vincIdModal} onClick={async () => {
+                        const u = cands.find(c => c.id === vincIdModal);
+                        if (u && await vincularPedidoConStock(pedido, u)) { setModal(null); setForm(FORM_VACIO); setVincIdModal(""); }
+                      }}
+                      style={{ background: vincIdModal ? "#C2410C" : "#FDBA74", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: vincIdModal ? "pointer" : "default" }}>
+                      Vincular
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
             <button onClick={() => { setModal(null); setForm(FORM_VACIO); }} style={btnSecondary}>Cancelar</button>
