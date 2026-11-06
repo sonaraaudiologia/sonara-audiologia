@@ -639,6 +639,88 @@ function Field({ label, children }) {
   );
 }
 
+// Selector de paciente con buscador (reemplaza al <select> nativo, que en Chrome/Windows
+// se dibuja en blanco con listas largas). value = id del paciente o "" ; onChange recibe el id o "".
+function SelectorPaciente({ pacientes, value, onChange, placeholder = "Seleccionar...", style }) {
+  const [abierto, setAbierto] = useState(false);
+  const [texto, setTexto] = useState("");
+  const [idx, setIdx] = useState(0);
+  const [pos, setPos] = useState(null);
+  const inputRef = useRef(null);
+  const lista = pacientes || [];
+  const seleccionado = lista.find(p => String(p.id) === String(value));
+  const nombreDe = p => `${p.apellido || ""}, ${p.nombre || ""}`;
+
+  const q = normalizar(texto).trim();
+  const filtrados = (q
+    ? lista.filter(p => { const n = normalizar(`${p.apellido} ${p.nombre} ${p.nombre} ${p.apellido} ${p.dni || ""}`); return q.split(/\s+/).every(t => n.includes(t)); })
+    : lista
+  ).slice(0, 60);
+  const opciones = [{ id: "", _vacio: true }, ...filtrados];
+
+  function medir() {
+    const r = inputRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const abajo = window.innerHeight - r.bottom;
+    const alto = Math.min(260, Math.max(abajo, r.top) - 12);
+    setPos(abajo >= 180 || abajo >= r.top
+      ? { left: r.left, top: r.bottom + 4, width: r.width, maxHeight: alto }
+      : { left: r.left, bottom: window.innerHeight - r.top + 4, width: r.width, maxHeight: alto });
+  }
+
+  useEffect(() => {
+    if (!abierto) return;
+    medir();
+    const h = () => medir();
+    window.addEventListener("scroll", h, true);
+    window.addEventListener("resize", h);
+    return () => { window.removeEventListener("scroll", h, true); window.removeEventListener("resize", h); };
+  }, [abierto]);
+
+  function abrir() { setTexto(""); setIdx(0); setAbierto(true); }
+  function elegir(op) { onChange(op._vacio ? "" : op.id); setAbierto(false); setTexto(""); inputRef.current?.blur(); }
+
+  function onKeyDown(e) {
+    if (!abierto && (e.key === "ArrowDown" || e.key === "Enter")) { e.preventDefault(); abrir(); return; }
+    if (!abierto) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setIdx(i => Math.min(i + 1, opciones.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setIdx(i => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); if (opciones[idx]) elegir(opciones[idx]); }
+    else if (e.key === "Escape") { e.preventDefault(); setAbierto(false); setTexto(""); }
+  }
+
+  return (
+    <div style={{ position: "relative", width: "100%", ...(style?.maxWidth ? { maxWidth: style.maxWidth } : {}) }}>
+      <input
+        ref={inputRef}
+        style={{ ...selectStyle, ...style, maxWidth: "100%", paddingRight: 30, cursor: "pointer" }}
+        value={abierto ? texto : (seleccionado ? nombreDe(seleccionado) : "")}
+        placeholder={abierto ? "🔍 Escribí apellido, nombre o DNI..." : placeholder}
+        onFocus={abrir}
+        onClick={() => { if (!abierto) abrir(); }}
+        onChange={e => { setTexto(e.target.value); setIdx(e.target.value ? 1 : 0); if (!abierto) setAbierto(true); }}
+        onBlur={() => setTimeout(() => { setAbierto(false); setTexto(""); }, 150)}
+        onKeyDown={onKeyDown}
+      />
+      <span style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", fontSize: 10, color: "#888", pointerEvents: "none" }}>▼</span>
+      {abierto && pos && (
+        <div style={{ position: "fixed", left: pos.left, top: pos.top, bottom: pos.bottom, width: pos.width, maxHeight: pos.maxHeight, overflowY: "auto", background: "#fff", border: "1.5px solid #E5E7EB", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", zIndex: 2000 }}>
+          {opciones.map((op, i) => (
+            <div key={op._vacio ? "__vacio" : op.id}
+              onMouseDown={e => { e.preventDefault(); elegir(op); }}
+              onMouseEnter={() => setIdx(i)}
+              style={{ padding: "7px 12px", fontSize: 14, cursor: "pointer", color: op._vacio ? "#888" : "#1a1a2e", fontStyle: op._vacio ? "italic" : "normal", background: i === idx ? "#E6F2F2" : (String(op.id) === String(value) && !op._vacio ? "#F3F4F6" : "#fff"), fontWeight: String(op.id) === String(value) && !op._vacio ? 700 : 400 }}>
+              {op._vacio ? placeholder : nombreDe(op)}
+            </div>
+          ))}
+          {filtrados.length === 0 && <div style={{ padding: "8px 12px", fontSize: 13, color: "#aaa" }}>Sin resultados</div>}
+          {q === "" && lista.length > 60 && <div style={{ padding: "6px 12px", fontSize: 11, color: "#aaa", borderTop: "1px solid #F0F0F0" }}>Mostrando 60 de {lista.length} — escribí para buscar</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── OBRA SOCIAL: separar combinadas + selector desplegable ──────────────────
 // "IAPOS y OSDE", "OSDE e IAPOS", "IAPOS, OSDE", "IAPOS/OSDE", "IAPOS + OSDE", "PAMI o Británica", "IAPOS-PAMI-UNIVERSIDAD" → separadas.
 // OS_CON_GUION: nombres que llevan guion propio y NO se deben partir (agregar acá si aparece otra).
@@ -3336,10 +3418,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
             <>
               <Field label="Título *"><input style={inputStyle} value={formEntrada.titulo || ""} onChange={e => setFormEntrada(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Llamar a paciente, Control audífono..." /></Field>
               <Field label="Paciente (opcional)">
-                <select style={selectStyle} value={formEntrada.paciente_id || ""} onChange={e => setFormEntrada(f => ({ ...f, paciente_id: e.target.value }))}>
-                  <option value="">— General —</option>
-                  {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-                </select>
+                <SelectorPaciente pacientes={pacientes} placeholder="— General —" value={formEntrada.paciente_id || ""} onChange={id => setFormEntrada(f => ({ ...f, paciente_id: id }))} />
               </Field>
               {!modalEntrada?.editando ? (
                 <div style={{ display: "grid", gridTemplateColumns: formEntrada.repetir ? "1fr 1fr" : "1fr", gap: 12 }}>
@@ -5486,10 +5565,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
             </Field>
           ) : (
             <Field label="Paciente *">
-              <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-                <option value="">Seleccionar...</option>
-                {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-              </select>
+              <SelectorPaciente pacientes={data.pacientes} value={form.paciente_id} onChange={id => setForm(f => ({ ...f, paciente_id: id }))} />
             </Field>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -5728,10 +5804,7 @@ function Compras({ data, db, usuario }) {
       {modal && (
         <Modal title={modal === "nuevo" ? "Nueva compra de insumos" : "Editar compra"} onClose={() => setModal(null)}>
           <Field label="Paciente *">
-            <select style={selectStyle} value={form.paciente_id} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value }))}>
-              <option value="">Seleccionar...</option>
-              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-            </select>
+            <SelectorPaciente pacientes={data.pacientes} value={form.paciente_id} onChange={id => setForm(f => ({ ...f, paciente_id: id }))} />
           </Field>
           <Field label="Fecha"><input type="date" style={inputStyle} value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
           <div style={{ background: "#F8FAFC", border: "1.5px solid #E5E7EB", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
@@ -7759,11 +7832,8 @@ function StockItem({ item, onEdit, onDelete, onUpdate, pacientes }) {
           </div>
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#555", marginBottom: 6 }}>Asignar a paciente:</div>
-            <select style={{ ...selectStyle, maxWidth: 300 }} value={item.paciente_id || ""}
-              onChange={e => onUpdate({ ...item, paciente_id: e.target.value || null, estado: e.target.value ? "vendido" : item.estado })}>
-              <option value="">— Sin asignar —</option>
-              {pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-            </select>
+            <SelectorPaciente pacientes={pacientes} placeholder="— Sin asignar —" style={{ maxWidth: 300 }} value={item.paciente_id || ""}
+              onChange={id => onUpdate({ ...item, paciente_id: id || null, estado: id ? "vendido" : item.estado })} />
           </div>
         </div>
       )}
@@ -8002,10 +8072,7 @@ function Stock({ data, db, usuario }) {
             <Field label="Fecha ingreso"><input type="date" style={inputStyle} value={form.fecha_ingreso} onChange={e => setForm(f => ({ ...f, fecha_ingreso: e.target.value }))} /></Field>
           </div>
           <Field label="Asignar a paciente">
-            <select style={selectStyle} value={form.paciente_id || ""} onChange={e => setForm(f => ({ ...f, paciente_id: e.target.value || null }))}>
-              <option value="">— Sin asignar —</option>
-              {data.pacientes.map(p => <option key={p.id} value={p.id}>{p.apellido}, {p.nombre}</option>)}
-            </select>
+            <SelectorPaciente pacientes={data.pacientes} placeholder="— Sin asignar —" value={form.paciente_id || ""} onChange={id => setForm(f => ({ ...f, paciente_id: id || null }))} />
           </Field>
           <Field label="Notas"><textarea style={{ ...inputStyle, resize: "vertical", minHeight: 55 }} value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} /></Field>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
