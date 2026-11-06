@@ -7731,15 +7731,24 @@ function useStock() {
     return row;
   }
   async function actualizar(item) {
-    const { error } = await supabase.from("stock").update(item).eq("id", item.id);
+    const { data: filas, error } = await supabase.from("stock").update(item).eq("id", item.id).select();
     if (error) { console.error("Error actualizando stock:", error); return error; }
-    setItems(s => s.map(x => x.id === item.id ? { ...x, ...item } : x));
+    // Supabase no da error si el update no modificó ninguna fila (ej: permisos): lo tratamos como error
+    if (!filas || filas.length === 0) {
+      const e = { message: "El cambio no se guardó en la base de datos (0 filas actualizadas)." };
+      console.error("Error actualizando stock:", e, item);
+      return e;
+    }
+    setItems(s => s.map(x => x.id === item.id ? { ...x, ...filas[0] } : x));
     return null;
   }
   async function eliminar(id) {
+    const anterior = items.find(x => x.id === id) || null;
     const { error } = await supabase.from("stock").delete().eq("id", id);
     if (error) { console.error("Error eliminando stock:", error); alert(`No se pudo eliminar el registro de stock: ${error.message}`); return error; }
     setItems(s => s.filter(x => x.id !== id));
+    // Queda registrado en Auditoría con todos los datos, para poder recuperarlo si hace falta
+    if (anterior) logAuditoria(window.__sonaraUsuario, "ELIMINAR", "stock", `Stock ${[anterior.marca, anterior.modelo].filter(Boolean).join(" ")} (${anterior.estado || ""})`, anterior, null);
     return null;
   }
   return { items, loading, agregar, actualizar, eliminar };
@@ -7937,9 +7946,16 @@ function Stock({ data, db, usuario }) {
     const err = await actualizar({
       ...unidadLimpia, paciente_id: pedido.paciente_id, estado: "reservado",
       oido: unidad.oido && unidad.oido !== "bilateral" ? unidad.oido : (pedido.oido || unidad.oido),
-      notas: [unidad.notas, `Vinculado a pedido BS AS · ${nombrePac}`].filter(Boolean).join(" · "),
+      notas: [unidad.notas, `Vinculado a pedido BS AS · ${nombrePac}`, pedido.notas].filter(Boolean).join(" · "),
     });
-    if (err) { alert(`No se pudo vincular la unidad: ${err.message || err}\n\nNo se modificó nada.`); return false; }
+    if (err) { alert(`No se pudo vincular la unidad: ${err.message || err}\n\nEl pedido a BS AS NO se borró.`); return false; }
+
+    // Verificación en la base: solo seguimos si la unidad quedó realmente "Reservado" para el paciente
+    const { data: check, error: errCheck } = await supabase.from("stock").select("id, estado, paciente_id").eq("id", unidad.id).maybeSingle();
+    if (errCheck || !check || check.estado !== "reservado" || String(check.paciente_id) !== String(pedido.paciente_id)) {
+      alert("No se pudo confirmar que la unidad haya quedado Reservada para el paciente.\n\nEl pedido a BS AS NO se borró. Revisá la unidad y volvé a intentar.");
+      return false;
+    }
 
     // 2) Si hay una venta del paciente con ese audífono y sin stock vinculado en ese lado, la enlazamos
     if (db && data.ventas) {
@@ -7952,8 +7968,10 @@ function Stock({ data, db, usuario }) {
       if (venta) await db.actualizarVenta({ ...venta, [`stock_${lado}_id`]: unidad.id });
     }
 
-    // 3) Se elimina el registro provisorio del pedido
+    // 3) Se elimina el registro provisorio del pedido (ya verificado que la unidad quedó reservada)
     await eliminar(pedido.id);
+    // Si se estaba mirando el filtro "Pedido a BS AS", pasamos a "Reservado" para ver dónde quedó
+    if (filtroEstado === "pedido_ba") setFiltroEstado("reservado");
     return true;
   }
 
