@@ -5110,6 +5110,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
   const [segForm, setSegForm] = useState({ fecha: today(), tipo: "Llamada", descripcion: "", responsable: usuario?.nombre || "" });
   const [segEditId, setSegEditId] = useState(null);
   const [pagoForm, setPagoForm] = useState({ fecha: today(), monto: "", descripcion: "" });
+  const [pagoEditId, setPagoEditId] = useState(null);
 
   const pacNombre = id => { const p = data.pacientes.find(p => p.id === id); return p ? `${p.apellido}, ${p.nombre}` : "—"; };
 
@@ -5208,12 +5209,35 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
     if (!pagoForm.monto || parseFloat(pagoForm.monto) <= 0) return alert("Ingresá un monto válido.");
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
-    const nuevosPagos = [...(Array.isArray(v.pagos) ? v.pagos : []), { ...pagoForm, id: uid() }];
+    const listaPagos = Array.isArray(v.pagos) ? v.pagos : [];
+    const nuevosPagos = pagoEditId
+      ? listaPagos.map(p => p.id === pagoEditId ? { ...p, ...pagoForm, id: pagoEditId } : p)
+      : [...listaPagos, { ...pagoForm, id: uid() }];
     const totalPagado = nuevosPagos.reduce((s,p) => s + (parseFloat(p.monto)||0), 0);
     const saldo = (parseFloat(v.precio)||0) - totalPagado;
+    const eraEdicion = !!pagoEditId;
     await db.actualizarVenta({ ...v, pagos: nuevosPagos });
     setPagoForm({ fecha: today(), monto: "", descripcion: "" });
-    if (saldo <= 0) alert("✅ ¡Venta saldada completamente!");
+    setPagoEditId(null);
+    if (saldo <= 0 && !eraEdicion) alert("✅ ¡Venta saldada completamente!");
+  }
+
+  function editarPago(p) {
+    setPagoForm({ fecha: p.fecha || today(), monto: p.monto ?? "", descripcion: p.descripcion || "" });
+    setPagoEditId(p.id);
+  }
+
+  function cancelarEdicionPago() {
+    setPagoForm({ fecha: today(), monto: "", descripcion: "" });
+    setPagoEditId(null);
+  }
+
+  async function eliminarPago(ventaId, pagoId) {
+    if (!window.confirm("¿Eliminar este pago?")) return;
+    const v = data.ventas.find(x => x.id === ventaId);
+    if (!v) return;
+    await db.actualizarVenta({ ...v, pagos: (Array.isArray(v.pagos) ? v.pagos : []).filter(p => p.id !== pagoId) });
+    if (pagoEditId === pagoId) cancelarEdicionPago();
   }
 
   // Al vender, volcar el audífono (marca/modelo, N° de serie, fecha de retiro) a la ficha del paciente.
@@ -5403,7 +5427,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
               const requiereSeguimiento = v.estado === "seleccion" || v.estado === "presupuestado";
               const cvMostrado = requiereSeguimiento ? cv : { bg: "#F3F4F6", color: "#9CA3AF", label: cv.label };
               return (
-                <div key={v.id} onClick={() => { setVerDetalle(activo ? null : v.id); cancelarEdicionSeguimiento(); }}
+                <div key={v.id} onClick={() => { setVerDetalle(activo ? null : v.id); cancelarEdicionSeguimiento(); cancelarEdicionPago(); }}
                   style={{ background: "#fff", border: `2px solid ${activo ? "#1a6b6b" : (requiereSeguimiento ? cv.color + "33" : "#E5E7EB")}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", opacity: requiereSeguimiento ? 1 : 0.6 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -5445,7 +5469,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
             <div style={{ display: "flex", gap: 6 }}>
               <button onClick={() => { setForm({ ...FORM_VACIO, ...ventaActual, obraSocialCubre: ventaActual.obra_social_cubre || ventaActual.obraSocialCubre || "", saldoPaciente: ventaActual.saldo_paciente || ventaActual.saldoPaciente || "" }); setModal(ventaActual.id); }} style={{ ...btnSecondary, fontSize: 12, padding: "5px 10px" }}>✎ Editar</button>
               <button onClick={() => { if(window.confirm("¿Eliminar?")) { db.eliminarVenta(ventaActual.id); setVerDetalle(null); } }} style={{ background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 8, padding: "5px 8px", fontSize: 12, cursor: "pointer" }}>✕</button>
-              <button onClick={() => { setVerDetalle(null); cancelarEdicionSeguimiento(); }} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
+              <button onClick={() => { setVerDetalle(null); cancelarEdicionSeguimiento(); cancelarEdicionPago(); }} style={{ ...btnSecondary, fontSize: 16, padding: "5px 10px" }}>×</button>
             </div>
           </div>
 
@@ -5487,19 +5511,25 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
               </span>}
             </div>
             {(ventaActual.pagos||[]).map(p => (
-              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "4px 10px", marginBottom: 3, fontSize: 12 }}>
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, background: pagoEditId === p.id ? "#EEF2FF" : "#F0FDF4", border: pagoEditId === p.id ? "1px solid #4338CA" : "1px solid #BBF7D0", borderRadius: 6, padding: "4px 10px", marginBottom: 3, fontSize: 12 }}>
                 <span style={{ color: "#888" }}>{formatFecha(p.fecha)}</span>
                 <span style={{ fontWeight: 700, color: "#065F46" }}>+${parseFloat(p.monto).toLocaleString("es-AR")}</span>
-                <span style={{ color: "#555" }}>{p.descripcion||"Pago"}</span>
+                <span style={{ color: "#555", flex: 1, textAlign: "right" }}>{p.descripcion||"Pago"}</span>
+                <button onClick={() => editarPago(p)} title="Editar" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#4338CA", padding: 0 }}>✎</button>
+                <button onClick={() => eliminarPago(ventaActual.id, p.id)} title="Eliminar" style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#DC2626", padding: 0 }}>✕</button>
               </div>
             ))}
-            {saldoReal(ventaActual) > 0 && (
-              <div style={{ background: "#ECFDF5", border: "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>
+            {(saldoReal(ventaActual) > 0 || pagoEditId) && (
+              <div style={{ background: pagoEditId ? "#EEF2FF" : "#ECFDF5", border: pagoEditId ? "1px solid #C7D2FE" : "1px solid #A7F3D0", borderRadius: 8, padding: "8px 10px", marginTop: 6 }}>
+                {pagoEditId && <div style={{ fontSize: 11, color: "#4338CA", fontWeight: 700, marginBottom: 4 }}>Editando pago</div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 2fr auto", gap: 6, alignItems: "end" }}>
                   <Field label="Fecha"><input type="date" style={inputStyle} value={pagoForm.fecha} onChange={e => setPagoForm(f => ({ ...f, fecha: e.target.value }))} /></Field>
                   <Field label="Monto $"><input type="number" style={inputStyle} value={pagoForm.monto} onChange={e => setPagoForm(f => ({ ...f, monto: e.target.value }))} /></Field>
                   <Field label="Descripción"><input style={inputStyle} value={pagoForm.descripcion} onChange={e => setPagoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Seña, Cuota 1..." /></Field>
-                  <button onClick={() => agregarPago(ventaActual.id)} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px", marginBottom: 14 }}>✓</button>
+                  <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                    {pagoEditId && <button onClick={cancelarEdicionPago} title="Cancelar" style={{ ...btnPrimary, background: "#9CA3AF", padding: "8px 10px" }}>✕</button>}
+                    <button onClick={() => agregarPago(ventaActual.id)} title={pagoEditId ? "Guardar cambios" : "Agregar pago"} style={{ ...btnPrimary, background: "linear-gradient(135deg,#065F46,#059669)", padding: "8px 10px" }}>✓</button>
+                  </div>
                 </div>
               </div>
             )}
