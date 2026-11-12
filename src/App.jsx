@@ -1339,7 +1339,7 @@ function useSupabase() {
 
   useEffect(() => {
     cargarTodo();
-    const tablas = ["pacientes", "turnos", "ventas", "recordatorios", "compras"];
+    const tablas = ["pacientes", "turnos", "ventas", "recordatorios", "compras", "stock"];
     const channels = tablas.map(tabla =>
       supabase.channel(`realtime-${tabla}`)
         .on("postgres_changes", { event: "*", schema: "public", table: tabla }, payload => {
@@ -3197,7 +3197,7 @@ function Turnos({ data, db, saldoPaciente, usuario, onNavigate, onEditarPaciente
         const ventasPac = data.ventas.filter(v => v.paciente_id === verHCTurno).map(v => ({
           id: v.id, fecha: v.fecha, _tipo: "venta",
           descripcion: `${[v.marca_der,v.modelo_der].filter(Boolean).join(" ")||v.dispositivo||""} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
-          tipo: `🛒 ${COLORES_VENTA[v.estado]?.label||v.estado}`
+          tipo: `🛒 ${COLORES_VENTA[v.estado]?.label||v.estado}${sufijoStockVenta(v, data.stock)}`
         }));
         const todo = [...historia.map(e=>({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
           .filter(e=>e.fecha).sort((a,b)=>b.fecha.localeCompare(a.fecha));
@@ -3724,7 +3724,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
   const ventasPac = data.ventas.filter(v => v.paciente_id === pacienteId).map(v => ({
     id: v.id, fecha: v.fecha, _tipo: "venta",
     descripcion: `${[v.marca_der, v.modelo_der].filter(Boolean).join(" ")||"Dispositivo"} · $${(parseFloat(v.precio)||0).toLocaleString("es-AR")}`,
-    tipo: `🛒 ${COLORES_VENTA[v.estado]?.label || v.estado}`
+    tipo: `🛒 ${COLORES_VENTA[v.estado]?.label || v.estado}${sufijoStockVenta(v, data.stock)}`
   }));
   const todaHC = [...historia.map(e => ({...e,_tipo:"hc"})), ...comprasPac, ...ventasPac]
     .sort((a,b) => (b.fecha||"").localeCompare(a.fecha||""));
@@ -5018,6 +5018,15 @@ const HC_MSG_ESTADO = {
 
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
 
+
+// Sufijo para la tarjeta de venta en la HC: si el audífono vinculado ya llegó y está reservado, lo indica.
+function sufijoStockVenta(v, stock) {
+  if (v.estado === "vendido") return "";
+  const ids = [v.stock_der_id, v.stock_izq_id].filter(Boolean).map(String);
+  if (!ids.length) return "";
+  const estados = (stock || []).filter(s => ids.includes(String(s.id))).map(s => s.estado);
+  return estados.includes("reservado") ? " · 📦 Llegó (reservado)" : "";
+}
 
 function contarAudifonos(v) {
   // Si tiene ambos oídos cargados = 2 audífonos, si solo uno = 1
@@ -7906,7 +7915,31 @@ function Stock({ data, db, usuario }) {
   //  - cargador: solo agregamos una entrada nueva en la evolución (historia clínica).
   // `prev` es el ítem antes del cambio; la fecha de retiro/entrada de evolución solo se generan
   // cuando pasa a vendido o cambia de paciente, para no pisarlas al editar el ítem después.
+  // Si el ítem pasa a "reservado" con paciente (p. ej. llegó el pedido de BS AS), se deja constancia en la evolución.
+  // Solo en la transición (no al re-editar un ítem que ya estaba reservado para el mismo paciente).
+  async function registrarReservaHC(item, prev) {
+    if (!db || item.estado !== "reservado" || !item.paciente_id) return;
+    if (prev && prev.estado === "reservado" && String(prev.paciente_id) === String(item.paciente_id)) return;
+    const pac = data.pacientes.find(p => String(p.id) === String(item.paciente_id));
+    if (!pac) return;
+    const nombre = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
+    if (!nombre) return;
+    const serie = (item.numero_serie || "").trim();
+    const cargador = esCargador(item);
+    const ladoTxt = cargador ? "" : item.oido === "izquierdo" ? " (oído izquierdo)" : item.oido === "derecho" ? " (oído derecho)" : " (bilateral)";
+    const que = cargador ? "cargador" : "audífono";
+    const detalle = `${que} ${nombre}${ladoTxt}${serie ? ` (N° de serie ${serie})` : ""}`;
+    await db.agregarEntradaHC(pac.id, {
+      fecha: hoyLocal(),
+      tipo: cargador ? "Cargador reservado" : "Audífono reservado",
+      descripcion: prev && prev.estado === "pedido_ba"
+        ? `Llegó de Buenos Aires el ${detalle}. Queda reservado para el paciente.`
+        : `Se reserva ${detalle} para el paciente.`,
+    });
+  }
+
   async function sincronizarAudifonoPaciente(item, prev) {
+    if (item.estado === "reservado") return registrarReservaHC(item, prev);
     if (!db || item.estado !== "vendido" || !item.paciente_id) return;
     const pac = data.pacientes.find(p => p.id === item.paciente_id);
     if (!pac) return;
@@ -7996,6 +8029,8 @@ function Stock({ data, db, usuario }) {
 
     // Solo si se vende: volcar a la ficha del paciente + entrada en la evolución
     if (esVenta) await sincronizarAudifonoPaciente(unidadNueva, unidadPrev);
+    // Si se reserva: entrada en la evolución avisando que llegó de BS AS (prev = el pedido provisorio)
+    else await registrarReservaHC(unidadNueva, pedido);
 
     // 2) Si hay una venta del paciente con ese audífono y sin stock vinculado en ese lado, la enlazamos
     if (db && data.ventas) {
