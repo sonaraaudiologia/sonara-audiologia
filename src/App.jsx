@@ -3805,7 +3805,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 680, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 25px 60px rgba(0,0,0,0.3)" }}>
         {/* Header */}
-        <div style={{ padding: "18px 22px 14px", borderBottom: "2px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "18px 22px 14px", borderBottom: "2px solid #F0F0F0", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 18, color: "#1a1a2e" }}>{pac.apellido}, {pac.nombre}</div>
             <div style={{ fontSize: 12, color: "#888", display: "flex", gap: 10, marginTop: 3, flexWrap: "wrap" }}>
@@ -3819,7 +3819,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", padding: "0 16px", overflowX: "auto" }}>
+        <div style={{ display: "flex", borderBottom: "1px solid #E5E7EB", padding: "0 16px", overflowX: "auto", overflowY: "hidden", flexShrink: 0 }}>
           {TABS_FICHA.map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)} style={{
               background: "none", border: "none", borderBottom: tab === t.id ? `3px solid ${t.color}` : "3px solid transparent",
@@ -3830,7 +3830,7 @@ function FichaPaciente({ pacienteId, data, db, usuario, onClose, onAbrirVenta })
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px" }}>
 
           {/* ── HISTORIA CLÍNICA ── */}
           {tab === "hc" && (
