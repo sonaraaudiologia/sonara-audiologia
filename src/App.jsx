@@ -199,6 +199,24 @@ function linkConfirmacionTurno(turno) {
   return `${window.location.origin}/?turno=${encodeURIComponent(turno.id)}&k=${firmaTurno(turno)}`;
 }
 
+// Texto relativo para el recordatorio: "de hoy", "de mañana" o "del lunes" (etc.),
+// según cuántos días faltan. Así un viernes el mensaje del turno del lunes dice
+// "del lunes" y no "de mañana".
+const NOMBRES_DIA_REC = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+function cuandoTurno(fechaTurno) {
+  if (!fechaTurno) return "";
+  const hoy = hoyLocal();
+  if (fechaTurno === hoy) return "de hoy";
+  if (fechaTurno === addDays(hoy, 1)) return "de mañana";
+  return `del ${NOMBRES_DIA_REC[new Date(fechaTurno + "T12:00:00").getDay()]}`;
+}
+// Próximo día hábil para el panel de recordatorios: viernes, sábado y domingo
+// saltan al lunes; el resto de los días, al día siguiente.
+function proximoDiaHabil(fecha) {
+  const dow = new Date(fecha + "T12:00:00").getDay();
+  return addDays(fecha, dow === 5 ? 3 : dow === 6 ? 2 : 1);
+}
+
 // Arma el link de wa.me con el mensaje de recordatorio precargado (el usuario
 // solo tiene que abrir el link y tocar "Enviar" — no se manda nada automáticamente).
 function linkRecordatorioWhatsApp(turno, paciente) {
@@ -211,7 +229,7 @@ function linkRecordatorioWhatsApp(turno, paciente) {
   const cierre = linkConf
     ? `👉 Por favor confirmá o cancelá tu turno desde este link:\n${linkConf}`
     : `Ante cualquier inconveniente para asistir, por favor avisanos. ¡Te esperamos!`;
-  const mensaje = `Hola ${paciente.nombre} 👋 Sonara Audiología te recuerda tu turno de mañana ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
+  const mensaje = `Hola ${paciente.nombre} 👋 Sonara Audiología te recuerda tu turno ${cuandoTurno(turno.fecha)} ${fecha}${hora ? ` a las ${hora} hs` : ""}.\n\nTe pedimos que llegues puntual, sin adelantarte más de 5-10 minutos, ya que el espacio es reducido y podría haber otro paciente en curso. Te esperamos en Ituzaingó 1934 Of. 1.\n\n${cierre}`;
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
 
@@ -987,7 +1005,8 @@ function Dashboard({ data, db, onNavigate }) {
   const proximosTurnos = data.turnos.filter(t => t.fecha > hoy).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora)).slice(0, 5);
 
   // Turnos de mañana con paciente asignado (para el panel de recordatorios de WhatsApp)
-  const manana = addDays(hoy, 1);
+  const manana = proximoDiaHabil(hoy);
+  const etiquetaManana = manana === addDays(hoy, 1) ? "de mañana" : `del ${NOMBRES_DIA_REC[new Date(manana + "T12:00:00").getDay()]}`;
   const turnosManana = data.turnos
     .filter(t => t.fecha === manana && t.paciente_id && !ESTADOS_OCULTOS.includes(t.estado) && t.estado !== "bloqueado" && !(t.motivo||"").includes("BLOQUEADO"))
     .sort((a,b) => (a.hora||"").localeCompare(b.hora||""));
@@ -1123,14 +1142,14 @@ function Dashboard({ data, db, onNavigate }) {
         </div>
       </div>
 
-      {/* Recordatorios de WhatsApp para los turnos de mañana */}
+      {/* Recordatorios de WhatsApp para los turnos del próximo día hábil */}
       <div style={{ background: "#fff", border: "1.5px solid #F0F0F0", borderRadius: 12, padding: "16px 18px", marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📲 Recordatorios de mañana por WhatsApp</div>
+          <div style={{ fontWeight: 700, fontSize: 15, color: "#1a1a2e" }}>📲 Recordatorios {etiquetaManana} por WhatsApp</div>
           <span style={{ fontSize: 12, color: "#888" }}>{turnosManana.length} turno{turnosManana.length !== 1 ? "s" : ""}</span>
         </div>
         {turnosManana.length === 0
-          ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>No hay turnos con paciente asignado para mañana</div>
+          ? <div style={{ color: "#aaa", fontSize: 13, textAlign: "center", padding: 16 }}>No hay turnos con paciente asignado {etiquetaManana === "de mañana" ? "para mañana" : `para el ${etiquetaManana.slice(4)}`}</div>
           : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {turnosManana.map(t => {
