@@ -9110,12 +9110,29 @@ function ConfirmarTurnoPublico({ turnoId, firma }) {
         `${quien} ${nuevo === "confirmado" ? "confirmó" : "canceló"} su turno del ${formatFecha(turno.fecha)} ${horaTxt} hs`,
         { estado: turno.estado }, { estado: nuevo });
       if (nuevo === "cancelado") {
-        await supabase.from("recordatorios").insert({
-          titulo: `❌ ${quien} canceló su turno del ${formatFecha(turno.fecha)} ${horaTxt} hs`,
-          fecha: hoyLocal(), hora: "09:00", tipo: "seguimiento", paciente_id: turno.paciente_id,
-          descripcion: "Cancelado por el paciente desde el link del recordatorio de WhatsApp. El horario quedó libre.",
-          completado: false, momento: "antes",
-        });
+        // La cancelación queda como evolución en la historia clínica del paciente (no en recordatorios)
+        const entrada = {
+          id: uid(), fecha: hoyLocal(), tipo: "Turno cancelado", profesional: "",
+          descripcion: `El paciente canceló su turno del ${diaTxt} ${formatFecha(turno.fecha)}${horaTxt ? ` ${horaTxt} hs` : ""} desde el link del recordatorio de WhatsApp. El horario quedó libre.`,
+        };
+        let okHC = false;
+        try {
+          const { data: pd } = await supabase.from("pacientes").select("historia").eq("id", turno.paciente_id).maybeSingle();
+          if (pd) {
+            const historia = [...(Array.isArray(pd.historia) ? pd.historia : []), entrada];
+            const { error: eh } = await supabase.from("pacientes").update({ historia }).eq("id", turno.paciente_id);
+            okHC = !eh;
+          }
+        } catch (e) { console.error(e); }
+        if (!okHC) {
+          // Respaldo: si no se pudo escribir la historia, avisar al equipo para no perder la cancelación
+          await supabase.from("recordatorios").insert({
+            titulo: `❌ ${quien} canceló su turno del ${formatFecha(turno.fecha)} ${horaTxt} hs`,
+            fecha: hoyLocal(), hora: "09:00", tipo: "seguimiento", paciente_id: turno.paciente_id,
+            descripcion: "Cancelado por el paciente desde el link del recordatorio de WhatsApp. El horario quedó libre.",
+            completado: false, momento: "antes",
+          });
+        }
       }
       setTurno(t => ({ ...t, estado: nuevo }));
       setResultado(nuevo);
