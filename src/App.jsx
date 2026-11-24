@@ -63,6 +63,21 @@ function normalizar(str) {
   return (str || "").toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+// Compara el "Derivado por" de la ficha con el nombre de un derivador del catálogo.
+// Ignora títulos (Dr., Dra., Lic., etc.), tildes, mayúsculas y orden de palabras, y
+// coincide si todas las palabras del nombre más corto están en el otro
+// (ej: "Dr. Pollizi" ↔ "Dr. Pollizi Bruno").
+const TITULOS_DERIVANTE = ["dr", "dra", "lic", "lica", "prof", "fono", "flga", "flgo", "tm"];
+function palabrasDerivante(str) {
+  return normalizar(str).replace(/[^a-z0-9ñ\s]/g, " ").split(/\s+/).filter(w => w && !TITULOS_DERIVANTE.includes(w));
+}
+function coincideDerivante(textoFicha, nombreDerivador) {
+  const a = palabrasDerivante(textoFicha), b = palabrasDerivante(nombreDerivador);
+  if (!a.length || !b.length) return false;
+  const [corto, largo] = a.length <= b.length ? [a, b] : [b, a];
+  return corto.every(w => largo.includes(w));
+}
+
 // Lista centralizada de profesionales del consultorio. Agregar acá cualquier
 // profesional nuevo para que aparezca automáticamente en agenda, disponibilidad,
 // turnos, historia clínica y bloqueos.
@@ -6287,7 +6302,7 @@ function Estadisticas({ data }) {
           const conDerivaciones = profs.map(p => ({
             ...p,
             pacientes: data.pacientes.filter(pac =>
-              (pac.derivado_por || pac.derivadoPor || "").toLowerCase().includes(p.nombre.toLowerCase())
+              coincideDerivante(pac.derivado_por || pac.derivadoPor || "", p.nombre)
             )
           })).filter(p => p.pacientes.length > 0).sort((a, b) => b.pacientes.length - a.pacientes.length);
           if (conDerivaciones.length === 0) return null;
@@ -6481,7 +6496,7 @@ function Profesionales({ data }) {
   const bgV = pctV>=100?"#D1FAE5":pctV>=60?"#e0f4f4":pctV>=30?"#FEF3C7":"#FEE2E2";
 
   function pacientesPorProf(nombre) {
-    return data.pacientes.filter(p => (p.derivado_por||p.derivadoPor||"").toLowerCase().includes(nombre.toLowerCase()));
+    return data.pacientes.filter(p => coincideDerivante(p.derivado_por||p.derivadoPor||"", nombre));
   }
   function derivCount(nombre) { return pacientesPorProf(nombre).length; }
 
