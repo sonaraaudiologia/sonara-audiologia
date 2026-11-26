@@ -1483,7 +1483,8 @@ function useSupabase() {
       saldo_paciente: parseFloat(v.saldoPaciente || v.saldo_paciente) || null,
       condicion_pago_paciente: v.condicion_pago_paciente || "",
       estado: v.estado || "seleccion",
-      estados: Array.isArray(v.estados) ? v.estados : (v.estado ? [v.estado] : []),
+      // El pipeline admite un solo estado a la vez (cada cambio queda como evolución en la HC)
+      estados: v.estado ? [v.estado] : [],
       derivado_por: v.derivado_por || v.derivadoPor || "",
       observaciones: v.obra_social_directa
         ? (v.obra_social_directa + (v.observaciones ? " · " + v.observaciones : ""))
@@ -1569,10 +1570,12 @@ function useSupabase() {
 
   const actualizarPaciente = useCallback(async (pac) => {
     const itemAnterior = data.pacientes.find(p => p.id === pac.id);
-    const payload = toDB(pac);
+    // La historia clínica se maneja solo con agregar/actualizar/eliminarEntradaHC: no se reescribe
+    // desde acá, para no borrar evoluciones recién agregadas con una copia vieja del paciente.
+    const { historia: _historiaIgnorada, ...payload } = toDB(pac);
     const { error } = await supabase.from("pacientes").update(payload).eq("id", pac.id);
     if (!error) {
-      setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload) } : p) }));
+      setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pac.id ? { ...p, ...fromDB(payload), historia: p.historia } : p) }));
       if (itemAnterior) {
         pushUndo({ tipo: "actualizar", tabla: "pacientes", item: { ...payload, id: pac.id }, itemAnterior: { ...toDB(itemAnterior), id: itemAnterior.id }, descripcion: `Paciente ${pac.apellido}, ${pac.nombre} editado` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "pacientes", `Paciente ${pac.apellido}, ${pac.nombre}`, toDB(itemAnterior), payload);
@@ -1597,10 +1600,14 @@ function useSupabase() {
   }, [data.pacientes]);
 
   const agregarEntradaHC = useCallback(async (pacId, entrada) => {
-    const pac = data.pacientes.find(p => p.id === pacId);
+    if (!pacId) return;
+    // Leer la historia actual desde la base (no del estado en memoria) para no perder entradas
+    // agregadas un instante antes en la misma acción.
+    const { data: pacDB } = await supabase.from("pacientes").select("historia, apellido, nombre").eq("id", pacId).maybeSingle();
+    const pac = pacDB || data.pacientes.find(p => p.id === pacId);
     if (!pac) return;
     const nueva = { ...entrada, id: uid(), fecha: entrada.fecha || today(), profesional: entrada.profesional || window.__sonaraUsuario || "" };
-    const historia = [...(pac.historia || []), nueva];
+    const historia = [...(Array.isArray(pac.historia) ? pac.historia : []), nueva];
     await supabase.from("pacientes").update({ historia }).eq("id", pacId);
     setData(d => ({ ...d, pacientes: d.pacientes.map(p => p.id === pacId ? { ...p, historia } : p) }));
     logAuditoria(window.__sonaraUsuario, "CREAR", "historia_clinica", `${pac.apellido}, ${pac.nombre} — ${entrada.tipo || "entrada"}: ${(entrada.descripcion||"").slice(0,80)}`, null, nueva);
@@ -1671,9 +1678,11 @@ function useSupabase() {
       setData(d => ({ ...d, ventas: [fromDBVenta(row), ...d.ventas] }));
       pushUndo({ tipo: "crear", tabla: "ventas", item: row, descripcion: `Venta/presupuesto creado` });
       logAuditoria(window.__sonaraUsuario, "CREAR", "ventas", `Venta/presupuesto del ${row.fecha || ""}`, null, row);
+      // Estado inicial → evolución en la Historia Clínica
+      if (row.paciente_id && row.estado) await agregarEntradaHC(row.paciente_id, entradaHCEstadoVenta(row.estado));
     }
     return row;
-  }, []);
+  }, [agregarEntradaHC]);
 
   const actualizarVenta = useCallback(async (venta) => {
     const itemAnterior = data.ventas.find(v => v.id === venta.id);
@@ -1685,8 +1694,12 @@ function useSupabase() {
         pushUndo({ tipo: "actualizar", tabla: "ventas", item: payload, itemAnterior: { ...toDBVenta(itemAnterior), id: itemAnterior.id }, descripcion: `Venta editada` });
         logAuditoria(window.__sonaraUsuario, "EDITAR", "ventas", `Venta del ${venta.fecha || ""} — estado: ${payload.estado || ""}`, toDBVenta(itemAnterior), payload);
       }
+      // Cada cambio de estado (desde el pipeline o desde Editar) → nueva evolución en la HC, con la fecha del cambio
+      if (payload.paciente_id && payload.estado && payload.estado !== (itemAnterior?.estado || "")) {
+        await agregarEntradaHC(payload.paciente_id, entradaHCEstadoVenta(payload.estado));
+      }
     }
-  }, [data.ventas]);
+  }, [data.ventas, agregarEntradaHC]);
 
   const eliminarVenta = useCallback(async (id) => {
     const item = data.ventas.find(v => v.id === id);
@@ -5050,6 +5063,16 @@ const HC_MSG_ESTADO = {
   perdido:          "Se perdió la venta",
 };
 
+// Entrada de HC para un cambio de estado de venta (fecha = día del cambio)
+function entradaHCEstadoVenta(estado) {
+  const label = COLORES_VENTA[estado]?.label || estado;
+  return {
+    fecha: today(),
+    tipo: `Estado de venta · ${label}`,
+    descripcion: HC_MSG_ESTADO[estado] || `Pasó a "${label}"`,
+  };
+}
+
 const CONDICIONES_PAGO = ["Contado", "Cuotas sin interés", "Cuotas con interés", "Transferencia", "Efectivo", "Cheque", "Financiación propia", "Cta. Cte. a 30 días", "Cta. Cte. a 90 días"];
 
 
@@ -5310,29 +5333,10 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
   async function cambiarEstado(ventaId, nuevoEstado) {
     const v = data.ventas.find(x => x.id === ventaId);
     if (!v) return;
-    const estadosPrev = Array.isArray(v.estados) && v.estados.length ? v.estados : (v.estado ? [v.estado] : []);
-    const yaActivo = estadosPrev.includes(nuevoEstado);
-    let estadosNuevos, estadoPrincipal;
-    if (yaActivo) {
-      // Tocar un estado ya activo lo desmarca
-      estadosNuevos = estadosPrev.filter(e => e !== nuevoEstado);
-      estadoPrincipal = estadosNuevos[estadosNuevos.length - 1] || "";
-    } else {
-      estadosNuevos = [...estadosPrev, nuevoEstado];
-      estadoPrincipal = nuevoEstado;
-    }
-    await db.actualizarVenta({ ...v, estado: estadoPrincipal, estados: estadosNuevos });
-
-    if (yaActivo) return; // Si se desmarcó, no generamos HC ni pedido a stock
-
-    // Registrar automáticamente en la Historia Clínica del paciente
-    if (v.paciente_id && HC_MSG_ESTADO[nuevoEstado]) {
-      await db.agregarEntradaHC(v.paciente_id, {
-        fecha: today(),
-        tipo: "Estado de venta",
-        descripcion: HC_MSG_ESTADO[nuevoEstado],
-      });
-    }
+    // Un solo estado a la vez: tocar el estado actual no hace nada
+    if (v.estado === nuevoEstado) return;
+    // actualizarVenta registra el cambio como nueva evolución en la Historia Clínica
+    await db.actualizarVenta({ ...v, estado: nuevoEstado, estados: [nuevoEstado] });
 
     // Al vender, volcar el audífono (marca/modelo) a la ficha del paciente
     if (nuevoEstado === "vendido") await volcarAudifonoAFicha(v);
@@ -5522,8 +5526,7 @@ function Ventas({ data, db, usuario, ventaAAbrir, onVentaAbierta }) {
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {PIPELINE_STAGES.map(s => {
                 const cv = COLORES_VENTA[s.key];
-                const estadosV = Array.isArray(ventaActual.estados) && ventaActual.estados.length ? ventaActual.estados : (ventaActual.estado ? [ventaActual.estado] : []);
-                const actual = estadosV.includes(s.key);
+                const actual = ventaActual.estado === s.key;
                 return (
                   <button key={s.key} onClick={() => cambiarEstado(ventaActual.id, s.key)}
                     style={{ background: actual ? cv.color : cv.bg, color: actual ? "#fff" : cv.color, border: `1.5px solid ${cv.color}`, borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: actual ? 800 : 600, cursor: "pointer" }}>
